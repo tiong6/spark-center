@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spark Center</title>
+<style>
+  :root {
+    --bg: #0d0f0e; --surface: #161918; --surface2: #1f2321; --border: #2c312e;
+    --text: #e6e8e6; --muted: #8f968f; --accent: #76b900; --accent-text: #0d0f0e;
+    --danger: #e5484d; --warn: #f5a524; --info: #4aa3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: radial-gradient(1200px 600px at 10% -10%, #1c2a12 0%, var(--bg) 55%); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Noto Sans TC", "Segoe UI", sans-serif; min-height: 100vh; }
+  header { display: flex; align-items: center; gap: 14px; padding: 14px 24px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,.35); }
+  header .dot { width: 12px; height: 12px; border-radius: 3px; background: var(--accent); }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 13px; margin-left: auto; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
+  .bar .grow { flex: 1; }
+  button { border: 1px solid var(--border); background: var(--surface2); color: var(--text); padding: 9px 16px; border-radius: 8px;
+           font: inherit; font-size: 14px; cursor: pointer; }
+  button:hover { border-color: #444; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 14px; }
+  .notice { border-left: 4px solid var(--info); }
+  .notice.warn { border-left-color: var(--warn); }
+  .notice.danger { border-left-color: var(--danger); }
+  .notice.ok { border-left-color: var(--accent); }
+  .muted { color: var(--muted); }
+  .group { margin-bottom: 14px; }
+  .group-h { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--surface2); border-radius: 8px 8px 0 0;
+             border: 1px solid var(--border); border-bottom: none; font-weight: 600; }
+  .group-h .site { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: auto; }
+  table { width: 100%; border-collapse: collapse; border: 1px solid var(--border); background: var(--surface); }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  tr:last-child td { border-bottom: none; }
+  td.ck, th.ck { width: 36px; }
+  td.ver { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; white-space: nowrap; }
+  td.ver .to { color: var(--accent); }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); margin-left: 6px; vertical-align: middle; }
+  .tag.sec { color: var(--warn); border-color: var(--warn); }
+  .tag.reboot { color: var(--danger); border-color: var(--danger); }
+  .sum { color: var(--muted); font-size: 13px; }
+  input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
+  .empty { text-align: center; padding: 40px; color: var(--muted); }
+  /* modal */
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; padding: 16px; }
+  .overlay.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; width: min(720px, 100%); max-height: 90vh; display: flex; flex-direction: column; }
+  .modal h2 { margin: 0; padding: 16px 20px; font-size: 16px; border-bottom: 1px solid var(--border); }
+  .modal .body { padding: 16px 20px; overflow: auto; }
+  .modal .foot { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; }
+  .chg { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+  .chg .extra { color: var(--warn); }
+  .chg .rm { color: var(--danger); }
+  progress { width: 100%; height: 10px; accent-color: var(--accent); }
+  pre.log { background: #0a0c0b; border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 12px; max-height: 220px; overflow: auto; color: var(--muted); margin: 10px 0 0; white-space: pre-wrap; }
+  details summary { cursor: pointer; color: var(--muted); }
+  .hist { font-size: 13px; }
+  .hist li { margin: 4px 0; }
+  code { background: var(--surface2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  @media (max-width: 640px) { th.sumc, td.sumc { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot"></span>
+  <h1>Spark Center</h1>
+  <span class="sub">只綁 127.0.0.1 · 不自動重開機 · 資料來源：本機 apt</span>
+</header>
+<main>
+  <div id="reboot" class="card notice warn" hidden></div>
+  <div id="jobcard" class="card notice" hidden>
+    <div id="jobtitle" style="font-weight:600"></div>
+    <div id="jobstatus" class="muted" style="margin:4px 0 8px"></div>
+    <progress id="jobprog" max="100" value="0"></progress>
+    <details style="margin-top:8px"><summary>詳細記錄</summary><pre class="log" id="joblog"></pre></details>
+    <div id="jobactions" style="margin-top:10px; display:flex; gap:10px"></div>
+  </div>
+
+  <div class="bar">
+    <button id="btnRefresh">重新整理來源 (apt update)</button>
+    <button id="btnAll">全選</button>
+    <button id="btnNone">全不選</button>
+    <span class="grow"></span>
+    <span id="meta" class="muted" style="font-size:13px"></span>
+    <button id="btnGo" class="primary" disabled>檢查影響並更新 (0)</button>
+  </div>
+
+  <div id="list"></div>
+
+  <div class="card">
+    <details><summary>最近的 apt 歷史（來自 /var/log/apt/history.log）</summary>
+      <ul id="hist" class="hist"></ul>
+    </details>
+  </div>
+</main>
+
+<div id="overlay" class="overlay">
+  <div class="modal">
+    <h2 id="mTitle">確認變更</h2>
+    <div class="body" id="mBody"></div>
+    <div class="foot">
+      <button id="mCancel">取消</button>
+      <button id="mOk" class="primary">確認更新</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const state = { items: [], selected: new Set(), job: null, polling: null };
+
+const fmtBytes = b => b == null ? '—' : b < 1048576 ? (b/1024).toFixed(0)+' KB' : (b/1048576).toFixed(1)+' MB';
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function api(path, body) {
+  const r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)} : {});
+  const j = await r.json().catch(() => ({ok:false, error:`HTTP ${r.status}`}));
+  if (!r.ok && j.ok !== false) j.ok = false;
+  return j;
+}
+
+function renderReboot(rb) {
+  const el = $('#reboot');
+  if (!rb || !rb.required) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = `<b>系統目前需要重開機</b>（依據 /var/run/reboot-required）。` +
+    (rb.packages.length ? `觸發的套件：${rb.packages.map(esc).join('、')}。` : '') +
+    ` 本工具不會自動重開，請你自己決定時機。`;
+}
+
+function renderList() {
+  const box = $('#list');
+  if (!state.items.length) {
+    box.innerHTML = `<div class="card empty">目前沒有可升級的套件。<br><span class="muted">依據本機 apt 索引，最後更新見上方時間。</span></div>`;
+    updateGo(); return;
+  }
+  const groups = {};
+  for (const it of state.items) (groups[it.group] ||= []).push(it);
+  let html = '';
+  for (const g of Object.keys(groups).sort()) {
+    const items = groups[g];
+    const allSel = items.every(i => state.selected.has(i.name));
+    html += `<div class="group">
+      <div class="group-h"><input type="checkbox" data-group="${esc(g)}" ${allSel?'checked':''}> ${esc(g)}
+        <span class="muted" style="font-weight:400">${items.length} 個</span>
+        <span class="site">${esc(items[0].site)}</span></div>
+      <table><thead><tr><th class="ck"></th><th>套件</th><th>版本</th><th class="sumc">說明</th><th>大小</th></tr></thead><tbody>`;
+    for (const it of items) {
+      html += `<tr>
+        <td class="ck"><input type="checkbox" data-pkg="${esc(it.name)}" ${state.selected.has(it.name)?'checked':''}></td>
+        <td>${esc(it.name)}${it.security?'<span class="tag sec">security</span>':''}${it.reboot_hint?'<span class="tag reboot" title="依套件名稱推測，非系統判定">通常需重開（推測）</span>':''}</td>
+        <td class="ver">${esc(it.installed)}<br><span class="to">→ ${esc(it.candidate)}</span></td>
+        <td class="sumc sum">${esc(it.summary)}</td>
+        <td class="sum">${fmtBytes(it.size)}</td></tr>`;
+    }
+    html += `</tbody></table></div>`;
+  }
+  box.innerHTML = html;
+  box.querySelectorAll('input[data-pkg]').forEach(cb => cb.onchange = () => {
+    cb.checked ? state.selected.add(cb.dataset.pkg) : state.selected.delete(cb.dataset.pkg); renderList();
+  });
+  box.querySelectorAll('input[data-group]').forEach(cb => cb.onchange = () => {
+    for (const it of state.items) if (it.group === cb.dataset.group) cb.checked ? state.selected.add(it.name) : state.selected.delete(it.name);
+    renderList();
+  });
+  updateGo();
+}
+
+function updateGo() {
+  const n = state.selected.size, running = state.job && state.job.status === 'running';
+  $('#btnGo').textContent = `檢查影響並更新 (${n})`;
+  $('#btnGo').disabled = n === 0 || running;
+  $('#btnRefresh').disabled = running;
+}
+
+async function load() {
+  const j = await api('/api/updates');
+  if (!j.ok) { $('#list').innerHTML = `<div class="card notice danger">讀取清單失敗：${esc(j.error)}</div>`; return; }
+  const names = new Set(j.items.map(i => i.name));
+  for (const s of [...state.selected]) if (!names.has(s)) state.selected.delete(s);
+  state.items = j.items;
+  $('#meta').textContent = `可升級 ${j.items.length} 個 · apt 索引最後更新：${j.last_refresh ? j.last_refresh.replace('T',' ') : '—'}`;
+  renderReboot(j.reboot);
+  renderList();
+  loadHistory();
+}
+
+async function loadHistory() {
+  const j = await api('/api/history');
+  if (!j.ok) return;
+  $('#hist').innerHTML = j.entries.map(e => {
+    const who = /dashboard|aptdaemon/.test(e.commandline) ? 'aptdaemon（Dashboard 或本工具）' : e.commandline || '—';
+    const acts = e.actions.map(a => `${a.action} ${a.count}：${a.names.slice(0,8).join(', ')}${a.count>8?' …':''}`).join('；');
+    return `<li><b>${esc(e.start)}</b> <span class="muted">${esc(who)}</span><br><span class="muted">${esc(acts)}</span></li>`;
+  }).join('') || '<li class="muted">沒有記錄</li>';
+}
+
+// ---- 模擬 → 確認 → 安裝 ----
+$('#btnGo').onclick = async () => {
+  const names = [...state.selected];
+  $('#btnGo').disabled = true;
+  const sim = await api('/api/simulate', {packages: names});
+  $('#btnGo').disabled = false;
+  const body = $('#mBody');
+  if (!sim.ok) {
+    body.innerHTML = `<div class="notice danger card">無法模擬：${esc(sim.error)}</div>`;
+    $('#mOk').hidden = true; openModal('無法進行'); return;
+  }
+  const extra = sim.changes.filter(c => !c.requested);
+  const rm = sim.changes.filter(c => c.action === 'remove');
+  let html = `<p>你勾了 <b>${names.length}</b> 個，apt 實際會動到 <b>${sim.changes.length}</b> 個套件。下載約 ${fmtBytes(sim.download_bytes)}，磁碟變化 ${fmtBytes(Math.abs(sim.space_bytes))}${sim.space_bytes<0?'（釋放）':''}。</p>`;
+  if (rm.length) html += `<div class="card notice danger">這次會<b>移除</b> ${rm.length} 個套件，請確認你真的要這樣。</div>`;
+  if (extra.length) html += `<div class="card notice warn">有 ${extra.length} 個你沒勾、但因相依性會一起動到的套件（下方橘色）。</div>`;
+  html += `<div class="chg">` + sim.changes.map(c =>
+    `<div class="${c.action==='remove'?'rm':(c.requested?'':'extra')}">${c.action.padEnd(9)} ${esc(c.name)} ${esc(c.from)}${c.to?' → '+esc(c.to):''}</div>`).join('') + `</div>`;
+  html += `<p class="muted" style="margin-top:12px">按下確認後，桌面會跳出 polkit 密碼視窗，這是 aptdaemon 的正常授權流程。更新完成後<b>不會</b>自動重開機。</p>`;
+  body.innerHTML = html;
+  $('#mOk').hidden = false;
+  $('#mOk').onclick = async () => {
+    closeModal();
+    const r = await api('/api/install', {packages: names});
+    if (!r.ok) { alert('無法開始：' + r.error); return; }
+    state.selected.clear();
+    startPolling('更新中：' + names.join(', '));
+  };
+  openModal('確認變更');
+};
+
+$('#btnRefresh').onclick = async () => {
+  const r = await api('/api/refresh', {});
+  if (!r.ok) { alert('無法開始：' + r.error); return; }
+  startPolling('重新整理 apt 來源');
+};
+$('#btnAll').onclick = () => { state.items.forEach(i => state.selected.add(i.name)); renderList(); };
+$('#btnNone').onclick = () => { state.selected.clear(); renderList(); };
+
+function openModal(t) { $('#mTitle').textContent = t; $('#overlay').classList.add('open'); }
+function closeModal() { $('#overlay').classList.remove('open'); }
+$('#mCancel').onclick = closeModal;
+
+function startPolling(title) {
+  $('#jobcard').hidden = false; $('#jobcard').className = 'card notice';
+  $('#jobtitle').textContent = title; $('#jobactions').innerHTML = '';
+  clearInterval(state.polling);
+  state.polling = setInterval(pollJob, 1000); pollJob();
+}
+async function pollJob() {
+  const j = await api('/api/job'); state.job = j; updateGo();
+  $('#jobprog').value = j.progress || 0;
+  $('#jobstatus').textContent = (j.status_text || '') + (j.details ? ' · ' + j.details : '') + (j.status==='running' ? ` · ${j.progress||0}%` : '');
+  $('#joblog').textContent = (j.log || []).join('\n');
+  if (j.status === 'done' || j.status === 'error') {
+    clearInterval(state.polling); state.polling = null;
+    $('#jobcard').className = 'card notice ' + (j.status === 'done' ? 'ok' : 'danger');
+    $('#jobstatus').textContent = j.status === 'done' ? `完成（${j.finished}）` : `失敗：${j.error || '未知錯誤'}`;
+    $('#jobactions').innerHTML = `<button id="jobClose">關閉</button>`;
+    $('#jobClose').onclick = () => { $('#jobcard').hidden = true; };
+    await load();
+  }
+}
+
+// 啟動：若後端已有工作在跑（例如頁面重整），接上輪詢。
+(async () => {
+  await load();
+  const j = await api('/api/job');
+  if (j.status === 'running') startPolling(j.kind === 'refresh' ? '重新整理 apt 來源' : '更新中：' + (j.packages||[]).join(', '));
+})();
+</script>
+</body>
+</html>

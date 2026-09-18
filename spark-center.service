@@ -1,0 +1,13 @@
+[Unit]
+Description=Spark Center (可勾選的 apt 更新頁, 127.0.0.1:11001)
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 "/home/tungyu6/Documents/Projects/Asus Ascend GX10/spark-center/server.py"
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
