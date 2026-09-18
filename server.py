@@ -137,7 +137,11 @@ def reboot_status():
 
 
 def last_refresh():
-    """apt 索引最後更新時間：取 lists 目錄裡最新檔案的 mtime。拿不到回 None。"""
+    """apt 索引最後更新時間。優先讀 apt 自己寫的 update-success-stamp（每次 apt update 成功都會碰），
+    沒有就退回 lists 目錄最新檔案的 mtime（內容沒變時 apt 不會碰檔，可能偏舊）。拿不到回 None。"""
+    stamp = "/var/lib/apt/periodic/update-success-stamp"
+    if os.path.exists(stamp):
+        return datetime.fromtimestamp(os.path.getmtime(stamp)).isoformat(timespec="seconds")
     try:
         mt = max(
             os.path.getmtime(os.path.join(APT_LISTS, f))
@@ -249,8 +253,9 @@ class Job:
                     self.state["details"] = d
 
             def on_progress(t, p):
+                # aptdaemon 用 101 代表「進度未知」，不要當成百分比顯示
                 with self.lock:
-                    self.state["progress"] = int(p)
+                    self.state["progress"] = int(p) if p <= 100 else None
 
             def on_error(t, code, details):
                 msg = f"{aenums.get_error_string_from_enum(code)}: {details}"

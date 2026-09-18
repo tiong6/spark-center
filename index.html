@@ -35,7 +35,9 @@
   .group-h { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--surface2); border-radius: 8px 8px 0 0;
              border: 1px solid var(--border); border-bottom: none; font-weight: 600; }
   .group-h .site { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: auto; }
-  table { width: 100%; border-collapse: collapse; border: 1px solid var(--border); background: var(--surface); }
+  table { width: 100%; border-collapse: collapse; border: 1px solid var(--border); background: var(--surface); table-layout: fixed; }
+  th.name { width: 34%; } th.verc { width: 26%; } th.size { width: 90px; }
+  td { overflow-wrap: anywhere; }
   th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
   th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
   tr:last-child td { border-bottom: none; }
@@ -151,7 +153,7 @@ function renderList() {
       <div class="group-h"><input type="checkbox" data-group="${esc(g)}" ${allSel?'checked':''}> ${esc(g)}
         <span class="muted" style="font-weight:400">${items.length} 個</span>
         <span class="site">${esc(items[0].site)}</span></div>
-      <table><thead><tr><th class="ck"></th><th>套件</th><th>版本</th><th class="sumc">說明</th><th>大小</th></tr></thead><tbody>`;
+      <table><thead><tr><th class="ck"></th><th class="name">套件</th><th class="verc">版本</th><th class="sumc">說明</th><th class="size">大小</th></tr></thead><tbody>`;
     for (const it of items) {
       html += `<tr>
         <td class="ck"><input type="checkbox" data-pkg="${esc(it.name)}" ${state.selected.has(it.name)?'checked':''}></td>
@@ -253,8 +255,8 @@ function startPolling(title) {
 }
 async function pollJob() {
   const j = await api('/api/job'); state.job = j; updateGo();
-  $('#jobprog').value = j.progress || 0;
-  $('#jobstatus').textContent = (j.status_text || '') + (j.details ? ' · ' + j.details : '') + (j.status==='running' ? ` · ${j.progress||0}%` : '');
+  if (j.progress == null) $('#jobprog').removeAttribute('value'); else $('#jobprog').value = j.progress;
+  $('#jobstatus').textContent = (j.status_text || '') + (j.details ? ' · ' + j.details : '') + (j.status==='running' && j.progress != null ? ` · ${j.progress}%` : '');
   $('#joblog').textContent = (j.log || []).join('\n');
   if (j.status === 'done' || j.status === 'error') {
     clearInterval(state.polling); state.polling = null;
