@@ -2136,7 +2136,7 @@ def fwupd_status(force=False):
 # ---------- HTTP ----------
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "SparkCenter/0.1"
+    server_version = "SparkCenter/0.2"
 
     def log_message(self, fmt, *args):  # 安靜一點，只記錯誤
         if args and str(args[1]).startswith(("4", "5")):

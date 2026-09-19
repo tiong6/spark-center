@@ -1,5 +1,7 @@
 # Spark Center
 
+原名 Spark Center。從「可勾選的更新頁」長成 GX10 的更新／應用程式／監控／磁碟／硬體中心，故改名。
+
 DGX Dashboard 的 Update 按鈕會一次升級全部套件（含 Chrome、ChatGPT 等第三方），而且寫死更新完必重開機。
 這個小工具做的是同一件事的可控版本：
 
