@@ -129,7 +129,7 @@
   .tree .leaf .node::before { content: ''; width: 10px; flex: none; }
   .chassis { background: linear-gradient(#202423, #151716); border: 1px solid #3a3f3c; border-radius: 18px; padding: 18px 22px 14px; margin-top: 12px; }
   .chassis .vents { height: 10px; background: repeating-linear-gradient(90deg, #2a2e2c 0 6px, transparent 6px 12px); border-radius: 4px; margin-bottom: 14px; opacity: .8; }
-  .slots { display: grid; grid-template-columns: repeat(4, 1fr) 1fr 1fr 1.2fr .7fr; gap: 10px; align-items: start; }
+  .slots { display: grid; grid-template-columns: .7fr repeat(4, 1fr) 1fr 1fr 1.2fr; gap: 10px; align-items: start; }
   .slot { text-align: center; border: 2px solid transparent; border-radius: 12px; padding: 8px 6px 10px; cursor: default; transition: border-color .3s, box-shadow .3s; }
   .slot.on { border-color: var(--accent); }
   .slot.flash { border-color: var(--warn); box-shadow: 0 0 0 4px rgba(245,165,36,.25); }
@@ -525,6 +525,7 @@ async function pollRear() {
   const dispByCtrl = k => j.usbc.find(u => u.controller_guess === k)?.display;  // 控制器 0k ↔ DP 輸出 USB-C-k（驅動編號一致，視為同一孔）
   const assigned = new Set(Object.values(calib).map(v => v && v.controller).filter(Boolean));
   const slots = [];
+  slots.push(`<div class="slot">${ICON.klock}<div class="lb">Kensington</div><div class="st"><span class="sub1">—</span></div></div>`);
   for (let i = 0; i < 4; i++) {
     const cal = calib[String(i)]; const cid = cal ? cal.controller : null; const c = cid ? ctrl[cid] : null; const disp = cid ? dispByCtrl(cid) : null;
     const isPower = i === 0;
@@ -542,7 +543,6 @@ async function pollRear() {
   const h = j.hdmi; slots.push(`<div class="slot ${h && h.connected ? 'on' : ''}">${ICON.hdmi}<div class="lb">HDMI 2.1a<br>HDMI-0</div><div class="st">${h ? (h.connected ? `<b>螢幕 ${esc(h.mode || '')}</b>` : '<span class="sub1">空</span>') : '<span class="sub1">xrandr 不可用</span>'}</div></div>`);
   const e = j.eth10g; slots.push(`<div class="slot ${e && e.carrier === '1' ? 'on' : ''}">${ICON.rj45}<div class="lb">10GbE LAN<br>${e ? esc(e.iface) : '—'}</div><div class="st">${e ? (e.carrier === '1' ? `<b>已連線 ${e.speed && e.speed > 0 ? spd(+e.speed) : ''}</b>` : '<span class="sub1">未插線</span>') : '<span class="sub1">未偵測到</span>'}</div></div>`);
   const x = j.connectx7; slots.push(`<div class="slot ${x.ifaces.length ? 'on' : ''}">${ICON.qsfp}<div class="lb">QSFP · ConnectX-7</div><div class="st">${x.ifaces.length ? `<b>${esc(x.ifaces.join(', '))}</b>` : x.pci_present ? '<span class="sub1">有裝置，無介面</span>' : '<span class="sub1">lspci 未見 ConnectX-7</span>'}</div><span class="tg">mlx5 驅動${x.driver_loaded ? '已載入' : '未載入'}</span></div>`);
-  slots.push(`<div class="slot">${ICON.klock}<div class="lb">Kensington</div><div class="st"><span class="sub1">—</span></div></div>`);
   // 還沒對應到任何孔、但接著東西的控制器，不能藏起來
   // 只算四個外露孔的控制器（00–03）；04 與 8001:00 韌體標「後方」，是內部（藍牙模組）
   const orphan = j.controllers.filter(c => /^NVDA8000:0[0-3]$/.test(c.controller) && !assigned.has(c.controller) && (c.devices.length || (dispByCtrl(c.controller) || {}).connected));
@@ -551,7 +551,7 @@ async function pollRear() {
   $('#rear').querySelectorAll('.slot[data-slot]').forEach(el => el.onclick = () => { if (hw.calibMode && +el.dataset.slot !== 0) { hw.calibSlot = +el.dataset.slot; pollRear(); } });
   const n = Object.keys(calib).filter(k => k !== '0').length;
   $('#usbPortsSub').textContent = hw.calibMode ? (hw.calibSlot == null ? '校準中：先點一個 USB-C 孔（孔 1 是電源，不用校準），再把裝置插進那個洞。' : `校準中：請把裝置插進「USB-C 孔 ${hw.calibSlot + 1}」，偵測到新裝置就綁定。`) :
-    `版面順序（左→右）依 ASUS 規格圖與 ServeTheHome 評測：USB-C ×4（孔 1 為電源輸入）、HDMI、10GbE、QSFP。孔位對應存在伺服器端，所有瀏覽器共用；已校準 ${n} / 3 個資料孔。${j.displays_available ? '' : ' xrandr 不可用，螢幕狀態未知。'}`;
+    `版面順序（左→右，使用者實機確認）：Kensington、USB-C ×4（孔 1 為電源輸入）、HDMI、10GbE、QSFP。孔位對應存在伺服器端，所有瀏覽器共用；已校準 ${n} / 3 個資料孔。${j.displays_available ? '' : ' xrandr 不可用，螢幕狀態未知。'}`;
 }
 async function pollPorts() { return pollRear(); }
 $('#btnCalib').onclick = () => { hw.calibMode = !hw.calibMode; hw.calibSlot = null; $('#btnCalib').textContent = hw.calibMode ? '結束校準' : '校準孔位'; pollRear(); };
