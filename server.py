@@ -1509,10 +1509,22 @@ def _nvme_health():
 
 
 _HW_CACHE = {"ts": 0, "data": None}
+HW_TTL = 3600                                   # 硬體不會變，快取 1 小時；換硬體用「重新讀取」
+HW_SNAPSHOT = os.path.join(HERE, "data", "hardware.json")
 
 
-def hardware_static():
-    if _HW_CACHE["data"] and time.time() - _HW_CACHE["ts"] < 60:
+def _hw_snapshot_load():
+    try:
+        with open(HW_SNAPSHOT) as f:
+            d = json.load(f)
+        if isinstance(d, dict) and d.get("generated"):
+            _HW_CACHE.update(data=d, ts=os.path.getmtime(HW_SNAPSHOT))
+    except (OSError, ValueError):
+        pass
+
+
+def hardware_static(force=False):
+    if not force and _HW_CACHE["data"] and time.time() - _HW_CACHE["ts"] < HW_TTL:
         return _HW_CACHE["data"]
     osr = _os_release()
     mem = _meminfo()
@@ -1542,6 +1554,14 @@ def hardware_static():
         "generated": datetime.now().isoformat(timespec="seconds"),
     }
     _HW_CACHE.update(ts=time.time(), data=data)
+    try:
+        os.makedirs(os.path.dirname(HW_SNAPSHOT), exist_ok=True)
+        tmp = HW_SNAPSHOT + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp, HW_SNAPSHOT)
+    except OSError:
+        pass
     return data
 
 
@@ -2358,7 +2378,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(reboot_status())
         elif path == "/api/hardware":
             try:
-                self._json({"ok": True, **hardware_static()})
+                force = "force=1" in (self.path.split("?", 1) + [""])[1]
+                d = hardware_static(force=force)
+                self._json({"ok": True, **d, "cached_age_s": int(time.time() - _HW_CACHE["ts"])})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/hardware/rear":
@@ -2536,6 +2558,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    _hw_snapshot_load()   # 有快照就先用，服務重啟後硬體分頁不用等
     threading.Thread(target=_disk_watch, daemon=True).start()
     threading.Thread(target=_gpu_watch, daemon=True).start()
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
