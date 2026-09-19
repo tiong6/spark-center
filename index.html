@@ -507,7 +507,8 @@ async function pollPorts() {
   if (internal.length) html += `<div class="side internal"><h4>內部（無實體位置、不可熱插拔）</h4><div class="ports">${internal.map(p => `<div class="port ${p.devices.length ? 'busy' : ''}"><div class="jack" style="opacity:.4"></div><div class="pn">${esc(p.controller)}</div><div class="pd">${p.devices.length ? p.devices.map(d => `<b>${esc(d.name)}</b><span class="sub1">${esc(d.manufacturer || '')}</span>`).join('') : '<span class="sub1">空</span>'}</div></div>`).join('')}</div></div>`;
   html += `</div>`;
   $('#usbPorts').innerHTML = html;
-  $('#usbPortsSub').textContent = `${ext.length} 個外接孔 · 位置來自韌體 ACPI _PLD（與 Windows 裝置管理員同源）。韌體對同一側的兩孔沒標順序：要確認哪個框是哪個洞，插入裝置後對應的框會亮橘 6 秒（每 2 秒偵測）。`;
+  const visible = ext.filter(p => p.location.panel !== 'back').length;
+  $('#usbPortsSub').textContent = `${visible} 個外露 USB-C 孔（韌體另標 ${ext.length - visible} 個「後方」，推測為內部）· 位置來自韌體 ACPI _PLD（與 Windows 裝置管理員同源）。韌體對同一側的兩孔沒標順序：要確認哪個框是哪個洞，插入裝置後對應的框會亮橘 6 秒（每 2 秒偵測）。`;
 }
 function stopHw() { if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } if (hw.portTimer) { clearInterval(hw.portTimer); hw.portTimer = null; } if (hw.llmTimer) { clearInterval(hw.llmTimer); hw.llmTimer = null; } if (hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; } }
 function renderHwStatic() {
