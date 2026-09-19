@@ -271,7 +271,39 @@ class Job:
             _APPS_CACHE["ts"] = 0  # 讓應用程式清單重新掃描
             _FW["ts"] = 0
 
+    def _run_ollama_pull(self, model):
+        req = urllib.request.Request(OLLAMA + "/api/pull", data=json.dumps({"name": model, "stream": True}).encode(), headers={"Content-Type": "application/json"})
+        self._log(f"ollama pull {model}")
+        try:
+            with urllib.request.urlopen(req, timeout=3600) as r:
+                last = ""
+                for line in r:
+                    try:
+                        j = json.loads(line.decode())
+                    except ValueError:
+                        continue
+                    st = j.get("status", "")
+                    tot, done = j.get("total"), j.get("completed")
+                    with self.lock:
+                        self.state["status_text"] = st
+                        self.state["progress"] = int(done / tot * 100) if tot and done is not None else None
+                        self.state["details"] = f"{st} {GB_(done)}/{GB_(tot)}" if tot else st
+                    if st != last:
+                        self._log(st); last = st
+                    if j.get("error"):
+                        raise RuntimeError(j["error"])
+            with self.lock:
+                self.state.update(status="done", exit="ok", status_text="已完成", finished=datetime.now().isoformat(timespec="seconds"))
+        except Exception as e:
+            with self.lock:
+                self.state.update(status="error", error=str(e), finished=datetime.now().isoformat(timespec="seconds"))
+            self._log("ERROR " + str(e))
+        finally:
+            _DISK["ts"] = 0
+
     def _run(self, kind, packages):
+        if kind == "ollama_pull":
+            return self._run_ollama_pull(packages[0])
         if kind == "shell":
             # packages[0] 是指令名（見 DISK_ACTIONS 白名單），不接受任意指令
             cmd = DISK_ACTIONS.get(packages[0]) if packages else None
@@ -1709,7 +1741,9 @@ def llm_status():
                             "context": m.get("context_length"), "expires_at": m.get("expires_at"),
                             "quant": ((m.get("details") or {}).get("quantization_level")),
                             "params": ((m.get("details") or {}).get("parameter_size"))} for m in ps.get("models", [])],
-                "installed": [{"name": m.get("name"), "size": m.get("size")} for m in tags.get("models", [])],
+                "installed": [{"name": m.get("name"), "size": m.get("size"), "modified": (m.get("modified_at") or "")[:10],
+                               "quant": ((m.get("details") or {}).get("quantization_level")), "params": ((m.get("details") or {}).get("parameter_size")),
+                               "family": ((m.get("details") or {}).get("family"))} for m in tags.get("models", [])],
                 "bench": True,
                 "note": "Ollama 不提供 Prometheus 指標，tok/s 只能靠實際跑一段生成量測（下方按鈕）。",
             })
@@ -1737,6 +1771,73 @@ def llm_status():
                         "loaded": [{"name": m.get("id")} for m in models.get("data", [])], "installed": [], "bench": False,
                         "note": "vLLM 的 Prometheus /metrics 尚未解析，這裡只列模型。"})
     return out
+
+
+OLLAMA = "http://127.0.0.1:11434"
+_SHOW_CACHE = {}
+
+
+def ollama_show(name):
+    """/api/show 的精華：家族、參數量、量化、上下文長度、能力。快取（模型不變就不重查）。"""
+    if name in _SHOW_CACHE:
+        return _SHOW_CACHE[name]
+    j = _http_json(OLLAMA + "/api/show", {"name": name}, timeout=20) or {}
+    det = j.get("details") or {}
+    mi = j.get("model_info") or {}
+    ctx = next((v for k, v in mi.items() if k.endswith(".context_length")), None)
+    res = {"family": det.get("family"), "params": det.get("parameter_size"), "quant": det.get("quantization_level"),
+           "context": ctx, "capabilities": j.get("capabilities") or [], "arch": mi.get("general.architecture"),
+           "param_count": mi.get("general.parameter_count")}
+    if j:
+        _SHOW_CACHE[name] = res
+    return res
+
+
+def ollama_config():
+    out = _run(["systemctl", "show", "ollama", "-p", "Environment", "-p", "ActiveState", "-p", "MainPID"], timeout=5) or ""
+    env = dict(re.findall(r"(OLLAMA_[A-Z_]+)=([^\s\"]+)", out))
+    active = re.search(r"ActiveState=(\w+)", out)
+    return {"active": active.group(1) if active else None, "env": env,
+            "num_parallel": int(env.get("OLLAMA_NUM_PARALLEL", "0") or 0) or None,
+            "max_loaded": int(env.get("OLLAMA_MAX_LOADED_MODELS", "0") or 0) or None,
+            "models_dir": env.get("OLLAMA_MODELS", "/usr/share/ollama/.ollama/models"),
+            "note": "改設定要 root：sudo systemctl edit ollama，在 [Service] 加 Environment=OLLAMA_NUM_PARALLEL=4 後 restart。本工具不提權，只顯示。"}
+
+
+def llm_stores():
+    """三個模型倉庫並排，找重複：Ollama（主機）、LM Studio（~/.lmstudio/models）、Open WebUI 容器內的 Ollama（docker 卷）。"""
+    def norm(n):
+        toks = re.split(r"[-_:. ]+", n.lower().split("/")[-1])
+        toks = [t for t in toks if t and not re.fullmatch(r"(\d+(\.\d+)?[bm]|a\d+b|q\d\w*|mxfp\d|f16|bf16|gguf|instruct|it|chat|latest|\d+k)", t)]
+        return "".join(toks)
+    ol = [{"name": m["name"], "bytes": m.get("size") or 0} for m in (_http_json(OLLAMA + "/api/tags") or {}).get("models", [])]
+    lm = []
+    lmdir = os.path.join(HOME, ".lmstudio", "models")
+    if os.path.isdir(lmdir):
+        for pub in os.listdir(lmdir):
+            pd = os.path.join(lmdir, pub)
+            if not os.path.isdir(pd):
+                continue
+            for mdl in os.listdir(pd):
+                md = os.path.join(pd, mdl)
+                if os.path.isdir(md):
+                    size = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(md) for f in fs)
+                    lm.append({"name": f"{pub}/{mdl}", "bytes": size})
+    vol = {"available": False, "models": [], "bytes": None}
+    if _run(["docker", "volume", "inspect", "open-webui-ollama"], timeout=10):
+        out = _run(["docker", "run", "--rm", "-v", "open-webui-ollama:/v:ro", "busybox", "sh", "-c",
+                    "ls /v/models/manifests/registry.ollama.ai/library 2>/dev/null; echo ---; du -sk /v/models 2>/dev/null | cut -f1"], timeout=90)
+        if out is not None:
+            names, _, kb = out.partition("---")
+            vol = {"available": True, "models": [n for n in names.split() if n], "bytes": int(kb.strip()) * 1024 if kb.strip().isdigit() else None}
+    groups = {}
+    for src, items in (("Ollama", ol), ("LM Studio", lm), ("Open WebUI 卷", [{"name": n, "bytes": None} for n in vol["models"]])):
+        for it in items:
+            groups.setdefault(norm(it["name"].split(":")[0]), []).append({"source": src, **it})
+    dups = [{"key": k, "items": v} for k, v in groups.items() if len({x["source"] for x in v}) > 1]
+    dups.sort(key=lambda d: -sum((x["bytes"] or 0) for x in d["items"]))
+    return {"ollama": ol, "lmstudio": lm, "openwebui_volume": vol, "duplicates": dups,
+            "note": "重複判定用名稱正規化（去掉 GGUF、instruct 等字尾）比對，是啟發式；同名不代表同一量化版本，刪之前自己確認。"}
 
 
 _LLM_BENCH = {"lock": threading.Lock(), "state": {"status": "idle"}}
@@ -1768,6 +1869,54 @@ def llm_bench_start(model, num_predict=128):
         _LLM_BENCH["state"] = {"status": "running", "model": model, "num_predict": num_predict, "phase": "載入／暖機",
                                "started": datetime.now().isoformat(timespec="seconds")}
     threading.Thread(target=_llm_bench_run, args=(model, num_predict), daemon=True).start()
+    return True
+
+
+def _llm_bench_run_concurrent(model, n, num_predict):
+    """n 個請求同時送，總 tok/s = 所有回應的 eval_count 合計 ÷ 牆鐘時間。OLLAMA_NUM_PARALLEL 小於 n 時會排隊，數字會反映排隊。"""
+    base = OLLAMA
+    prompts = [f"Write {i+1} short paragraphs about the history of the number {i+7}. " * 2 for i in range(n)]
+    try:
+        warm = _http_json(base + "/api/generate", {"model": model, "prompt": "hi", "stream": False, "options": {"num_predict": 1, "temperature": 0}}, timeout=600)
+        if warm is None:
+            raise RuntimeError("暖機失敗")
+        with _LLM_BENCH["lock"]:
+            _LLM_BENCH["state"]["phase"] = f"{n} 個請求同時生成 {num_predict} token"
+        results = [None] * n
+        def one(i):
+            results[i] = _http_json(base + "/api/generate", {"model": model, "prompt": prompts[i], "stream": False,
+                                                            "options": {"num_predict": num_predict, "temperature": 0}}, timeout=1800)
+        t0 = time.time()
+        ths = [threading.Thread(target=one, args=(i,)) for i in range(n)]
+        [t.start() for t in ths]; [t.join() for t in ths]
+        wall = time.time() - t0
+        ok = [r for r in results if r]
+        toks = sum(r.get("eval_count") or 0 for r in ok)
+        per = [round((r.get("eval_count") or 0) / (r.get("eval_duration") or 1) * 1e9, 1) for r in ok]
+        cfg = ollama_config()
+        res = {"status": "done", "model": model, "finished": datetime.now().isoformat(timespec="seconds"), "concurrency": n,
+               "num_predict": num_predict, "decode_tps": round(toks / wall, 1) if wall else None, "decode_tokens": toks,
+               "per_request_tps": per, "wall_s": round(wall, 1), "failed": n - len(ok), "prefill_tps": None,
+               "num_parallel": cfg.get("num_parallel"),
+               "note": f"{n} 併發、每請求 {num_predict} token；總 tok/s＝合計 token ÷ 牆鐘時間。OLLAMA_NUM_PARALLEL={cfg.get('num_parallel')}，" + ("小於併發數，後面的請求在排隊。" if (cfg.get("num_parallel") or 1) < n else "足夠同時處理。")}
+        for m in (_http_json(base + "/api/ps") or {}).get("models", []):
+            if m.get("name") == model:
+                det = m.get("details") or {}
+                res.update({"size": m.get("size"), "quant": det.get("quantization_level"), "params": det.get("parameter_size"), "context": m.get("context_length")})
+        llm_hist_append(res)
+    except Exception as e:
+        res = {"status": "error", "model": model, "error": str(e), "finished": datetime.now().isoformat(timespec="seconds")}
+    with _LLM_BENCH["lock"]:
+        _LLM_BENCH["state"] = res
+
+
+def llm_bench_start_concurrent(model, n, num_predict=128):
+    with _LLM_BENCH["lock"]:
+        if _LLM_BENCH["state"].get("status") == "running":
+            return False
+        _LLM_BENCH["state"] = {"status": "running", "model": model, "concurrency": n, "num_predict": num_predict, "phase": "載入／暖機",
+                               "started": datetime.now().isoformat(timespec="seconds")}
+    threading.Thread(target=_llm_bench_run_concurrent, args=(model, n, num_predict), daemon=True).start()
     return True
 
 
@@ -2133,6 +2282,10 @@ def fwupd_status(force=False):
     return data
 
 
+def GB_(b):
+    return "—" if b is None else f"{b/1e9:.1f} GB"
+
+
 # ---------- HTTP ----------
 
 class Handler(BaseHTTPRequestHandler):
@@ -2226,7 +2379,17 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 with _LLM_BENCH["lock"]:
                     bench = dict(_LLM_BENCH["state"])
-                self._json({"ok": True, "servers": llm_status(), "bench": bench, "history": llm_hist_load()[::-1][:30]})
+                servers = llm_status()
+                for sv in servers:
+                    if sv["kind"] == "Ollama":
+                        for m in sv["installed"]:
+                            m.update({k: v for k, v in ollama_show(m["name"]).items() if k in ("context", "capabilities")})
+                self._json({"ok": True, "servers": servers, "bench": bench, "history": llm_hist_load()[::-1][:40], "config": ollama_config()})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/llm/stores":
+            try:
+                self._json({"ok": True, **llm_stores()})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/apps":
@@ -2282,6 +2445,28 @@ class Handler(BaseHTTPRequestHandler):
                                 "at": datetime.now().isoformat(timespec="seconds")}
             usbc_map_save(m)
             return self._json({"ok": True, "calib": m})
+        if path in ("/api/llm/load", "/api/llm/unload"):
+            model = data.get("model")
+            if not model or not isinstance(model, str):
+                return self._json({"ok": False, "error": "缺 model"}, 400)
+            ka = "0" if path.endswith("unload") else (data.get("keep_alive") or "5m")
+            r = _http_json(OLLAMA + "/api/generate", {"model": model, "keep_alive": ka}, timeout=600)
+            return self._json({"ok": r is not None, "error": None if r is not None else "Ollama 沒回應（模型不存在或載入失敗）"}, 200 if r is not None else 502)
+        if path == "/api/llm/pull":
+            model = data.get("model")
+            if not model or not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9._/:-]+", model):
+                return self._json({"ok": False, "error": "模型名稱格式不對"}, 400)
+            ok = JOB.start("ollama_pull", [model])
+            return self._json({"ok": ok} if ok else {"ok": False, "error": "已有工作在進行中"}, 200 if ok else 409)
+        if path == "/api/llm/bench_concurrent":
+            model, n = data.get("model"), data.get("concurrency", 2)
+            if not model or n not in (1, 2, 4, 8):
+                return self._json({"ok": False, "error": "缺 model 或 concurrency 需為 1/2/4/8"}, 400)
+            npred = data.get("num_predict", 128)
+            if npred not in (64, 128, 256, 512):
+                return self._json({"ok": False, "error": "num_predict 需為 64/128/256/512"}, 400)
+            ok = llm_bench_start_concurrent(model, n, npred)
+            return self._json({"ok": ok} if ok else {"ok": False, "error": "已有量測在進行中"}, 200 if ok else 409)
         if path == "/api/llm/bench":
             model = data.get("model")
             if not model or not isinstance(model, str):

@@ -25,9 +25,11 @@ DGX Dashboard 的 Update 按鈕會一次升級全部套件（含 Chrome、ChatGP
 - **監控** 有「Wi-Fi」卡：訊號儀表（-90 dBm=0%、-30 dBm=100%）與曲線、頻段／頻道／頻寬、上下行速率與 MCS、
   重試率（差分）、beacon 遺失、24h 斷線次數（NetworkManager journal）。2.4 GHz 且有藍牙裝置連著時提示共存問題（同一顆 MT7925）；
   訊號 < -75 dBm 時列出同一路由器其他頻段的訊號供比較。來源 iw／nmcli／bluetoothctl，免 root。
-- **監控** 底下另有「本機 LLM」：探測 127.0.0.1 的 Ollama（11434）、LM Studio（1234）、llama.cpp（8080）、vLLM（8000）；
-  Ollama 列已載入模型（佔用、上下文、保留到期）與已安裝數，並可對任一模型跑 decode / prefill tok/s 量測
-  （先暖機 1 token 把載入時間隔開，再量 128 token；數字直接取自 Ollama 回應的 eval_count/eval_duration）。
+- **LLM**（獨立分頁）：伺服器與 Ollama 設定（NUM_PARALLEL、MAX_LOADED，改設定需 root 只顯示）；已載入模型（卸載）；
+  已安裝模型（參數／量化／上下文／能力，載入並選保留時間、刪除）；拉取新模型（串流進度）；
+  量測：單一請求 decode/prefill tok/s，或 1/2/4/8 併發的總 tok/s（合計 token ÷ 牆鐘），歷史存伺服器端；
+  模型倉庫去重：Ollama（主機）、LM Studio、Open WebUI 容器卷三處並排，同家族標出（名稱正規化，啟發式）。
+  探測 127.0.0.1 的 Ollama（11434）、LM Studio（1234）、llama.cpp（8080）、vLLM（8000）。
   GPU 讀取改走 NVML（ctypes 開系統的 libnvidia-ml.so，不需 pip）：四項讀取 0.001 ms，nvidia-smi 子程序要 20 ms；
   降頻門檻用 NVML 的 slowdown threshold（這台是 86 °C），不再用 tlimit 推算。NVML 不可用時退回 nvidia-smi。
 - **磁碟**：根分割區用量（即時）＋「誰在吃空間」明細（背景掃描、快取 10 分鐘）：Ollama 模型（可逐一刪除，透過 Ollama API）、

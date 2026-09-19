@@ -179,6 +179,7 @@
       <a data-tab="apps">應用程式<span id="dotApps" class="dot hide"></span></a>
       <a data-tab="history">歷史</a>
       <a data-tab="monitor">監控<span id="dotMon" class="dot hide" style="background:var(--danger)"></span></a>
+      <a data-tab="llm">LLM</a>
       <a data-tab="disk">磁碟<span id="dotDisk" class="dot hide" style="background:var(--danger)"></span></a>
       <a data-tab="hardware">硬體</a>
     </nav>
@@ -236,7 +237,14 @@
     <div id="gpuAlert" class="panel notice danger hide"></div>
     <div id="mon" class="mon"><div class="panel"><div class="empty">讀取中…</div></div></div>
     <div id="monNote" class="sub1" style="margin:-6px 0 18px"></div>
-    <div id="llm" class="panel"><div class="panel-h"><h2>本機 LLM</h2><span class="sub">偵測中…</span></div></div>
+  </section>
+
+  <section id="tab-llm" class="hide">
+    <div class="panel"><div class="panel-h"><h2>伺服器</h2><span class="sub" id="llmSrvSub">偵測中…</span></div><div id="llmCfg"></div></div>
+    <div class="panel"><div class="panel-h"><h2>已載入</h2><span class="sub">在記憶體裡、隨時可推論的模型</span></div><div id="llmLoaded"></div></div>
+    <div class="panel"><div class="panel-h"><h2>已安裝</h2><span class="sub" id="llmInstSub"></span><div class="actions"><input type="search" id="llmPullName" placeholder="拉取新模型，例如 qwen3.5:8b" style="min-width:260px"><button id="llmPullBtn" class="small primary">拉取</button></div></div><div id="llmInstalled"></div></div>
+    <div class="panel"><div class="panel-h"><h2>量測</h2><span class="sub">真的跑生成，數字取自 Ollama 回應的 token 計數</span></div><div id="llmBench"></div></div>
+    <div class="panel"><div class="panel-h"><h2>模型倉庫</h2><span class="sub" id="llmStoresSub">掃描中…</span><div class="actions"><button id="btnStores" class="small">重新掃描</button></div></div><div id="llmStores"></div></div>
   </section>
 
   <section id="tab-disk" class="hide">
@@ -275,7 +283,7 @@
 <script>
 const $ = s => document.querySelector(s);
 const state = { items: [], selected: new Set(), job: null, polling: null, apps: null, src: 'all', q: '' };
-const TITLES = { updates: '更新', apps: '應用程式', history: '歷史', monitor: '監控', disk: '磁碟', hardware: '硬體' };
+const TITLES = { updates: '更新', apps: '應用程式', history: '歷史', monitor: '監控', llm: 'LLM', disk: '磁碟', hardware: '硬體' };
 const fmtBytes = b => b == null ? '—' : b < 1048576 ? (b/1024).toFixed(0)+' KB' : (b/1048576).toFixed(1)+' MB';
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
@@ -296,6 +304,7 @@ function showTab(t) {
   if (t === 'monitor') startMon(); else stopHw();
   if (t === 'hardware') showHardware();
   if (t === 'disk') loadDisk(); else if (hw.diskTimer) { clearInterval(hw.diskTimer); hw.diskTimer = null; }
+  if (t === 'llm') { pollLlm(); hw.llmTimer = setInterval(pollLlm, 10000); loadStores(); } else if (hw.llmTimer) { clearInterval(hw.llmTimer); hw.llmTimer = null; }
 }
 document.querySelectorAll('nav.tabs a').forEach(a => a.onclick = () => showTab(a.dataset.tab));
 
@@ -558,117 +567,64 @@ async function ensureStatic() {
 async function startMon() {          // 監控分頁：持續輪詢
   if (!(await ensureStatic())) return;
   stopHw(); pollHw(); hw.timer = setInterval(pollHw, MON_INTERVAL_MS);
-  pollLlm(); hw.llmTimer = setInterval(pollLlm, 10000);
   pollWifiExtra(); hw.wifiTimer = setInterval(pollWifiExtra, 10000);
 }
 async function pollWifiExtra() { const r = await api('/api/hardware/wifi'); if (r.ok) hw.wifiExtra = r; }
-/* ---- 本機 LLM（Ollama / LM Studio / llama.cpp / vLLM）---- */
-hw.llmBenchModel = null;
+/* ---- LLM 分頁：伺服器／已載入／已安裝／量測（單一＋併發）／模型倉庫 ---- */
+hw.llmBenchModel = null; hw.llmN = 128; hw.llmC = 1;
+const selStyle = 'background:#0f1110;color:var(--text);border:1px solid #3a3f3c;border-radius:6px;padding:6px 10px;font:inherit;font-size:13px';
 async function pollLlm() {
   const j = await api('/api/llm');
-  const box = $('#llm'); if (!box) return;
-  if (!j.ok) { box.innerHTML = `<div class="panel-h"><h2>本機 LLM</h2></div><div class="empty">讀取失敗：${esc(j.error)}</div>`; return; }
-  if (j.bench && j.bench.status === 'running') { hw.llmBenchRunning = true; if (!hw.llmFast) { hw.llmFast = setInterval(pollLlm, 2000); } }
-  else if (hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; }
-  if (!j.servers.length) { box.innerHTML = `<div class="panel-h"><h2>本機 LLM</h2><span class="sub">探測 127.0.0.1 的 11434 / 1234 / 8080 / 8000</span></div><div class="empty">沒有偵測到 Ollama、LM Studio、llama.cpp 或 vLLM 在監聽。</div>`; return; }
-  let html = `<div class="panel-h"><h2>本機 LLM</h2><span class="sub">${j.servers.map(s => `${esc(s.kind)}${s.version ? ' ' + esc(s.version) : ''} @ ${esc(s.url.replace('http://127.0.0.1',''))}`).join(' · ')}</span></div>`;
-  for (const s of j.servers) {
-    html += `<div style="margin-top:12px"><b>${esc(s.kind)}</b> <span class="sub1">${esc(s.note)}</span></div>`;
-    if (s.loaded.length) {
-      html += `<table><thead><tr><th>已載入模型</th><th style="width:110px">參數 / 量化</th><th style="width:110px">佔用</th><th style="width:100px">上下文</th><th style="width:150px">保留到</th></tr></thead><tbody>` +
-        s.loaded.map(m => `<tr><td class="mono">${esc(m.name)}</td><td class="sub1">${[m.params, m.quant].filter(Boolean).map(esc).join(' / ') || '—'}</td><td>${m.size_vram != null ? GB(m.size_vram) : m.size != null ? GB(m.size) : '—'}</td><td class="sub1">${m.context ? m.context.toLocaleString() : '—'}</td><td class="sub1">${m.expires_at ? new Date(m.expires_at).toLocaleTimeString() : '—'}</td></tr>`).join('') + `</tbody></table>`;
-    } else {
-      html += `<div class="sub1" style="margin-top:6px">目前沒有模型在記憶體裡${s.installed.length ? `，已安裝 ${s.installed.length} 個` : ''}。</div>`;
-    }
-    if (s.bench && s.installed.length) {
-      const b = j.bench || {}, running = b.status === 'running';
-      const opts = s.installed.slice().sort((a, b2) => (a.size||0) - (b2.size||0)).map(m => `<option value="${esc(m.name)}" ${hw.llmBenchModel === m.name ? 'selected' : ''}>${esc(m.name)} (${GB(m.size)})</option>`).join('');
-      const selStyle = 'background:#0f1110;color:var(--text);border:1px solid #3a3f3c;border-radius:6px;padding:6px 10px;font:inherit;font-size:13px';
-      html += `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px"><span class="sub1">量測：</span><select id="llmModel" ${running ? 'disabled' : ''} style="${selStyle}">${opts}</select><select id="llmN" ${running ? 'disabled' : ''} style="${selStyle}">${[64,128,256,512].map(n => `<option value="${n}" ${(hw.llmN||128)===n?'selected':''}>${n} token</option>`).join('')}</select><button id="llmBenchBtn" class="small" ${running ? 'disabled' : ''}>${running ? `量測中…` : '開始量測'}</button>${running ? `<span class="sub1">${esc(b.model)} · ${esc(b.phase || '')}</span>` : '<span class="sub1">會真的載入模型，大模型要等載入；temperature 0。</span>'}</div>`;
-      if (b.status === 'done') html += `<div class="stat" style="margin-top:10px"><div><b>${b.decode_tps ?? '—'}</b><span>decode tok/s</span></div><div><b>${b.prefill_tps ?? '—'}</b><span>prefill tok/s</span></div><div><b>${b.load_ms != null ? (b.load_ms/1000).toFixed(1) + ' s' : '—'}</b><span>載入</span></div><div><b>${b.total_ms != null ? (b.total_ms/1000).toFixed(1) + ' s' : '—'}</b><span>總時間</span></div></div><div class="sub1" style="margin-top:6px">${esc(b.model)} · ${esc(b.finished)} · ${esc(b.note)}</div>`;
-      if (b.status === 'error') html += `<div class="panel notice danger" style="margin-top:10px;padding:10px 14px">量測失敗：${esc(b.error)}</div>`;
-      const H = j.history || [];
-      if (H.length) {
-        const best = {}; for (const r of H) if (r.decode_tps && (!best[r.model] || r.decode_tps > best[r.model])) best[r.model] = r.decode_tps;
-        html += `<details style="margin-top:12px" ${H.length <= 6 ? 'open' : ''}><summary>量測歷史 ${H.length} 筆（存在伺服器端）</summary><table><thead><tr><th>模型</th><th style="width:110px">參數 / 量化</th><th style="width:70px">大小</th><th style="width:80px">decode</th><th style="width:80px">prefill</th><th style="width:60px">載入</th><th style="width:60px">token</th><th style="width:150px">時間</th></tr></thead><tbody>` +
-          H.map(r => `<tr><td class="mono">${esc(r.model)}${best[r.model] === r.decode_tps ? '<span class="tag ok">最佳</span>' : ''}</td><td class="sub1">${[r.params, r.quant].filter(Boolean).map(esc).join(' / ') || '—'}</td><td class="sub1">${r.size ? GB(r.size) : '—'}</td><td class="mono">${r.decode_tps ?? '—'}</td><td class="mono">${r.prefill_tps ?? '—'}</td><td class="sub1">${r.load_ms != null ? (r.load_ms/1000).toFixed(1)+' s' : '—'}</td><td class="sub1">${r.num_predict ?? '—'}</td><td class="sub1">${esc((r.finished||'').replace('T',' '))}</td></tr>`).join('') + `</tbody></table><div class="sub1" style="margin-top:6px">decode 是純生成速度；prefill 是讀 prompt 的速度，prompt 只有約 95 token、又可能被快取，僅供參考。</div></details>`;
-      }
-    }
-  }
-  box.innerHTML = html;
+  if (!$('#llmCfg')) return;
+  if (!j.ok) { $('#llmCfg').innerHTML = `<div class="empty">讀取失敗：${esc(j.error)}</div>`; return; }
+  const running = j.bench && j.bench.status === 'running';
+  if (running && !hw.llmFast) hw.llmFast = setInterval(pollLlm, 2000); else if (!running && hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; }
+  const ol = j.servers.find(s => s.kind === 'Ollama'); const cfg = j.config || {};
+  $('#llmSrvSub').textContent = j.servers.length ? j.servers.map(s => `${s.kind}${s.version ? ' ' + s.version : ''} @ ${s.url.replace('http://127.0.0.1','')}`).join(' · ') : '探測 11434 / 1234 / 8080 / 8000，都沒有';
+  $('#llmCfg').innerHTML = ol ? `<dl class="kv"><dt>Ollama 服務</dt><dd>${esc(cfg.active || '—')} · 模型目錄 <span class="mono">${esc(cfg.models_dir || '—')}</span></dd>
+    <dt>同時請求數</dt><dd>OLLAMA_NUM_PARALLEL = <b>${cfg.num_parallel ?? '未設（預設 1）'}</b> <span class="sub1">併發量測要超過 1 才有意義</span></dd>
+    <dt>同時載入模型</dt><dd>OLLAMA_MAX_LOADED_MODELS = <b>${cfg.max_loaded ?? '未設'}</b></dd>
+    <dt>其他</dt><dd class="sub1">${Object.entries(cfg.env || {}).filter(([k]) => !/NUM_PARALLEL|MAX_LOADED/.test(k)).map(([k,v]) => `${esc(k)}=${esc(v)}`).join(' · ') || '—'}</dd></dl><div class="sub1" style="margin-top:6px">${esc(cfg.note || '')}</div>` + j.servers.filter(s => s.kind !== 'Ollama').map(s => `<div class="sub1" style="margin-top:6px"><b>${esc(s.kind)}</b>：${esc(s.note)}${s.loaded.length ? ' · 模型：' + s.loaded.map(m => esc(m.name)).join('、') : ''}</div>`).join('') : `<div class="empty">沒有偵測到 Ollama。</div>`;
+  if (!ol) { $('#llmLoaded').innerHTML = $('#llmInstalled').innerHTML = $('#llmBench').innerHTML = ''; return; }
+  $('#llmLoaded').innerHTML = ol.loaded.length ? `<table><thead><tr><th>模型</th><th style="width:120px">參數 / 量化</th><th style="width:90px">佔用</th><th style="width:100px">上下文</th><th style="width:130px">保留到</th><th style="width:80px"></th></tr></thead><tbody>` +
+    ol.loaded.map(m => `<tr><td class="mono">${esc(m.name)}</td><td class="sub1">${[m.params, m.quant].filter(Boolean).map(esc).join(' / ') || '—'}</td><td>${m.size_vram != null ? GB(m.size_vram) : m.size != null ? GB(m.size) : '—'}</td><td class="sub1">${m.context ? m.context.toLocaleString() : '—'}</td><td class="sub1">${m.expires_at ? new Date(m.expires_at).toLocaleTimeString() : '—'}</td><td><button class="small" data-unload="${esc(m.name)}">卸載</button></td></tr>`).join('') + `</tbody></table>` : `<div class="sub1">目前沒有模型在記憶體裡。載入後 Ollama 預設保留 5 分鐘，可在下方「載入」時選保留時間。</div>`;
+  $('#llmLoaded').querySelectorAll('button[data-unload]').forEach(b => b.onclick = async () => { b.disabled = true; const r = await api('/api/llm/unload', {model: b.dataset.unload}); if (!r.ok) alert(r.error); pollLlm(); });
+  const inst = ol.installed.slice().sort((a, b) => (b.size||0) - (a.size||0));
+  $('#llmInstSub').textContent = `${inst.length} 個 · 合計 ${GB(inst.reduce((a, m) => a + (m.size||0), 0))}（同模型不同 tag 共用 blob，實際較小）`;
+  const loadedNames = new Set(ol.loaded.map(m => m.name));
+  $('#llmInstalled').innerHTML = `<table><thead><tr><th>模型</th><th style="width:110px">參數 / 量化</th><th style="width:80px">大小</th><th style="width:90px">上下文</th><th style="width:150px">能力</th><th style="width:90px">修改</th><th style="width:210px"></th></tr></thead><tbody>` +
+    inst.map(m => `<tr><td class="mono">${esc(m.name)}${loadedNames.has(m.name) ? '<span class="tag ok">已載入</span>' : ''}</td><td class="sub1">${[m.params, m.quant].filter(Boolean).map(esc).join(' / ') || '—'}</td><td>${GB(m.size)}</td><td class="sub1">${m.context ? m.context.toLocaleString() : '—'}</td><td class="sub1">${(m.capabilities || []).filter(c => c !== 'completion').map(esc).join(' ') || '—'}</td><td class="sub1">${esc(m.modified || '')}</td><td style="white-space:nowrap">${loadedNames.has(m.name) ? '' : `<select data-ka="${esc(m.name)}" style="${selStyle};padding:3px 6px;font-size:12px"><option value="5m">5 分</option><option value="30m">30 分</option><option value="2h">2 小時</option><option value="-1">常駐</option></select> <button class="small" data-load="${esc(m.name)}">載入</button>`} <button class="small" data-rm="${esc(m.name)}">刪除</button></td></tr>`).join('') + `</tbody></table>`;
+  $('#llmInstalled').querySelectorAll('button[data-load]').forEach(b => b.onclick = async () => { b.disabled = true; b.textContent = '載入中…'; const ka = $(`select[data-ka="${b.dataset.load}"]`).value; const r = await api('/api/llm/load', {model: b.dataset.load, keep_alive: ka}); if (!r.ok) alert(r.error); pollLlm(); });
+  $('#llmInstalled').querySelectorAll('button[data-rm]').forEach(b => b.onclick = async () => { if (!confirm(`刪除 ${b.dataset.rm}？同一模型的其他 tag 若共用 blob，釋放的空間會比顯示的小。`)) return; b.disabled = true; const r = await api('/api/disk/action', {action: 'ollama_delete', name: b.dataset.rm}); if (!r.ok) alert(r.error); pollLlm(); loadStores(); });
+  const b = j.bench || {};
+  const opts = inst.slice().sort((a, b2) => (a.size||0) - (b2.size||0)).map(m => `<option value="${esc(m.name)}" ${hw.llmBenchModel === m.name ? 'selected' : ''}>${esc(m.name)} (${GB(m.size)})</option>`).join('');
+  let bh = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><select id="llmModel" ${running ? 'disabled' : ''} style="${selStyle}">${opts}</select><select id="llmN" ${running ? 'disabled' : ''} style="${selStyle}">${[64,128,256,512].map(n => `<option value="${n}" ${hw.llmN===n?'selected':''}>${n} token</option>`).join('')}</select><select id="llmC" ${running ? 'disabled' : ''} style="${selStyle}">${[1,2,4,8].map(n => `<option value="${n}" ${hw.llmC===n?'selected':''}>${n} 併發</option>`).join('')}</select><button id="llmBenchBtn" class="small primary" ${running ? 'disabled' : ''}>${running ? '量測中…' : '開始量測'}</button>${running ? `<span class="sub1">${esc(b.model)} · ${esc(b.phase || '')}</span>` : `<span class="sub1">會真的載入模型；併發 > NUM_PARALLEL（現在 ${cfg.num_parallel ?? 1}）時後面的請求會排隊。</span>`}</div>`;
+  if (b.status === 'done') bh += `<div class="stat" style="margin-top:12px"><div><b>${b.decode_tps ?? '—'}</b><span>${b.concurrency > 1 ? '總 decode tok/s' : 'decode tok/s'}</span></div>${b.concurrency > 1 ? `<div><b>${b.per_request_tps ? Math.round(b.per_request_tps.reduce((a,x)=>a+x,0)/b.per_request_tps.length) : '—'}</b><span>每請求平均 tok/s</span></div><div><b>${b.wall_s ?? '—'} s</b><span>牆鐘時間</span></div>` : `<div><b>${b.prefill_tps ?? '—'}</b><span>prefill tok/s</span></div><div><b>${b.load_ms != null ? (b.load_ms/1000).toFixed(1) + ' s' : '—'}</b><span>載入</span></div>`}</div><div class="sub1" style="margin-top:6px">${esc(b.model)} · ${esc(b.finished)} · ${esc(b.note)}</div>`;
+  if (b.status === 'error') bh += `<div class="panel notice danger" style="margin-top:10px;padding:10px 14px">量測失敗：${esc(b.error)}</div>`;
+  const H = j.history || [];
+  if (H.length) { const best = {}; for (const r of H) if (r.decode_tps && (r.concurrency||1) === 1 && (!best[r.model] || r.decode_tps > best[r.model])) best[r.model] = r.decode_tps;
+    bh += `<details style="margin-top:12px" open><summary>歷史 ${H.length} 筆（伺服器端）</summary><table><thead><tr><th>模型</th><th style="width:110px">參數 / 量化</th><th style="width:60px">併發</th><th style="width:90px">decode</th><th style="width:80px">prefill</th><th style="width:60px">token</th><th style="width:150px">時間</th></tr></thead><tbody>` +
+      H.map(r => `<tr><td class="mono">${esc(r.model)}${best[r.model] === r.decode_tps ? '<span class="tag ok">最佳</span>' : ''}</td><td class="sub1">${[r.params, r.quant].filter(Boolean).map(esc).join(' / ') || '—'}</td><td class="sub1">${r.concurrency || 1}</td><td class="mono">${r.decode_tps ?? '—'}${r.concurrency > 1 ? '<span class="sub1"> 總</span>' : ''}</td><td class="mono">${r.prefill_tps ?? '—'}</td><td class="sub1">${r.num_predict ?? '—'}</td><td class="sub1">${esc((r.finished||'').replace('T',' '))}</td></tr>`).join('') + `</tbody></table></details>`; }
+  $('#llmBench').innerHTML = bh;
   const sel = $('#llmModel'); if (sel) sel.onchange = () => { hw.llmBenchModel = sel.value; };
   const seln = $('#llmN'); if (seln) seln.onchange = () => { hw.llmN = +seln.value; };
-  const btn = $('#llmBenchBtn'); if (btn) btn.onclick = async () => { const model = $('#llmModel').value; hw.llmBenchModel = model; hw.llmN = +($('#llmN').value); btn.disabled = true; const r = await api('/api/llm/bench', {model, num_predict: hw.llmN}); if (!r.ok) { alert('無法開始：' + r.error); btn.disabled = false; return; } pollLlm(); };
+  const selc = $('#llmC'); if (selc) selc.onchange = () => { hw.llmC = +selc.value; };
+  const btn = $('#llmBenchBtn'); if (btn) btn.onclick = async () => { const model = $('#llmModel').value; hw.llmBenchModel = model; hw.llmN = +$('#llmN').value; hw.llmC = +$('#llmC').value; btn.disabled = true;
+    const r = hw.llmC > 1 ? await api('/api/llm/bench_concurrent', {model, concurrency: hw.llmC, num_predict: hw.llmN}) : await api('/api/llm/bench', {model, num_predict: hw.llmN});
+    if (!r.ok) { alert('無法開始：' + r.error); btn.disabled = false; return; } pollLlm(); };
 }
-async function showHardware() {      // 硬體分頁：靜態清單＋抓一次動態欄位（開機時間、負載、感測器）；只有 USB 埠辨識每 2 秒輪詢（純 sysfs，極便宜）
-  if (!(await ensureStatic())) return;
-  renderHwStatic(); pollHw(true);
-  pollPorts(); hw.portTimer = setInterval(pollPorts, 2000);
+$('#llmPullBtn').onclick = async () => { const name = $('#llmPullName').value.trim(); if (!name) return; if (!confirm(`拉取 ${name}？會直接下載到 Ollama 的模型目錄，大模型請先確認磁碟空間。`)) return; const r = await api('/api/llm/pull', {model: name}); if (!r.ok) { alert(r.error); return; } startPolling(`ollama pull ${name}`); window.scrollTo({top: 0, behavior: 'smooth'}); };
+async function loadStores() {
+  const j = await api('/api/llm/stores'); const box = $('#llmStores'); if (!box) return;
+  if (!j.ok) { box.innerHTML = `<div class="empty">${esc(j.error)}</div>`; return; }
+  const tot = a => GB(a.reduce((s, m) => s + (m.bytes || 0), 0));
+  $('#llmStoresSub').textContent = `Ollama ${j.ollama.length} 個（清單加總 ${tot(j.ollama)}，blob 共用實際較小）· LM Studio ${j.lmstudio.length} 個 ${tot(j.lmstudio)} · Open WebUI 卷 ${j.openwebui_volume.available ? `${j.openwebui_volume.models.length} 個 ${GB(j.openwebui_volume.bytes)}` : '無'}`;
+  let html = j.duplicates.length ? `<table><thead><tr><th style="width:22%">同一模型家族</th><th>各倉庫的副本</th></tr></thead><tbody>` + j.duplicates.map(d => `<tr><td class="mono">${esc(d.key)}</td><td>${d.items.map(x => `<div><span class="tag">${esc(x.source)}</span> <span class="mono">${esc(x.name)}</span> <span class="sub1">${x.bytes ? GB(x.bytes) : ''}</span></div>`).join('')}</td></tr>`).join('') + `</tbody></table>` : `<div class="sub1">三個倉庫之間沒有同名模型。</div>`;
+  html += `<div class="sub1" style="margin-top:8px">${esc(j.note)} Open WebUI 卷裡是容器自帶的另一份 Ollama，${GB(j.openwebui_volume.bytes)}；若改讓 Open WebUI 連主機的 Ollama（環境變數 OLLAMA_BASE_URL=http://host:11434），這整卷可以收回。LM Studio 的模型只有 LM Studio 自己能用，和 Ollama 不互通。</div>`;
+  box.innerHTML = html;
 }
-/* ---- 後面板示意圖：USB-C 四孔（DP 輸出 + USB 裝置）、HDMI、10GbE、QSFP。
-   實體孔 ↔ 控制器 的對應存在伺服器端（data/usbc-map.json），所有瀏覽器共用。
-   slot 0 依規格是電源輸入孔；核心沒有 UCSI/typec，供電偵測不到，只能手動標記。 ---- */
-hw.rearPrev = null; hw.rearFlash = {}; hw.calibSlot = null; hw.calibMode = false;
-const PANEL_ZH = { left: '左側', right: '右側', back: '後方', front: '前方', top: '上方', bottom: '下方', unknown: '未知' };
-const ICON = {
-  usbc: '<svg viewBox="0 0 64 36"><rect class="jk" x="8" y="11" width="48" height="14" rx="7"/></svg>',
-  hdmi: '<svg viewBox="0 0 64 36"><path class="jk" d="M10 10 h44 v10 l-6 6 h-32 l-6 -6 z"/></svg>',
-  rj45: '<svg viewBox="0 0 64 36"><path class="jk" d="M14 6 h36 v24 h-10 v-5 h-16 v5 h-10 z"/></svg>',
-  qsfp: '<svg viewBox="0 0 64 36"><rect class="jk" x="4" y="9" width="56" height="18" rx="2"/><rect class="jk" x="12" y="14" width="40" height="8" rx="1"/></svg>',
-  klock: '<svg viewBox="0 0 64 36"><ellipse class="jk" cx="32" cy="18" rx="9" ry="6"/></svg>',
-  plug: '<svg viewBox="0 0 64 36"><rect class="jk" x="8" y="11" width="48" height="14" rx="7"/><path d="M26 6 v-4 M38 6 v-4" stroke="#7a827c" stroke-width="3"/></svg>',
-};
-const spd = v => v >= 5000 ? v / 1000 + ' Gb/s' : v + ' Mb/s';
-async function pollRear() {
-  const j = await api('/api/hardware/rear');
-  if (!j.ok) { $('#rear').innerHTML = `<div class="empty">讀取失敗：${esc(j.error)}</div>`; return; }
-  const calib = j.calib || {}; const now = Date.now();
-  const sig = Object.fromEntries(j.controllers.map(c => [c.controller, c.devices.map(d => d.path).join(',')]));
-  let newly = null;
-  if (hw.rearPrev) for (const k in sig) if (hw.rearPrev[k] !== undefined && hw.rearPrev[k] !== sig[k] && sig[k]) { newly = k; hw.rearFlash[k] = now; }
-  hw.rearPrev = sig;
-  // 校準模式外，若某個「推測」孔的控制器出現新裝置，視為使用者已插入確認 → 升級為 plug
-  if (newly && hw.calibSlot == null) { for (const k in calib) if (calib[k] && calib[k].controller === newly && calib[k].source === 'inferred') { await api('/api/hardware/usbc-map', {slot: +k, controller: newly, source: 'plug', note: '插入裝置確認'}); return pollRear(); } }
-  if (newly && hw.calibSlot != null) { const slot = hw.calibSlot; hw.calibSlot = null; await api('/api/hardware/usbc-map', {slot, controller: newly, source: 'plug'}); return pollRear(); }
-  const ctrl = Object.fromEntries(j.controllers.map(c => [c.controller, c]));
-  const dispByCtrl = k => j.usbc.find(u => u.controller_guess === k)?.display;  // 控制器 0k ↔ DP 輸出 USB-C-k（驅動編號一致，視為同一孔）
-  const assigned = new Set(Object.values(calib).map(v => v && v.controller).filter(Boolean));
-  const slots = [];
-  slots.push(`<div class="slot k-lock">${ICON.klock}<div class="lb">Kensington</div><div class="st"><span class="sub1">—</span></div></div>`);
-  for (let i = 0; i < 4; i++) {
-    const cal = calib[String(i)]; const cid = cal ? cal.controller : null; const c = cid ? ctrl[cid] : null; const disp = cid ? dispByCtrl(cid) : null;
-    const isPower = i === 0;
-    const on = !!((c && c.devices.length) || (disp && disp.connected));
-    const flash = cid && hw.rearFlash[cid] && now - hw.rearFlash[cid] < 6000;
-    let st = '';
-    if (isPower) st += `<b>電源供應器</b><span class="sub1">240 W PD 輸入</span>`;
-    if (disp && disp.connected) st += `<b>螢幕 ${esc(disp.mode || '')}${disp.hz ? ' @ ' + Math.round(disp.hz) + ' Hz' : ''}</b>`;
-    if (c && c.devices.length) { const dd = c.devices.filter(d => d.bus === 'usb3').concat(c.devices.filter(d => d.bus === 'usb2')); const d0 = dd[0]; const mw = Math.max(...c.devices.map(d => d.max_w || 0));
-      st += `<b>${esc(d0.name)}</b>` + (c.devices.some(d => d.children) ? `<span class="sub1">下接 ${c.devices.reduce((a, d) => a + d.children, 0)} 個裝置</span>` : '') + `<span class="sub1"> · ${mw ? `裝置枚舉時宣告 ${Math.round(mw*200)} mA（${mw} W），非實際供電` : '自供電（宣告 0 mA）'}</span>`; }
-    if (!st) st = cid ? '<span class="sub1">空</span>' : '<span class="sub1">未校準</span>';
-    const SRC = { plug: '插入法確認', manual: '手動告知', inferred: '插入即確認' };
-    // 已確認的孔不再貼標籤；只有推測、未校準才提示
-    const tag = isPower ? '' : cal ? (cal.source === 'inferred' ? `推測（${SRC.inferred}）` : '') : '未校準';
-    const sub2 = cid ? `${esc(cid.replace('NVDA8000:', '控制器 '))} · USB-C-${cid.slice(-1)}` : (isPower ? '控制器：無法得知' : '控制器：待校準');
-    slots.push(`<div class="slot ${isPower ? 'k-power' : 'k-usbc'} ${on || isPower ? 'on' : ''} ${flash ? 'flash' : ''} ${hw.calibSlot === i ? 'pick' : ''}" data-slot="${i}">${isPower ? ICON.plug : ICON.usbc}<div class="lb"><b class="kind">${isPower ? '電源' : 'USB-C'}</b> 孔 ${i + 1}<br>${sub2}</div><div class="st">${st}</div>${tag ? `<span class="tg">${tag}</span>` : ''}</div>`);
-  }
-  const h = j.hdmi; slots.push(`<div class="slot k-hdmi ${h && h.connected ? 'on' : ''}">${ICON.hdmi}<div class="lb"><b class="kind">HDMI</b> 2.1a<br>HDMI-0</div><div class="st">${h ? (h.connected ? `<b>螢幕 ${esc(h.mode || '')}</b>` : '<span class="sub1">空</span>') : '<span class="sub1">xrandr 不可用</span>'}</div></div>`);
-  const e = j.eth10g; slots.push(`<div class="slot k-lan ${e && e.carrier === '1' ? 'on' : ''}">${ICON.rj45}<div class="lb"><b class="kind">10GbE</b> LAN<br>${e ? esc(e.iface) : '—'}</div><div class="st">${e ? (e.carrier === '1' ? `<b>已連線 ${e.speed && e.speed > 0 ? spd(+e.speed) : ''}</b>` : '<span class="sub1">未插線</span>') : '<span class="sub1">未偵測到</span>'}</div></div>`);
-  const x = j.connectx7; slots.push(`<div class="slot k-qsfp ${x.ifaces.length ? 'on' : ''}">${ICON.qsfp}<div class="lb"><b class="kind">QSFP</b> · ConnectX-7</div><div class="st">${x.ifaces.length ? `<b>${esc(x.ifaces.join(', '))}</b>` : x.pci_present ? '<span class="sub1">有裝置，無介面</span>' : '<span class="sub1">lspci 未見 ConnectX-7</span>'}</div><span class="tg">mlx5 驅動${x.driver_loaded ? '已載入' : '未載入'}</span></div>`);
-  // 還沒對應到任何孔、但接著東西的控制器，不能藏起來
-  // 只算四個外露孔的控制器（00–03）；04 與 8001:00 韌體標「後方」，是內部（藍牙模組）
-  const orphan = j.controllers.filter(c => /^NVDA8000:0[0-3]$/.test(c.controller) && !assigned.has(c.controller) && (c.devices.length || (dispByCtrl(c.controller) || {}).connected));
-  const orphanHtml = orphan.length ? `<div class="sub1" style="margin-top:10px">尚未對應到孔位、但有接東西的控制器：${orphan.map(c => `${esc(c.controller.replace('NVDA8000:', '控制器 '))}（${c.devices.map(d => esc(d.name)).join('、') || '螢幕'}）`).join('；')}。用「校準孔位」對上去。</div>` : '';
-  const legend = `<div class="lgd"><span><i style="background:#e5484d"></i>電源</span><span><i style="background:#76b900"></i>USB-C 資料</span><span><i style="background:#3583d6"></i>HDMI</span><span><i style="background:#f5a524"></i>10GbE</span><span><i style="background:#a78bfa"></i>QSFP</span><span class="sub1">實心邊框＝有接東西，淡邊框＝空。mA 是裝置在 USB 枚舉時宣告的值（bMaxPower），只代表它「至少要這麼多」，不是這個孔能給多少，也不是實際充電功率；PD 協商功率核心無 UCSI 驅動看不到。</span></div>`;
-  $('#rear').innerHTML = `<div class="chassis"><div class="vents"></div><div class="slots">${slots.join('')}</div></div>${legend}${orphanHtml}`;
-  $('#rear').querySelectorAll('.slot[data-slot]').forEach(el => el.onclick = () => { if (hw.calibMode && +el.dataset.slot !== 0) { hw.calibSlot = +el.dataset.slot; pollRear(); } });
-  const n = Object.keys(calib).filter(k => k !== '0' && calib[k].source !== 'inferred').length;
-  $('#usbPortsSub').textContent = hw.calibMode ? (hw.calibSlot == null ? '校準中：先點一個 USB-C 孔（孔 1 是電源，不用校準），再把裝置插進那個洞。' : `校準中：請把裝置插進「USB-C 孔 ${hw.calibSlot + 1}」，偵測到新裝置就綁定。`) :
-    `左→右：Kensington、USB-C ×4（孔 1 為電源）、HDMI、10GbE、QSFP。${n < 3 ? `已校準 ${n} / 3 個資料孔。` : ''}${j.displays_available ? '' : ' xrandr 不可用，螢幕狀態未知。'}`;
-}
-async function pollPorts() { return pollRear(); }
-$('#btnCalib').onclick = () => { hw.calibMode = !hw.calibMode; hw.calibSlot = null; $('#btnCalib').textContent = hw.calibMode ? '結束校準' : '校準孔位'; pollRear(); };
-$('#btnCalibReset').onclick = async () => { if (!confirm('清除所有孔位對應（含電源孔標記）？')) return; await api('/api/hardware/usbc-map', {reset: true}); hw.calibSlot = null; pollRear(); };
+$('#btnStores').onclick = () => { $('#llmStoresSub').textContent = '掃描中…'; loadStores(); };
+
 function stopHw() { if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } if (hw.wifiTimer) { clearInterval(hw.wifiTimer); hw.wifiTimer = null; } if (hw.portTimer) { clearInterval(hw.portTimer); hw.portTimer = null; } if (hw.llmTimer) { clearInterval(hw.llmTimer); hw.llmTimer = null; } if (hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; } }
 function renderHwStatic() {
   const j = hw.static, S = j.system, C = j.cpu, G = j.gpu, D = j.dmi || {available:false};
