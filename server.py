@@ -684,7 +684,7 @@ def _lscpu():
 
 
 def _gpu_static():
-    out = _run(["nvidia-smi", "--query-gpu=name,driver_version,vbios_version,pci.bus_id,clocks.max.sm,memory.total",
+    out = _run(["nvidia-smi", "--query-gpu=name,driver_version,vbios_version,pci.bus_id,clocks.max.sm,memory.total,power.limit,temperature.gpu.tlimit,temperature.gpu",
                 "--format=csv,noheader"], timeout=10)
     if not out:
         return None
@@ -695,8 +695,14 @@ def _gpu_static():
     if m:
         cuda = m.group(1)
     mem_total = None if parts[5].startswith("[") else parts[5]
+    def watts(x):
+        m2 = re.match(r"([\d.]+)", x)
+        return float(m2.group(1)) if m2 else None
     return {"name": parts[0], "driver": parts[1], "vbios": parts[2], "bus": parts[3],
             "max_sm_mhz": parts[4], "memory_total": mem_total, "cuda": cuda,
+            "power_limit_w": watts(parts[6]) if len(parts) > 6 else None,
+            # tlimit 是「距離降頻溫度還有幾度」，加上當下溫度才是降頻點
+            "throttle_temp_c": (watts(parts[7]) + watts(parts[8])) if len(parts) > 8 and watts(parts[7]) is not None and watts(parts[8]) is not None else None,
             "unified_memory": mem_total is None}
 
 
@@ -831,6 +837,54 @@ def _dmi():
     }
 
 
+def _bluetooth():
+    """bluetoothctl（免 root）。控制器、已配對裝置、連線狀態、電量（裝置有回報才有）。"""
+    if not _run(["which", "bluetoothctl"], timeout=3):
+        return None
+    show = _run(["bluetoothctl", "show"], timeout=5)
+    if show is None:
+        return {"available": False, "note": "bluetoothctl 無法連到 bluetoothd（服務未啟動或無藍牙硬體）"}
+    ctl = {}
+    for line in show.splitlines():
+        line = line.strip()
+        if line.startswith("Controller "):
+            ctl["address"] = line.split()[1]
+        for k in ("Name", "Alias", "Powered", "Discoverable", "Pairable"):
+            if line.startswith(k + ":"):
+                ctl[k.lower()] = line.split(":", 1)[1].strip()
+    blocked = None
+    rk = _run(["rfkill", "-J"], timeout=5)
+    if rk:
+        try:
+            for d in json.loads(rk).get("rfkilldevices", []):
+                if d.get("type") == "bluetooth":
+                    blocked = (d.get("soft") == "blocked") or (d.get("hard") == "blocked")
+        except ValueError:
+            pass
+    devices = []
+    paired = _run(["bluetoothctl", "devices", "Paired"], timeout=5) or ""
+    for line in paired.splitlines():
+        parts = line.split(" ", 2)
+        if len(parts) < 3 or parts[0] != "Device":
+            continue
+        mac, name = parts[1], parts[2]
+        info = _run(["bluetoothctl", "info", mac], timeout=5) or ""
+        f = {}
+        for l in info.splitlines():
+            l = l.strip()
+            for k in ("Icon", "Connected", "Trusted", "Battery Percentage"):
+                if l.startswith(k + ":"):
+                    f[k] = l.split(":", 1)[1].strip()
+        batt = None
+        m = re.search(r"\((\d+)\)", f.get("Battery Percentage", ""))
+        if m:
+            batt = int(m.group(1))
+        devices.append({"mac": mac, "name": name, "icon": f.get("Icon"), "connected": f.get("Connected") == "yes",
+                        "trusted": f.get("Trusted") == "yes", "battery": batt})
+    devices.sort(key=lambda d: (not d["connected"], d["name"].lower()))
+    return {"available": True, "controller": ctl, "rfkill_blocked": blocked, "devices": devices}
+
+
 _HW_CACHE = {"ts": 0, "data": None}
 
 
@@ -854,12 +908,41 @@ def hardware_static():
         "gpu": _gpu_static(),
         "disks": _disks(),
         "network": _network(),
+        "bluetooth": _bluetooth(),
         "usb": _list_cmd(["lsusb"]),
         "pci": _list_cmd(["lspci"]),
         "generated": datetime.now().isoformat(timespec="seconds"),
     }
     _HW_CACHE.update(ts=time.time(), data=data)
     return data
+
+
+def _cpu_jiffies():
+    line = (_read("/proc/stat") or "").splitlines()[0:1]
+    if not line or not line[0].startswith("cpu "):
+        return None
+    v = [int(x) for x in line[0].split()[1:]]
+    idle = v[3] + (v[4] if len(v) > 4 else 0)
+    return {"total": sum(v), "idle": idle}
+
+
+def _net_counters():
+    """/proc/net/dev 的累計位元組數；前端拿兩次取樣算每秒流量。"""
+    res = {}
+    for line in (_read("/proc/net/dev") or "").splitlines()[2:]:
+        name, _, rest = line.partition(":")
+        f = rest.split()
+        if len(f) >= 9:
+            res[name.strip()] = {"rx": int(f[0]), "tx": int(f[8])}
+    return res
+
+
+def _root_usage():
+    try:
+        st = os.statvfs("/")
+        return {"total": st.f_blocks * st.f_frsize, "free": st.f_bavail * st.f_frsize}
+    except OSError:
+        return None
 
 
 def hardware_live():
@@ -873,7 +956,11 @@ def hardware_live():
         "uptime_s": float(up.split()[0]) if up else None,
         "gpu": _gpu_live(),
         "sensors": _sensors(),
+        "cpu": _cpu_jiffies(),
+        "net": _net_counters(),
+        "disk_root": _root_usage(),
         "ts": datetime.now().isoformat(timespec="seconds"),
+        "epoch": time.time(),
     }
 
 

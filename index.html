@@ -88,6 +88,23 @@
   .meter.warn i { background: var(--warn); } .meter.hot i { background: var(--danger); }
   .stat { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 12px; }
   .stat div { min-width: 90px; } .stat b { font-size: 22px; display: block; line-height: 1.1; } .stat span { color: var(--muted); font-size: 12px; }
+  .mon { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 18px; margin-bottom: 18px; }
+  .mcard { background: rgba(26,28,27,.9); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px 14px; display: grid; grid-template-columns: 200px 1fr; gap: 16px; align-items: center; }
+  .mcard h3 { grid-column: 1 / -1; margin: 0 0 4px; font-size: 16px; font-weight: 700; }
+  .mcard h3 span { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 8px; }
+  .gauge { position: relative; width: 200px; height: 142px; }
+  .gauge svg { width: 200px; height: 120px; display: block; }
+  .gauge .hero { position: absolute; left: 30px; right: 30px; top: 66px; text-align: center; }
+  .gauge .hero b { font-size: 26px; line-height: 1.1; display: block; }
+  .gauge .sub { position: absolute; left: 0; right: 0; top: 120px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.3; }
+  .tile { width: 200px; text-align: center; } .tile b { font-size: 26px; display: block; line-height: 1.1; } .tile span { color: var(--muted); font-size: 12px; }
+  .spark { position: relative; height: 120px; }
+  .spark svg { width: 100%; height: 120px; display: block; overflow: visible; }
+  .spark .ymax { position: absolute; left: 0; top: -2px; font-size: 11px; color: var(--muted); }
+  .spark .tip { position: absolute; top: 0; transform: translateX(-50%); background: rgba(0,0,0,.85); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 12px; white-space: nowrap; pointer-events: none; display: none; }
+  .legend { grid-column: 1 / -1; display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
+  .legend i { display: inline-block; width: 10px; height: 3px; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
+  @media (max-width: 560px) { .mcard { grid-template-columns: 1fr; } .mon { grid-template-columns: 1fr; } }
   pre.raw { background: #0f1110; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 12px; max-height: 260px; overflow: auto; margin: 10px 0 0; white-space: pre-wrap; color: #c9cfc9; }
   @media (max-width: 720px) { main { padding: 28px 16px 60px; } h1 { font-size: 24px; } .col-opt { display: none; } }
 </style>
@@ -157,6 +174,8 @@
 
   <section id="tab-hardware" class="hide">
     <div id="hwNote" class="sub1" style="margin:-8px 0 14px"></div>
+    <div id="mon" class="mon"></div>
+    <div id="monNote" class="sub1" style="margin:-6px 0 18px"></div>
     <div id="hw" class="grid"><div class="panel"><div class="empty">讀取中…</div></div></div>
   </section>
 
@@ -388,7 +407,7 @@ async function startHw() {
 function stopHw() { if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } }
 function renderHwStatic() {
   const j = hw.static, S = j.system, C = j.cpu, G = j.gpu, D = j.dmi || {available:false};
-  $('#hwNote').textContent = `資料來源：/sys DMI、lscpu、nvidia-smi、lsblk、ip、lsusb、lspci、hwmon` + (D.available ? '，序號與記憶體模組來自 dmidecode（sudoers 僅放行此指令）' : '') + `。靜態資料快取 60 秒，動態數值每 5 秒更新。` + (D.available ? '' : ' ' + (D.note || ''));
+  $('#hwNote').textContent = `資料來源：/sys DMI、lscpu、nvidia-smi、lsblk、ip、bluetoothctl、lsusb、lspci、hwmon` + (D.available ? '，序號與記憶體模組來自 dmidecode（sudoers 僅放行此指令）' : '') + `。靜態資料快取 60 秒，動態數值每 5 秒更新。` + (D.available ? '' : ' ' + (D.note || ''));
   const sys = `<div class="panel"><div class="panel-h"><h2>系統</h2></div><dl class="kv">
     <dt>機型</dt><dd>${dash(S.sys_vendor)} ${dash(S.product_name)}<div class="sub1">${dash(S.product_version)}</div></dd>
     <dt>主機板</dt><dd>${dash(S.board_vendor)} ${dash(S.board_name)}${D.available && (D.board.version || D.board.serial) ? `<div class="sub1">${[D.board.version ? '版本 ' + esc(D.board.version) : '', D.board.serial ? '序號 ' + esc(D.board.serial) : ''].filter(Boolean).join(' · ')}</div>` : ''}</dd>
@@ -427,14 +446,131 @@ function renderHwStatic() {
       <div style="margin-top:10px"><span class="mono">${esc(p.name)}</span> <span class="sub1">${p.mountpoints.join(', ')} · ${esc(p.fstype||'')} · 已用 ${GB(u.total - u.free)} / ${GB(u.total)}（${pct}%）</span>${meter(pct, 85, 95)}</div>`; }).join('')}`).join('') : '<div class="empty">lsblk 不可用</div>') + `</div>`;
   const net = `<div class="panel"><div class="panel-h"><h2>網路</h2></div>` + (j.network ? `<table><thead><tr><th style="width:34%">介面</th><th style="width:70px">狀態</th><th>位址</th><th style="width:80px">速率</th></tr></thead><tbody>` +
     j.network.filter(n => n.kind !== 'virtual' || n.ipv4.length).map(n => `<tr><td class="mono">${esc(n.name)}<span class="tag">${n.kind}</span><div class="sub1">${dash(n.mac)}</div></td><td><span class="tag ${n.state==='UP'?'ok':''}">${dash(n.state)}</span></td><td class="mono">${n.ipv4.map(esc).join('<br>') || '—'}</td><td class="sub1">${n.speed_mbps ? (n.speed_mbps >= 1000 ? n.speed_mbps/1000 + ' Gb/s' : n.speed_mbps + ' Mb/s') : '—'}</td></tr>`).join('') + `</tbody></table><div class="sub1" style="margin-top:8px">Wi-Fi 與未連線的介面不回報速率，顯示「—」。</div>` : '<div class="empty">ip 不可用</div>') + `</div>`;
+  const B = j.bluetooth;
+  const bt = `<div class="panel"><div class="panel-h"><h2>藍牙</h2>${B && B.available ? `<span class="sub">${esc(B.controller.address||'')} · ${B.controller.powered === 'yes' ? '已開啟' : '已關閉'}${B.rfkill_blocked ? ' · rfkill 封鎖中' : ''}</span>` : ''}</div>` +
+    (!B ? '<div class="empty">沒有 bluetoothctl</div>' : !B.available ? `<div class="empty">${esc(B.note)}</div>` :
+    (B.devices.length ? `<table><thead><tr><th style="width:40%">裝置</th><th>類型</th><th style="width:90px">狀態</th><th style="width:70px">電量</th></tr></thead><tbody>` +
+      B.devices.map(d => `<tr><td><b>${esc(d.name)}</b><div class="sub1 mono">${esc(d.mac)}</div></td><td class="sub1">${dash(d.icon)}</td><td>${d.connected ? '<span class="tag ok">已連線</span>' : '<span class="tag">已配對</span>'}</td><td>${d.battery == null ? '<span class="sub1">—</span>' : d.battery + ' %'}</td></tr>`).join('') + `</tbody></table><div class="sub1" style="margin-top:8px">電量只有裝置透過 BLE 回報時才有，顯示「—」表示該裝置沒回報。</div>` : '<div class="empty">沒有已配對的裝置</div>')) + `</div>`;
   const sens = `<div class="panel"><div class="panel-h"><h2>感測器</h2></div><div id="hwSensors"><div class="empty">讀取中…</div></div></div>`;
   const usb = `<div class="panel"><div class="panel-h"><h2>USB</h2><span class="sub">${j.usb ? j.usb.length + ' 個裝置' : '—'}</span></div>${j.usb ? `<pre class="raw">${esc(j.usb.map(l => l.replace(/^Bus \d+ Device \d+: ID /, '')).join('\n'))}</pre>` : '<div class="empty">lsusb 不可用</div>'}</div>`;
   const pci = `<div class="panel"><div class="panel-h"><h2>PCI</h2><span class="sub">${j.pci ? j.pci.length + ' 個裝置' : '—'}</span></div>${j.pci ? `<pre class="raw">${esc(j.pci.join('\n'))}</pre>` : '<div class="empty">lspci 不可用</div>'}</div>`;
-  $('#hw').innerHTML = sys + cpu + mem + dimm + gpu + disks + net + sens + usb + pci;
+  $('#hw').innerHTML = sys + cpu + mem + dimm + gpu + disks + net + bt + sens + usb + pci;
 }
+/* ---- 即時監控：儀表 + 折線（SVG 手繪，無外部庫）---- */
+const MON_MAX_POINTS = 60;                 // 5 秒一點 → 5 分鐘
+const C_LINE = '#3583d6', C_TX = '#c98416'; // 兩色已用 validate_palette 在深色底驗證通過
+hw.hist = {}; hw.prev = null;
+function pushHist(key, t, v) { const a = (hw.hist[key] ||= []); a.push([t, v]); if (a.length > MON_MAX_POINTS) a.shift(); }
+function sevColor(pct) { return pct >= 90 ? 'var(--danger)' : pct >= 75 ? 'var(--warn)' : 'var(--accent)'; }
+function arcPath(cx, cy, r, a0, a1) { // 角度：180=左端, 0=右端（半圓）
+  const p = a => [cx + r * Math.cos(Math.PI * a / 180), cy - r * Math.sin(Math.PI * a / 180)];
+  const [x0, y0] = p(a0), [x1, y1] = p(a1);
+  return `M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 ${(a0 - a1) > 180 ? 1 : 0} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+}
+function gaugeSvg(pct) {
+  const cx = 100, cy = 105, p = Math.max(0, Math.min(100, pct ?? 0));
+  const zone = (from, to, col) => `<path d="${arcPath(cx, cy, 92, 180 - from * 1.8, 180 - to * 1.8)}" stroke="${col}" stroke-width="6" fill="none" stroke-linecap="butt"/>`;
+  return `<svg viewBox="0 0 200 120">
+    ${zone(0, 75, 'var(--accent)')}${zone(75, 90, 'var(--warn)')}${zone(90, 100, 'var(--danger)')}
+    <path d="${arcPath(cx, cy, 72, 180, 0)}" stroke="#3a3f3c" stroke-width="18" fill="none"/>
+    ${p > 0 ? `<path d="${arcPath(cx, cy, 72, 180, 180 - p * 1.8)}" stroke="${sevColor(p)}" stroke-width="18" fill="none"/>` : ''}
+  </svg>`;
+}
+function sparkSvg(series, ymax, fmt) {
+  // series: [{key, color, data:[[t,v],...]}]；單一 y 軸、上緣標最大值、4 條淡格線、hover 十字線
+  const W = 400, H = 110, PAD = 4, n = Math.max(2, ...series.map(s => s.data.length));
+  const x = i => PAD + (W - 2 * PAD) * (n <= 1 ? 1 : i / (n - 1));
+  const y = v => H - PAD - (H - 2 * PAD) * (ymax > 0 ? Math.min(1, Math.max(0, v / ymax)) : 0);
+  let g = '';
+  for (let k = 1; k <= 4; k++) g += `<line x1="0" x2="${W}" y1="${(H * k / 4).toFixed(1)}" y2="${(H * k / 4).toFixed(1)}" stroke="#2c302e" stroke-width="1"/>`;
+  let paths = '';
+  for (const s of series) {
+    if (!s.data.length) continue;
+    const off = n - s.data.length;
+    const pts = s.data.map((d, i) => `${x(i + off).toFixed(1)},${y(d[1]).toFixed(1)}`).join(' ');
+    const first = `${x(off).toFixed(1)},${(H - PAD).toFixed(1)}`, last = `${x(n - 1).toFixed(1)},${(H - PAD).toFixed(1)}`;
+    paths += `<polygon points="${first} ${pts} ${last}" fill="${s.color}" opacity="0.18"/><polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round"/>`;
+  }
+  return `<div class="ymax">${esc(fmt(ymax))}</div><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}${paths}<line class="xh" x1="0" x2="0" y1="0" y2="${H}" stroke="#9aa19a" stroke-width="1" style="display:none"/></svg><div class="tip"></div>`;
+}
+function bindHover(el, series, fmt) {
+  const svg = el.querySelector('svg'), tip = el.querySelector('.tip'), xh = el.querySelector('.xh');
+  const n = Math.max(2, ...series.map(s => s.data.length));
+  el.onmousemove = e => {
+    const r = svg.getBoundingClientRect(); const fx = (e.clientX - r.left) / r.width; const i = Math.round(fx * (n - 1));
+    const rows = series.map(s => { const d = s.data[i - (n - s.data.length)]; return d ? `<span style="color:${s.color}">■</span> ${s.label ? s.label + ' ' : ''}${fmt(d[1])}` : null; }).filter(Boolean);
+    if (!rows.length) { tip.style.display = 'none'; xh.style.display = 'none'; return; }
+    const t = series.map(s => s.data[i - (n - s.data.length)]).find(Boolean)[0];
+    tip.innerHTML = `<div class="sub1">${new Date(t * 1000).toLocaleTimeString()}</div>${rows.join('<br>')}`;
+    tip.style.display = 'block'; tip.style.left = (fx * 100) + '%';
+    xh.setAttribute('x1', (fx * 400).toFixed(1)); xh.setAttribute('x2', (fx * 400).toFixed(1)); xh.style.display = 'block';
+  };
+  el.onmouseleave = () => { tip.style.display = 'none'; xh.style.display = 'none'; };
+}
+const fmtPct = v => v == null ? '—' : Math.round(v) + ' %';
+const fmtRate = v => v == null ? '—' : v >= 1048576 ? (v/1048576).toFixed(2) + ' MB/s' : v >= 1024 ? (v/1024).toFixed(1) + ' KB/s' : Math.round(v) + ' B/s';
+function monCard(id, title, sub, left, series, ymax, fmt, legend) {
+  return `<div class="mcard" id="mon-${id}"><h3>${esc(title)}${sub ? `<span>${esc(sub)}</span>` : ''}</h3>${left}<div class="spark" data-k="${id}">${sparkSvg(series, ymax, fmt)}</div>${legend ? `<div class="legend">${legend}</div>` : ''}</div>`;
+}
+function gaugeLeft(pct, hero, sub) { return `<div class="gauge">${gaugeSvg(pct)}<div class="hero"><b>${esc(hero)}</b></div><div class="sub">${esc(sub)}</div></div>`; }
+function kvRight(rows) { return `<dl class="kv" style="margin-top:0;grid-template-columns:90px 1fr">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`; }
+function tileLeft(hero, sub) { return `<div class="tile"><b>${esc(hero)}</b><span>${esc(sub)}</span></div>`; }
+
+function renderMon(j) {
+  const S = hw.static, t = j.epoch, prev = hw.prev, cards = [], hovers = [];
+  // 記憶體
+  const m = j.memory, used = m.total - m.available, mpct = used / m.total * 100;
+  pushHist('mem', t, used);
+  cards.push(monCard('mem', '系統記憶體', 'MemTotal − MemAvailable', gaugeLeft(mpct, GB(used), GB(m.total) + ' total'), [{key:'mem', color: C_LINE, data: hw.hist.mem}], m.total, GB));
+  hovers.push(['mem', [{color: C_LINE, data: hw.hist.mem}], GB]);
+  // CPU：兩次 /proc/stat 的差
+  let cpct = null;
+  if (prev && prev.cpu && j.cpu) { const dt = j.cpu.total - prev.cpu.total, di = j.cpu.idle - prev.cpu.idle; if (dt > 0) cpct = (1 - di / dt) * 100; }
+  if (cpct != null) pushHist('cpu', t, cpct);
+  cards.push(monCard('cpu', 'CPU 使用率', `${S.cpu ? S.cpu.cpus + ' 核' : ''} · 負載 ${j.load ? j.load.map(x => x.toFixed(2)).join(' ') : '—'}`, gaugeLeft(cpct, cpct == null ? '…' : fmtPct(cpct), cpct == null ? '等第二次取樣' : '所有核心平均'), [{color: C_LINE, data: hw.hist.cpu || []}], 100, fmtPct));
+  hovers.push(['cpu', [{color: C_LINE, data: hw.hist.cpu || []}], fmtPct]);
+  // GPU
+  if (j.gpu && S.gpu) {
+    const g = j.gpu;
+    if (g.util_pct != null) pushHist('gpu', t, g.util_pct);
+    cards.push(monCard('gpu', 'GPU 使用率', S.gpu.name, gaugeLeft(g.util_pct, fmtPct(g.util_pct), 'nvidia-smi utilization.gpu'), [{color: C_LINE, data: hw.hist.gpu || []}], 100, fmtPct));
+    hovers.push(['gpu', [{color: C_LINE, data: hw.hist.gpu || []}], fmtPct]);
+    if (g.temp_c != null) pushHist('temp', t, g.temp_c);
+    const tmax = S.gpu.throttle_temp_c || 100;
+    cards.push(monCard('temp', 'GPU 溫度', S.gpu.throttle_temp_c ? `降頻點約 ${S.gpu.throttle_temp_c} °C（刻度上限，由 tlimit 推算）` : '刻度上限 100 °C（未取得降頻點）', gaugeLeft(g.temp_c == null ? null : g.temp_c / tmax * 100, g.temp_c == null ? '—' : g.temp_c + ' °C', S.gpu.throttle_temp_c ? `距降頻 ${(S.gpu.throttle_temp_c - g.temp_c).toFixed(0)} °C` : ''), [{color: C_LINE, data: hw.hist.temp || []}], tmax, v => Math.round(v) + ' °C'));
+    hovers.push(['temp', [{color: C_LINE, data: hw.hist.temp || []}], v => v.toFixed(0) + ' °C']);
+    if (g.power_w != null) pushHist('power', t, g.power_w);
+    const ph = hw.hist.power || [], pmax = S.gpu.power_limit_w || Math.max(1, ...ph.map(d => d[1])) * 1.15;
+    cards.push(monCard('power', 'GPU 功耗', S.gpu.power_limit_w ? `上限 ${S.gpu.power_limit_w} W` : 'nvidia-smi 未提供功耗上限，不畫儀表；折線刻度為區間最大值', S.gpu.power_limit_w ? gaugeLeft(g.power_w / S.gpu.power_limit_w * 100, g.power_w.toFixed(1) + ' W', `上限 ${S.gpu.power_limit_w} W`) : tileLeft(g.power_w == null ? '—' : g.power_w.toFixed(1) + ' W', '目前功耗'), [{color: C_LINE, data: ph}], pmax, v => v.toFixed(1) + ' W'));
+    hovers.push(['power', [{color: C_LINE, data: ph}], v => v.toFixed(1) + ' W']);
+  }
+  // 磁碟
+  if (j.disk_root) { const d = j.disk_root, dused = d.total - d.free, dpct = dused / d.total * 100;
+    const efi = (S.disks || []).flatMap(x => x.partitions).find(p => p.mountpoints.includes('/boot/efi'));
+    cards.push(`<div class="mcard" id="mon-disk"><h3>磁碟 /<span>statvfs · 用量幾乎不變，不畫折線</span></h3>${gaugeLeft(dpct, GB(dused), GB(d.total) + ' total')}${kvRight([['已使用', `${GB(dused)}（${Math.round(dpct)}%）`], ['剩餘', GB(d.free)], ['裝置', (S.disks || []).map(x => x.name + ' · ' + x.model).join(', ') || '—'], ['/boot/efi', efi && efi.usage ? `${GB(efi.usage.total - efi.usage.free)} / ${GB(efi.usage.total)}` : '—']])}</div>`); }
+  // 網路：每個有 IPv4 且非虛擬的介面，rx/tx 速率
+  const ifs = (S.network || []).filter(n => n.kind !== 'virtual' && n.state === 'UP');
+  for (const n of ifs) {
+    const c = j.net[n.name]; if (!c) continue;
+    let rx = null, tx = null;
+    if (prev && prev.net[n.name]) { const dt = t - prev.epoch; if (dt > 0) { rx = (c.rx - prev.net[n.name].rx) / dt; tx = (c.tx - prev.net[n.name].tx) / dt; } }
+    if (rx != null) { pushHist('rx:' + n.name, t, rx); pushHist('tx:' + n.name, t, tx); }
+    const rs = hw.hist['rx:' + n.name] || [], ts = hw.hist['tx:' + n.name] || [];
+    const ymax = Math.max(1024, ...rs.map(d => d[1]), ...ts.map(d => d[1])) * 1.15;
+    const ser = [{label: '下行', color: C_LINE, data: rs}, {label: '上行', color: C_TX, data: ts}];
+    cards.push(monCard('net-' + n.name, `網路 ${n.name}`, `${n.kind} · ${n.ipv4.join(', ')} · 折線刻度為區間最大值`, tileLeft(rx == null ? '…' : '↓ ' + fmtRate(rx), rx == null ? '等第二次取樣' : '↑ ' + fmtRate(tx)), ser, ymax, fmtRate, `<span><i style="background:${C_LINE}"></i>下行 (rx)</span><span><i style="background:${C_TX}"></i>上行 (tx)</span>`));
+    hovers.push(['net-' + n.name, ser, fmtRate]);
+  }
+  $('#mon').innerHTML = cards.join('');
+  for (const [k, ser, fmt] of hovers) { const el = document.querySelector(`.spark[data-k="${k}"]`); if (el) bindHover(el, ser, fmt); }
+  $('#monNote').textContent = `每 5 秒取樣一次，折線保留最近 ${MON_MAX_POINTS} 點（約 5 分鐘）；歷史只存在這個頁面裡，離開硬體分頁就停止取樣，重新整理即清空。儀表外圈綠 / 橘 / 紅為 75% 與 90% 門檻。`;
+  hw.prev = j;
+}
+
 async function pollHw() {
   const j = await api('/api/hardware/live');
   if (!j.ok || !hw.static) return;
+  try { renderMon(j); } catch (e) { console.error(e); }
   const m = j.memory, used = m.total - m.available, pct = Math.round(used / m.total * 100);
   $('#hwMemUsed').textContent = GB(used) + ` (${pct}%)`;
   $('#hwSwap').textContent = GB(m.swap_total - m.swap_free);
