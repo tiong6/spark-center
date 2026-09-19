@@ -22,8 +22,10 @@ DGX Dashboard 的 Update 按鈕會一次升級全部套件（含 Chrome、ChatGP
   （先暖機 1 token 把載入時間隔開，再量 128 token；數字直接取自 Ollama 回應的 eval_count/eval_duration）。
   GPU 讀取改走 NVML（ctypes 開系統的 libnvidia-ml.so，不需 pip）：四項讀取 0.001 ms，nvidia-smi 子程序要 20 ms；
   降頻門檻用 NVML 的 slowdown threshold（這台是 86 °C），不再用 tlimit 推算。NVML 不可用時退回 nvidia-smi。
-- **硬體** 頂部是「USB-C 連接埠」示意：每個 xHCI 控制器一個孔，位置取自韌體 ACPI _PLD（Windows 裝置管理員同源），
-  顯示各孔接的裝置；韌體對同側兩孔沒標順序，所以插入裝置時對應的框會亮橘 6 秒供辨識。
+- **硬體** 頂部是「後面板」示意圖：USB-C ×4（最左為電源輸入）、HDMI、10GbE、QSFP（ConnectX-7）、Kensington，順序依 ServeTheHome 評測。
+  每個 USB-C 孔同時顯示 DP Alt Mode 輸出（xrandr 的 USB-C-0..3）與 USB 裝置（xHCI 控制器 NVDA8000:00..03）。
+  編號對應實體位置是推測；「校準孔位」：點一個孔、把裝置插進那個洞，偵測到新裝置就綁定，存在瀏覽器 localStorage。
+  韌體 ACPI _PLD 給的左/右標示也一併顯示。ConnectX-7 在這台 lspci 看不到，照實標「未見」。
 - **硬體**：類似 Windows 系統資訊／裝置管理員的靜態清單：系統、CPU、記憶體模組、GPU、儲存、網路、藍牙（bluetoothctl）、感測器、
   USB 樹（/sys/bus/usb 依 hub 層級掛樹，名稱缺的以 usb.ids 補並標示）、PCI。進入分頁抓一次，不輪詢。機型/BIOS（/sys DMI）、CPU（lscpu）、記憶體、GPU（nvidia-smi，含溫度/使用率/功耗每 5 秒更新）、
   儲存（lsblk＋statvfs 用量）、網路（ip -j）、hwmon 溫度、USB、PCI。主要來源不提權。

@@ -1069,6 +1069,71 @@ def usb_ports():
     return out
 
 
+def displays():
+    """xrandr 的輸出狀態。NVIDIA 驅動把四個 USB-C 的 DP Alt Mode 輸出命名為 USB-C-0..3、HDMI 為 HDMI-0。
+    需要 X session；拿不到回 None（例如沒登入桌面）。"""
+    env = dict(_ENV_C)
+    env.setdefault("DISPLAY", ":1")
+    xa = f"/run/user/{os.getuid()}/gdm/Xauthority"
+    if os.path.exists(xa):
+        env.setdefault("XAUTHORITY", xa)
+    try:
+        r = subprocess.run(["xrandr", "--query"], capture_output=True, text=True, timeout=5, env=env)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    out = {}
+    cur = None
+    for line in r.stdout.splitlines():
+        m = re.match(r"^(\S+) (connected|disconnected)(.*)$", line)
+        if m:
+            cur = m.group(1)
+            mode = re.search(r"(\d+x\d+)\+\d+\+\d+", m.group(3))
+            size = re.search(r"(\d+)mm x (\d+)mm", m.group(3))
+            out[cur] = {"connected": m.group(2) == "connected", "mode": mode.group(1) if mode else None,
+                        "primary": "primary" in m.group(3), "size_mm": [int(size.group(1)), int(size.group(2))] if size else None,
+                        "hz": None}
+        elif cur and out[cur]["connected"] and out[cur]["mode"] and line.startswith("   ") and "*" in line:
+            hz = re.search(r"([\d.]+)\*", line)
+            if hz:
+                out[cur]["hz"] = float(hz.group(1))
+    return out
+
+
+def rear_panel():
+    """後面板各孔的即時狀態。版面順序（左→右）依 ServeTheHome 評測：USB-C ×4（最左為 PD 電源輸入）、HDMI、10GbE、QSFP（ConnectX-7）。"""
+    ports = usb_ports()
+    ctrl_by_id = {p["controller"]: p for p in ports}
+    disp = displays() or {}
+    net = {}
+    for i in os.listdir("/sys/class/net"):
+        dev = f"/sys/class/net/{i}/device"
+        if not os.path.exists(dev):
+            continue
+        drv = os.path.basename(os.path.realpath(f"{dev}/driver")) if os.path.exists(f"{dev}/driver") else ""
+        net[i] = {"driver": drv, "state": _read(f"/sys/class/net/{i}/operstate"), "speed": _read(f"/sys/class/net/{i}/speed"),
+                  "carrier": _read(f"/sys/class/net/{i}/carrier")}
+    eth = next(((n, v) for n, v in net.items() if v["driver"].startswith("r81")), None)
+    mlx = [n for n, v in net.items() if v["driver"].startswith("mlx")]
+    mlx_pci = bool(_run(["lspci", "-d", "15b3:"], timeout=5))
+    usbc = []
+    for k in range(4):
+        ctrl = f"NVDA8000:0{k}"
+        c = ctrl_by_id.get(ctrl)
+        usbc.append({
+            "slot": k, "dp_output": f"USB-C-{k}", "display": disp.get(f"USB-C-{k}"),
+            "controller_guess": ctrl, "usb": c and {"devices": c["devices"], "location": c["location"]},
+        })
+    return {
+        "usbc": usbc, "hdmi": disp.get("HDMI-0"),
+        "eth10g": eth and {"iface": eth[0], **eth[1]},
+        "connectx7": {"pci_present": mlx_pci, "ifaces": mlx, "driver_loaded": os.path.isdir("/sys/module/mlx5_core")},
+        "controllers": ports, "displays_available": bool(disp),
+        "layout_source": "ServeTheHome 評測描述的後面板順序；USB-C 編號對應實體位置為推測，可用插入校準",
+    }
+
+
 def _list_cmd(cmd):
     out = _run(cmd, timeout=10)
     return out.strip().splitlines() if out else None
@@ -1446,6 +1511,11 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/hardware":
             try:
                 self._json({"ok": True, **hardware_static()})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/hardware/rear":
+            try:
+                self._json({"ok": True, **rear_panel(), "ts": time.time()})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/hardware/usbports":
