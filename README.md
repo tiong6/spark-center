@@ -65,6 +65,23 @@ flatpak 本機沒有 appstream 時只能給遠端 commit 的提交訊息，不�
 它取代不了 Dashboard 的 Spark OS 韌體 OTA（那段是 NVIDIA 閉源流程）。
 定位：日常軟體更新用這頁；清單裡出現 dgx-release / dgx-spark-ota-update-meta / linux-image-nvidia 這類 Spark OS 本體更新時，再用 Dashboard。
 
+## 桌面 App
+
+`app/spark-center.desktop` 會出現在應用程式選單（Spark Center），點開是 Chrome app 模式的獨立視窗（無網址列、獨立 profile、有自己的圖示與工作列項目）。
+DGX Dashboard 的啟動器其實只是 xdg-open 開瀏覽器分頁。安裝：
+
+```
+cp app/spark-center.desktop ~/.local/share/applications/
+for s in 256 128 64 48; do cp app/spark-center-$s.png ~/.local/share/icons/hicolor/${s}x${s}/apps/spark-center.png; done
+update-desktop-database ~/.local/share/applications
+```
+
+## 韌體（fwupd）
+
+更新分頁下方列出 fwupd 看到的每個韌體裝置：現在版本、LVFS 是否有新版、上次更新的歷史結果。
+「歷史說成功但版本不符」= Dashboard 回報成功但其實沒更新（論壇第 1 大抱怨的根因，USB-C PD 控制器韌體）。
+按鈕走 fwupdmgr（polkit 跳密碼），裝完不自動重開機。
+
 ## 安裝
 
 ```

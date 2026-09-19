@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Spark Center
+Comment=ASUS Ascent GX10 更新、監控、硬體、磁碟
+Exec=/home/tungyu6/Documents/Projects/Asus Ascend GX10/spark-center/app/spark-center-app
+Icon=spark-center
+Terminal=false
+Categories=System;Utility;
+StartupWMClass=SparkCenter
+Keywords=DGX;GX10;update;monitor;

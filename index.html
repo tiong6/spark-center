@@ -207,6 +207,7 @@
       </div>
       <div id="list"></div>
     </div>
+    <div class="panel" id="fwPanel"><div class="panel-h"><h2>韌體（fwupd）</h2><span class="sub" id="fwMeta">讀取中…</span><div class="actions"><button id="btnFwRefresh" class="small">向 LVFS 重新查詢</button><button id="btnFwUpdate" class="small primary hide">用 fwupd 更新韌體</button></div></div><div id="fw"></div></div>
   </section>
 
   <section id="tab-apps" class="hide">
@@ -347,7 +348,26 @@ function updateGo() {
   $('#btnGo').textContent = `檢查影響並更新 (${n})`;
   $('#btnGo').disabled = n === 0 || running; $('#btnRefresh').disabled = running;
 }
+/* ---- 韌體（fwupd）：Dashboard 說成功不算，以 fwupd 的版本與歷史為準 ---- */
+async function loadFirmware(force) {
+  const j = await api('/api/firmware' + (force ? '?force=1' : ''));
+  const box = $('#fw'); if (!box) return;
+  if (!j.ok || !j.available) { box.innerHTML = `<div class="empty">${esc(j.error || j.note || 'fwupd 不可用')}</div>`; return; }
+  $('#fwMeta').textContent = `fwupd ${j.fwupd_version || '—'} · ${j.devices.length} 個可更新裝置 · 可用更新 ${j.updates} · 版本對不上 ${j.mismatches} · 等重開機 ${j.pending} · 查詢於 ${j.generated.replace('T',' ')}`;
+  $('#btnFwUpdate').classList.toggle('hide', j.updates === 0);
+  const vis = j.devices.filter(d => !d.hidden), hid = j.devices.filter(d => d.hidden);
+  const row = d => { const last = d.history[0]; const st = d.mismatch ? '<span class="tag reboot">歷史說成功但版本不符</span>' : d.pending ? '<span class="tag sec">等重開機套用</span>' : d.update_available ? `<span class="tag sec">有新版 ${esc(d.latest)}</span>` : '<span class="tag ok">最新</span>';
+    return `<tr><td><b>${esc(d.name)}</b><div class="sub1">${esc(d.summary || d.plugin || '')}</div></td><td class="mono">${esc(d.version || '—')}</td><td>${st}</td><td class="sub1">${last ? `${esc(last.old || '?')} → ${esc(last.new || '?')}，${esc(last.state_zh)}${last.error ? '：' + esc(last.error) : ''}<br>${esc((last.when || '').replace('T',' '))}` : '—'}</td></tr>`; };
+  let html = `<table><thead><tr><th style="width:30%">裝置</th><th style="width:16%">現在版本</th><th style="width:20%">狀態</th><th>上次更新（fwupd 歷史）</th></tr></thead><tbody>${vis.map(row).join('')}</tbody></table>`;
+  if (hid.length) html += `<details style="margin-top:8px"><summary class="sub1">隱藏的 ${hid.length} 個（憑證、金鑰）</summary><table><tbody>${hid.map(row).join('')}</tbody></table></details>`;
+  html += `<div class="sub1" style="margin-top:8px">「版本對不上」= fwupd 歷史記錄該裝置升級成功、但現在讀到的版本不是那一版，這正是論壇上「Dashboard 說成功、其實沒更新」的情形。Dashboard 的更新迴圈多半由此而來。這裡的更新走 fwupdmgr（會跳密碼視窗），裝完不自動重開機，需重開的會標「等重開機套用」。</div>`;
+  box.innerHTML = html;
+}
+$('#btnFwRefresh').onclick = async () => { $('#fwMeta').textContent = '向 LVFS 查詢中…'; const r = await api('/api/disk/action', {action: 'fwupd_refresh'}); if (!r.ok) { alert(r.error); return; } startPolling('fwupd：重新整理 LVFS 中繼資料'); const w = setInterval(async () => { const jj = await api('/api/job'); if (jj.status !== 'running') { clearInterval(w); loadFirmware(true); } }, 1500); };
+$('#btnFwUpdate').onclick = async () => { if (!confirm('用 fwupdmgr 安裝所有可用韌體更新？桌面會跳密碼視窗。裝完不會自動重開機，需要重開的項目會標示出來，重開後回來看版本是否真的變了。')) return; const r = await api('/api/disk/action', {action: 'fwupd_update'}); if (!r.ok) { alert(r.error); return; } startPolling('fwupd：安裝韌體更新'); window.scrollTo({top: 0, behavior: 'smooth'}); };
+
 async function load() {
+  loadFirmware();
   const j = await api('/api/updates');
   if (!j.ok) { $('#list').innerHTML = `<div class="panel notice danger">讀取清單失敗：${esc(j.error)}</div>`; return; }
   const names = new Set(j.items.map(i => i.name));
@@ -402,7 +422,7 @@ async function pollJob() {
     $('#jobstatus').textContent = j.status === 'done' ? `完成（${j.finished}）` : `失敗：${j.error || '未知錯誤'}`;
     $('#jobactions').innerHTML = `<button id="jobClose">關閉</button>`;
     $('#jobClose').onclick = () => $('#jobcard').classList.add('hide');
-    state.apps = null; await load();
+    state.apps = null; await load(); loadFirmware(true);
     if (!$('#tab-apps').classList.contains('hide')) loadApps(true);
     if (!$('#tab-disk').classList.contains('hide')) loadDisk(true);
   }

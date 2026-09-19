@@ -269,6 +269,7 @@ class Job:
             self._log("EXCEPTION " + str(e))
         finally:
             _APPS_CACHE["ts"] = 0  # 讓應用程式清單重新掃描
+            _FW["ts"] = 0
 
     def _run(self, kind, packages):
         if kind == "shell":
@@ -2059,6 +2060,79 @@ def _disk_watch():
         time.sleep(600)
 
 
+# ---------- 韌體（fwupd）：不信 Dashboard 的回報，直接問 fwupd ----------
+# 論壇第 1 大抱怨的根因：Dashboard 說韌體更新成功，fwupdmgr 卻顯示「expected 0x507 got 0x500」。
+# 這裡把「現在版本」和「LVFS 最新版」與「歷史結果」並排，對不上就標出來。
+
+_FW = {"ts": 0, "data": None, "lock": threading.Lock()}
+FW_TTL = 600
+FW_STATE = {0: "未知", 1: "待處理（等重開機）", 2: "成功", 3: "失敗", 4: "需要重開機", 5: "重開後失敗", 6: "交易失敗"}
+DISK_ACTIONS.update({
+    "fwupd_refresh": ["fwupdmgr", "refresh", "--force"],
+    "fwupd_update": ["fwupdmgr", "update", "-y", "--no-reboot-check"],   # polkit 會跳密碼；裝完不自動重開
+})
+
+
+def _fw_json(args, timeout=90):
+    out = _run(["fwupdmgr"] + args + ["--json"], timeout=timeout)
+    if not out:
+        return None
+    try:
+        return json.loads(out)
+    except ValueError:
+        return None
+
+
+def fwupd_status(force=False):
+    with _FW["lock"]:
+        if not force and _FW["data"] and time.time() - _FW["ts"] < FW_TTL:
+            return _FW["data"]
+    if not _run(["which", "fwupdmgr"], timeout=3):
+        return {"available": False, "note": "沒有 fwupdmgr"}
+    devs = (_fw_json(["get-devices"]) or {}).get("Devices", [])
+    ups = (_fw_json(["get-updates"], timeout=120) or {}).get("Devices", [])
+    hist = (_fw_json(["get-history"]) or {}).get("Devices", [])
+    latest = {}   # DeviceId → 可升級的最新版本
+    for d in ups:
+        rels = d.get("Releases") or []
+        if rels:
+            latest[d.get("DeviceId")] = rels[0].get("Version")
+    hist_by = {}
+    for h in hist:
+        rel = (h.get("Releases") or [{}])[0]
+        hist_by.setdefault(h.get("DeviceId"), []).append({
+            "old": h.get("VersionOld") or h.get("Version"), "new": rel.get("Version"), "state": h.get("UpdateState"),
+            "state_zh": FW_STATE.get(h.get("UpdateState"), str(h.get("UpdateState"))), "error": h.get("UpdateError"),
+            "when": datetime.fromtimestamp(h["Modified"]).isoformat(timespec="minutes") if h.get("Modified") else None,
+            "summary": rel.get("Summary"), "urgency": rel.get("Urgency")})
+    rows = []
+    for d in devs:
+        flags = d.get("Flags") or []
+        if "updatable" not in flags and "updatable-hidden" not in flags:
+            continue
+        did = d.get("DeviceId")
+        cur = d.get("Version")
+        hs = hist_by.get(did, [])
+        last = hs[0] if hs else None
+        # 對不上：歷史說成功升到 X，但現在版本不是 X → 就是論壇那種「默默失敗」
+        mismatch = bool(last and last["state"] == 2 and last["new"] and cur and last["new"] != cur)
+        rows.append({
+            "id": did, "name": d.get("Name"), "version": cur, "plugin": d.get("Plugin"), "summary": d.get("Summary"),
+            "vendor": d.get("Vendor"), "latest": latest.get(did), "update_available": did in latest,
+            "needs_reboot": "needs-reboot" in flags, "internal": "internal" in flags, "hidden": "updatable-hidden" in flags,
+            "history": hs, "mismatch": mismatch,
+            "pending": bool(last and last["state"] in (1, 4)),
+        })
+    rows.sort(key=lambda r: (not r["mismatch"], not r["update_available"], r["hidden"], r["name"] or ""))
+    data = {"available": True, "devices": rows, "updates": sum(1 for r in rows if r["update_available"]),
+            "mismatches": sum(1 for r in rows if r["mismatch"]), "pending": sum(1 for r in rows if r["pending"]),
+            "generated": datetime.now().isoformat(timespec="seconds"),
+            "fwupd_version": (lambda v: (re.search(r"runtime\s+org\.freedesktop\.fwupd\s+(\S+)", v) or [None, None])[1])(_run(["fwupdmgr", "--version"], timeout=5) or "")}
+    with _FW["lock"]:
+        _FW.update(ts=time.time(), data=data)
+    return data
+
+
 # ---------- HTTP ----------
 
 class Handler(BaseHTTPRequestHandler):
@@ -2141,6 +2215,11 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/disk":
             try:
                 self._json({"ok": True, **disk_status(force="force=1" in (self.path.split("?", 1) + [""])[1])})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/firmware":
+            try:
+                self._json({"ok": True, **fwupd_status(force="force=1" in (self.path.split("?", 1) + [""])[1])})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/llm":
