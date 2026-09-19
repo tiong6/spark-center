@@ -714,7 +714,16 @@ function renderHwStatic() {
   };
   const usb = `<div class="panel" style="grid-column: 1 / -1"><div class="panel-h"><h2>USB 裝置</h2><span class="sub">${U ? `${U.total} 個節點（含 ${U.empty_roothubs} 個沒接東西的根集線器，已收起）· 來源 /sys/bus/usb${U.ids_file ? '＋usb.ids' : ''}` : '—'}</span></div>` +
     (U ? (U.roots.length ? `<div class="tree"><ul>${U.roots.map(usbNode).join('')}</ul></div>` : '<div class="empty">沒有接任何 USB 裝置</div>') : (j.usb ? `<pre class="raw">${esc(j.usb.join('\n'))}</pre>` : '<div class="empty">/sys/bus/usb 不可讀</div>')) + `</div>`;
-  const pci = `<div class="panel"><div class="panel-h"><h2>PCI</h2><span class="sub">${j.pci ? j.pci.length + ' 個裝置' : '—'}</span></div>${j.pci ? `<pre class="raw">${esc(j.pci.join('\n'))}</pre>` : '<div class="empty">lspci 不可用</div>'}</div>`;
+  const P = j.pci_devices;
+  const genLbl = (g, w) => g ? `PCIe ${g}.0 ×${w ?? '?'}` : '—';
+  const pci = `<div class="panel" style="grid-column: 1 / -1"><div class="panel-h"><h2>PCI 裝置</h2><span class="sub">${P ? `${P.devices.length} 個裝置 · ${P.bridges} 個橋接器已收起 · 來源 lspci＋/sys` : '—'}</span></div>` +
+    (P ? `<table><thead><tr><th style="width:26%">裝置</th><th style="width:16%">類型</th><th style="width:20%">連結（現在 / 上限）</th><th style="width:14%">頻寬</th><th style="width:12%">驅動</th><th>位址</th></tr></thead><tbody>` +
+      P.devices.map(d => { const down = d.cur_gen && d.max_gen && (d.cur_gen < d.max_gen || (d.cur_width || 0) < (d.max_width || 0)); const isGpu = d.kind === 'GPU';
+        return `<tr><td><b>${esc(d.friendly)}</b><div class="sub1 mono" style="font-size:11px">${esc(d.vid)}:${esc(d.did)}${d.subsystem ? ' · ' + esc(d.subsystem) : ''}</div></td><td>${esc(d.kind)}</td><td class="mono" style="font-size:12px">${genLbl(d.cur_gen, d.cur_width)}<span class="sub1"> / ${genLbl(d.max_gen, d.max_width)}</span>${isGpu ? '<div class="sub1">SoC 內建，PCIe 數字不代表實際頻寬（走晶片內部互連）</div>' : down ? '<div class="sub1" style="color:var(--warn)">低於上限（閒置時會降速，正常）</div>' : ''}</td><td class="sub1">${d.cur_gbps != null && !isGpu ? `${d.cur_gbps} GB/s` : '—'}</td><td class="mono" style="font-size:12px">${esc(d.driver || '無')}</td><td class="mono sub1" style="font-size:11px">${esc(d.slot)}</td></tr>`; }).join('') +
+      `</tbody></table>` +
+      (P.empty_ports.length ? `<div class="sub1" style="margin-top:10px">另有 ${P.empty_ports.length} 個根埠底下沒接任何裝置：${P.empty_ports.map(e => `${esc(e.slot)}（上限 ${genLbl(e.max_gen, e.max_width)}）`).join('、')}。${P.empty_ports.some(e => e.max_gen === 5 && e.max_width === 4) ? '兩個 Gen5 ×4 空埠正是 ConnectX-7 網卡在 DGX Spark 上的接法（兩條 Gen5 ×4），本機這位置沒有裝置。' : ''}</div>` : '') +
+      `<details style="margin-top:8px"><summary class="sub1">lspci 原始輸出</summary><pre class="raw">${esc((j.pci || []).join('\n'))}</pre></details>`
+    : (j.pci ? `<pre class="raw">${esc(j.pci.join('\n'))}</pre>` : '<div class="empty">lspci 不可用</div>')) + `</div>`;
   $('#hw').innerHTML = sys + cpu + mem + dimm + gpu + disks + nvmeHtml + net + bt + sens + usb + pci;
 }
 /* ---- 即時監控：儀表 + 折線（SVG 手繪，無外部庫）---- */

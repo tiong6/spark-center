@@ -1210,6 +1210,57 @@ def rear_panel():
     }
 
 
+# ---------- PCI 裝置（人看的版本：橋接器收掉、連結速度、驅動、友善名稱）----------
+
+PCI_GEN = {"2.5": 1, "5.0": 2, "8.0": 3, "16.0": 4, "32.0": 5, "64.0": 6}
+PCI_LANE_GBPS = {1: 0.25, 2: 0.5, 3: 0.985, 4: 1.969, 5: 3.938, 6: 7.563}  # 每通道 GB/s（扣編碼後）
+PCI_FRIENDLY = {  # vendor:device → (類型, 友善名稱)
+    "1987:5027": ("NVMe SSD", "Phison PS5027-E27T 控制器（系統碟）"),
+    "10ec:8127": ("10GbE 網路", "Realtek RTL8127 10 Gb 乙太網路"),
+    "14c3:7925": ("Wi-Fi 7 / 藍牙", "MediaTek MT7925（AzureWave 模組）"),
+    "10de:2e12": ("GPU", "NVIDIA GB10 Blackwell 顯示核心"),
+}
+PCI_CLASS_ZH = {"01": "儲存控制器", "02": "網路", "03": "顯示", "04": "多媒體", "06": "橋接", "0c": "序列匯流排", "10": "加密", "12": "處理加速"}
+
+
+def _pci_devices():
+    out = _run(["lspci", "-mm", "-nn"], timeout=10)
+    if not out:
+        return None
+    devs, bridges = [], []
+    for line in out.splitlines():
+        # 格式：slot "class [xxxx]" "vendor [vvvv]" "device [dddd]" -rXX -pXX "subv" "subd"
+        m = re.match(r'^(\S+) "([^"]*) \[([0-9a-f]{4})\]" "([^"]*) \[([0-9a-f]{4})\]" "([^"]*) \[([0-9a-f]{4})\]"(.*)$', line)
+        if not m:
+            continue
+        slot, cls_name, cls, ven_name, vid, dev_name, did, rest = m.groups()
+        if not re.match(r"^[0-9a-f]{4}:", slot):
+            slot = "0000:" + slot
+        sub = re.findall(r'"([^"]*)"', rest)
+        sysd = f"/sys/bus/pci/devices/{slot}"
+        rd = lambda k: (_read(os.path.join(sysd, k)) or "").strip()
+        cur_s, cur_w, max_s, max_w = rd("current_link_speed"), rd("current_link_width"), rd("max_link_speed"), rd("max_link_width")
+        gen = lambda v: PCI_GEN.get(re.sub(r" GT/s.*", "", v)) if v else None
+        cur_gen, max_gen = gen(cur_s), gen(max_s)
+        width = lambda v: int(v) if v.isdigit() else None
+        cw, mw = width(cur_w), width(max_w)
+        drv = os.path.basename(os.path.realpath(os.path.join(sysd, "driver"))) if os.path.islink(os.path.join(sysd, "driver")) else None
+        key = f"{vid}:{did}"
+        kind, friendly = PCI_FRIENDLY.get(key, (PCI_CLASS_ZH.get(cls[:2], cls_name), f"{ven_name} {dev_name}".strip()))
+        rec = {"slot": slot, "class": cls, "class_name": cls_name, "vendor": ven_name, "vid": vid, "did": did, "device": dev_name,
+               "subsystem": (sub[0] + " " + sub[1]).strip() if len(sub) >= 2 else None,
+               "kind": kind, "friendly": friendly, "driver": drv,
+               "cur_gen": cur_gen, "cur_width": cw, "max_gen": max_gen, "max_width": mw,
+               "cur_gbps": round(PCI_LANE_GBPS.get(cur_gen, 0) * (cw or 0), 2) if cur_gen and cw else None,
+               "max_gbps": round(PCI_LANE_GBPS.get(max_gen, 0) * (mw or 0), 2) if max_gen and mw else None}
+        (bridges if cls.startswith("06") else devs).append(rec)
+    # 空的根埠：橋接器底下沒有任何端點裝置（ConnectX-7 應該在這裡）
+    used_domains = {d["slot"].split(":")[0] for d in devs}
+    empty = [b for b in bridges if b["slot"].split(":")[0] not in used_domains]
+    return {"devices": devs, "bridges": len(bridges),
+            "empty_ports": [{"slot": b["slot"], "max_gen": b["max_gen"], "max_width": b["max_width"]} for b in empty]}
+
+
 def _list_cmd(cmd):
     out = _run(cmd, timeout=10)
     return out.strip().splitlines() if out else None
@@ -1404,6 +1455,7 @@ def hardware_static():
         "usb": _list_cmd(["lsusb"]),
         "usb_tree": _usb_tree(),
         "pci": _list_cmd(["lspci"]),
+        "pci_devices": _pci_devices(),
         "generated": datetime.now().isoformat(timespec="seconds"),
     }
     _HW_CACHE.update(ts=time.time(), data=data)
