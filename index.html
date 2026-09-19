@@ -79,6 +79,16 @@
   .chg { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
   .chg .extra { color: var(--warn); } .chg .rm { color: var(--danger); }
   .hide { display: none !important; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; }
+  .grid .panel { margin: 0; }
+  .kv { display: grid; grid-template-columns: 130px 1fr; gap: 6px 14px; margin-top: 12px; font-size: 14px; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; overflow-wrap: anywhere; }
+  .meter { height: 8px; background: #0f1110; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; margin-top: 4px; }
+  .meter i { display: block; height: 100%; background: var(--accent); }
+  .meter.warn i { background: var(--warn); } .meter.hot i { background: var(--danger); }
+  .stat { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 12px; }
+  .stat div { min-width: 90px; } .stat b { font-size: 22px; display: block; line-height: 1.1; } .stat span { color: var(--muted); font-size: 12px; }
+  pre.raw { background: #0f1110; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 12px; max-height: 260px; overflow: auto; margin: 10px 0 0; white-space: pre-wrap; color: #c9cfc9; }
   @media (max-width: 720px) { main { padding: 28px 16px 60px; } h1 { font-size: 24px; } .col-opt { display: none; } }
 </style>
 </head>
@@ -95,6 +105,7 @@
       <a data-tab="updates" class="active">更新<span id="dotUpd" class="dot hide"></span></a>
       <a data-tab="apps">應用程式<span id="dotApps" class="dot hide"></span></a>
       <a data-tab="history">歷史</a>
+      <a data-tab="hardware">硬體</a>
     </nav>
   </div>
 
@@ -144,6 +155,11 @@
     </div>
   </section>
 
+  <section id="tab-hardware" class="hide">
+    <div id="hwNote" class="sub1" style="margin:-8px 0 14px"></div>
+    <div id="hw" class="grid"><div class="panel"><div class="empty">讀取中…</div></div></div>
+  </section>
+
   <section id="tab-history" class="hide">
     <div class="panel">
       <div class="panel-h"><h2>apt 歷史</h2><span class="sub">來源：/var/log/apt/history.log，最近 8 筆</span></div>
@@ -163,7 +179,7 @@
 <script>
 const $ = s => document.querySelector(s);
 const state = { items: [], selected: new Set(), job: null, polling: null, apps: null, src: 'all', q: '' };
-const TITLES = { updates: '更新', apps: '應用程式', history: '歷史' };
+const TITLES = { updates: '更新', apps: '應用程式', history: '歷史', hardware: '硬體' };
 const fmtBytes = b => b == null ? '—' : b < 1048576 ? (b/1024).toFixed(0)+' KB' : (b/1048576).toFixed(1)+' MB';
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
@@ -181,6 +197,7 @@ function showTab(t) {
   history.replaceState(null, '', '#' + t);
   if (t === 'apps' && !state.apps) loadApps();
   if (t === 'history') loadHistory();
+  if (t === 'hardware') startHw(); else stopHw();
 }
 document.querySelectorAll('nav.tabs a').forEach(a => a.onclick = () => showTab(a.dataset.tab));
 
@@ -348,6 +365,87 @@ async function loadHistory() {
     html += `<tr><td class="mono">${esc(e.start)}</td><td>${who}</td><td>${badges}</td><td>${shown}${more}</td></tr>`;
   }
   $('#hist').innerHTML = html + `</tbody></table>`;
+}
+
+/* ---- 硬體分頁 ---- */
+const GB = b => b == null ? '—' : (b / 1073741824).toFixed(1) + ' GB';
+const dash = v => (v === null || v === undefined || v === '') ? '—' : esc(v);
+const hw = { static: null, timer: null };
+function meter(pct, warnAt=80, hotAt=92) {
+  if (pct == null) return '';
+  const cls = pct >= hotAt ? 'hot' : pct >= warnAt ? 'warn' : '';
+  return `<div class="meter ${cls}"><i style="width:${Math.min(100, Math.max(0, pct))}%"></i></div>`;
+}
+function fmtUptime(s) { if (s == null) return '—'; const d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60); return (d?`${d} 天 `:'') + `${h} 小時 ${m} 分`; }
+async function startHw() {
+  if (!hw.static) {
+    const j = await api('/api/hardware');
+    if (!j.ok) { $('#hw').innerHTML = `<div class="panel notice danger">讀取失敗：${esc(j.error)}</div>`; return; }
+    hw.static = j; renderHwStatic();
+  }
+  stopHw(); pollHw(); hw.timer = setInterval(pollHw, 5000);
+}
+function stopHw() { if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } }
+function renderHwStatic() {
+  const j = hw.static, S = j.system, C = j.cpu, G = j.gpu;
+  $('#hwNote').textContent = `資料來源：/sys DMI、lscpu、nvidia-smi、lsblk、ip、lsusb、lspci、hwmon，全部不提權。${S.serial_note}。靜態資料快取 60 秒，動態數值每 5 秒更新。`;
+  const sys = `<div class="panel"><div class="panel-h"><h2>系統</h2></div><dl class="kv">
+    <dt>機型</dt><dd>${dash(S.sys_vendor)} ${dash(S.product_name)}<div class="sub1">${dash(S.product_version)}</div></dd>
+    <dt>主機板</dt><dd>${dash(S.board_vendor)} ${dash(S.board_name)}</dd>
+    <dt>BIOS</dt><dd>${dash(S.bios_version)}<div class="sub1">${dash(S.bios_vendor)} · ${dash(S.bios_date)}</div></dd>
+    <dt>作業系統</dt><dd>${dash(S.os)}<div class="sub1">DGX OS ${dash(S.dgx_release)} · Dashboard ${dash(S.dgx_dashboard)}</div></dd>
+    <dt>核心</dt><dd class="mono">${dash(S.kernel)}</dd>
+    <dt>主機名稱</dt><dd>${dash(S.hostname)}</dd>
+    <dt>開機時間</dt><dd id="hwUptime">—</dd>
+    <dt>負載</dt><dd id="hwLoad" class="mono">—</dd></dl></div>`;
+  const cpu = C ? `<div class="panel"><div class="panel-h"><h2>處理器</h2></div><dl class="kv">
+    <dt>架構</dt><dd>${dash(C.architecture)} · ${dash(C.vendor)}</dd>
+    <dt>核心數</dt><dd>${dash(C.cpus)}</dd>
+    ${C.clusters.map(k => `<dt>${esc(k.model)}</dt><dd>${dash(k.cores)} 核 · 最高 ${k.max_mhz ? (parseFloat(k.max_mhz)/1000).toFixed(2)+' GHz' : '—'}</dd>`).join('')}
+    <dt>L2 / L3</dt><dd>${dash(C.l2)} / ${dash(C.l3)}</dd></dl></div>` : `<div class="panel"><h2>處理器</h2><div class="empty">lscpu 不可用</div></div>`;
+  const mem = `<div class="panel"><div class="panel-h"><h2>記憶體</h2></div>
+    <div class="stat"><div><b id="hwMemUsed">—</b><span>已使用</span></div><div><b>${GB(j.memory.total)}</b><span>總量</span></div><div><b id="hwSwap">—</b><span>swap 使用 / ${GB(j.memory.swap_total)}</span></div></div>
+    <div id="hwMemMeter"></div>
+    ${G && G.unified_memory ? `<div class="sub1" style="margin-top:8px">GB10 是統一記憶體架構，GPU 與 CPU 共用這塊記憶體，nvidia-smi 不會回報獨立的顯示記憶體。</div>` : ''}</div>`;
+  const gpu = G ? `<div class="panel"><div class="panel-h"><h2>GPU</h2></div><dl class="kv">
+    <dt>型號</dt><dd>${dash(G.name)}</dd>
+    <dt>驅動 / CUDA</dt><dd>${dash(G.driver)} / ${dash(G.cuda)}</dd>
+    <dt>VBIOS</dt><dd class="mono">${dash(G.vbios)}</dd>
+    <dt>PCI</dt><dd class="mono">${dash(G.bus)}</dd>
+    <dt>SM 時脈上限</dt><dd>${dash(G.max_sm_mhz)}</dd></dl>
+    <div class="stat"><div><b id="gpuTemp">—</b><span>溫度</span></div><div><b id="gpuUtil">—</b><span>使用率</span></div><div><b id="gpuPower">—</b><span>功耗</span></div><div><b id="gpuClk">—</b><span>SM 時脈</span></div></div>
+    <div id="gpuMeter"></div></div>` : `<div class="panel"><h2>GPU</h2><div class="empty">nvidia-smi 不可用</div></div>`;
+  const disks = `<div class="panel"><div class="panel-h"><h2>儲存</h2></div>` + (j.disks ? j.disks.map(d => `
+    <dl class="kv"><dt>${esc(d.name)}</dt><dd>${dash(d.model)}<div class="sub1">${GB(d.size)} · ${d.transport ? esc(d.transport.toUpperCase()) : '—'} · ${d.rotational ? 'HDD' : 'SSD'}</div></dd></dl>
+    ${d.partitions.filter(p => p.usage).map(p => { const u = p.usage, pct = Math.round((u.total - u.free) / u.total * 100); return `
+      <div style="margin-top:10px"><span class="mono">${esc(p.name)}</span> <span class="sub1">${p.mountpoints.join(', ')} · ${esc(p.fstype||'')} · 已用 ${GB(u.total - u.free)} / ${GB(u.total)}（${pct}%）</span>${meter(pct, 85, 95)}</div>`; }).join('')}`).join('') : '<div class="empty">lsblk 不可用</div>') + `</div>`;
+  const net = `<div class="panel"><div class="panel-h"><h2>網路</h2></div>` + (j.network ? `<table><thead><tr><th style="width:34%">介面</th><th style="width:70px">狀態</th><th>位址</th><th style="width:80px">速率</th></tr></thead><tbody>` +
+    j.network.filter(n => n.kind !== 'virtual' || n.ipv4.length).map(n => `<tr><td class="mono">${esc(n.name)}<span class="tag">${n.kind}</span><div class="sub1">${dash(n.mac)}</div></td><td><span class="tag ${n.state==='UP'?'ok':''}">${dash(n.state)}</span></td><td class="mono">${n.ipv4.map(esc).join('<br>') || '—'}</td><td class="sub1">${n.speed_mbps ? (n.speed_mbps >= 1000 ? n.speed_mbps/1000 + ' Gb/s' : n.speed_mbps + ' Mb/s') : '—'}</td></tr>`).join('') + `</tbody></table><div class="sub1" style="margin-top:8px">Wi-Fi 與未連線的介面不回報速率，顯示「—」。</div>` : '<div class="empty">ip 不可用</div>') + `</div>`;
+  const sens = `<div class="panel"><div class="panel-h"><h2>感測器</h2></div><div id="hwSensors"><div class="empty">讀取中…</div></div></div>`;
+  const usb = `<div class="panel"><div class="panel-h"><h2>USB</h2><span class="sub">${j.usb ? j.usb.length + ' 個裝置' : '—'}</span></div>${j.usb ? `<pre class="raw">${esc(j.usb.map(l => l.replace(/^Bus \d+ Device \d+: ID /, '')).join('\n'))}</pre>` : '<div class="empty">lsusb 不可用</div>'}</div>`;
+  const pci = `<div class="panel"><div class="panel-h"><h2>PCI</h2><span class="sub">${j.pci ? j.pci.length + ' 個裝置' : '—'}</span></div>${j.pci ? `<pre class="raw">${esc(j.pci.join('\n'))}</pre>` : '<div class="empty">lspci 不可用</div>'}</div>`;
+  $('#hw').innerHTML = sys + cpu + mem + gpu + disks + net + sens + usb + pci;
+}
+async function pollHw() {
+  const j = await api('/api/hardware/live');
+  if (!j.ok || !hw.static) return;
+  const m = j.memory, used = m.total - m.available, pct = Math.round(used / m.total * 100);
+  $('#hwMemUsed').textContent = GB(used) + ` (${pct}%)`;
+  $('#hwSwap').textContent = GB(m.swap_total - m.swap_free);
+  $('#hwMemMeter').innerHTML = meter(pct);
+  $('#hwUptime').textContent = fmtUptime(j.uptime_s);
+  $('#hwLoad').textContent = j.load ? j.load.map(x => x.toFixed(2)).join('  ') : '—';
+  if (j.gpu && hw.static.gpu) {
+    const g = j.gpu;
+    $('#gpuTemp').textContent = g.temp_c == null ? '—' : g.temp_c + ' °C';
+    $('#gpuUtil').textContent = g.util_pct == null ? '—' : g.util_pct + ' %';
+    $('#gpuPower').textContent = g.power_w == null ? '—' : g.power_w.toFixed(1) + ' W';
+    $('#gpuClk').textContent = g.sm_mhz == null ? '—' : g.sm_mhz + ' MHz';
+    $('#gpuMeter').innerHTML = meter(g.util_pct);
+  }
+  const sens = j.sensors || [];
+  $('#hwSensors').innerHTML = sens.length ? `<table><thead><tr><th style="width:30%">晶片</th><th>感測點</th><th style="width:90px">溫度</th></tr></thead><tbody>` +
+    sens.map(s => `<tr><td class="mono">${esc(s.chip)}</td><td>${esc(s.label)}</td><td class="mono" style="color:${s.temp_c >= 85 ? 'var(--danger)' : s.temp_c >= 70 ? 'var(--warn)' : 'inherit'}">${s.temp_c.toFixed(1)} °C</td></tr>`).join('') + `</tbody></table>` : `<div class="empty">hwmon 沒有溫度感測點</div>`;
 }
 
 (async () => {

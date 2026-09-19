@@ -612,6 +612,222 @@ def get_changelog(source, ident, installed_version=""):
     return res
 
 
+# ---------- 硬體資訊（全部免 root；拿不到的欄位回 None，前端顯示「—」）----------
+
+DMI_DIR = "/sys/devices/virtual/dmi/id"
+DMI_FIELDS = ("sys_vendor", "product_name", "product_version", "board_vendor", "board_name",
+              "bios_vendor", "bios_version", "bios_date")
+
+
+def _read(path, default=None):
+    try:
+        with open(path, errors="replace") as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def _meminfo():
+    d = {}
+    for line in (_read("/proc/meminfo") or "").splitlines():
+        k, _, v = line.partition(":")
+        d[k.strip()] = int(v.strip().split()[0]) * 1024 if v.strip() else 0
+    return d
+
+
+def _os_release():
+    d = {}
+    for line in (_read("/etc/os-release") or "").splitlines():
+        k, _, v = line.partition("=")
+        d[k] = v.strip('"')
+    return d
+
+
+def _dpkg_version(pkg):
+    out = _run(["dpkg-query", "-W", "-f=${Version}", pkg], timeout=5)
+    return out.strip() if out else None
+
+
+def _lscpu():
+    out = _run(["lscpu", "-J"], timeout=10)
+    if not out:
+        return None
+    try:
+        rows = json.loads(out)["lscpu"]
+    except (ValueError, KeyError):
+        return None
+    flat = []
+    def walk(items):
+        for it in items:
+            flat.append((it.get("field", "").rstrip(":"), it.get("data", "")))
+            if it.get("children"):
+                walk(it["children"])
+    walk(rows)
+    get = lambda k: next((v for f, v in flat if f == k), None)
+    # big.LITTLE 會有多個 Model name，各自帶核心數與最高時脈
+    clusters, cur = [], None
+    for f, v in flat:
+        if f == "Model name":
+            cur = {"model": v, "cores": None, "max_mhz": None}
+            clusters.append(cur)
+        elif cur and f == "Core(s) per socket" and cur["cores"] is None:
+            cur["cores"] = v
+        elif cur and f == "CPU max MHz" and cur["max_mhz"] is None:
+            cur["max_mhz"] = v
+    return {
+        "architecture": get("Architecture"),
+        "cpus": get("CPU(s)"),
+        "vendor": get("Vendor ID"),
+        "clusters": clusters,
+        "l2": get("L2 cache"), "l3": get("L3 cache"),
+    }
+
+
+def _gpu_static():
+    out = _run(["nvidia-smi", "--query-gpu=name,driver_version,vbios_version,pci.bus_id,clocks.max.sm,memory.total",
+                "--format=csv,noheader"], timeout=10)
+    if not out:
+        return None
+    parts = [x.strip() for x in out.strip().splitlines()[0].split(",")]
+    cuda = None
+    head = _run(["nvidia-smi"], timeout=10) or ""
+    m = re.search(r"CUDA Version:\s*([\d.]+)", head)
+    if m:
+        cuda = m.group(1)
+    mem_total = None if parts[5].startswith("[") else parts[5]
+    return {"name": parts[0], "driver": parts[1], "vbios": parts[2], "bus": parts[3],
+            "max_sm_mhz": parts[4], "memory_total": mem_total, "cuda": cuda,
+            "unified_memory": mem_total is None}
+
+
+def _gpu_live():
+    out = _run(["nvidia-smi", "--query-gpu=temperature.gpu,utilization.gpu,power.draw,clocks.sm,memory.used",
+                "--format=csv,noheader,nounits"], timeout=10)
+    if not out:
+        return None
+    p = [x.strip() for x in out.strip().splitlines()[0].split(",")]
+    num = lambda x: None if x.startswith("[") or x == "" else float(x)
+    return {"temp_c": num(p[0]), "util_pct": num(p[1]), "power_w": num(p[2]), "sm_mhz": num(p[3]), "memory_used": num(p[4])}
+
+
+def _disks():
+    out = _run(["lsblk", "-J", "-b", "-o", "NAME,SIZE,TYPE,MODEL,ROTA,TRAN,FSTYPE,MOUNTPOINTS"], timeout=10)
+    if not out:
+        return None
+    try:
+        devs = json.loads(out)["blockdevices"]
+    except (ValueError, KeyError):
+        return None
+    disks = []
+    for d in devs:
+        if d.get("type") != "disk":
+            continue
+        parts = []
+        for c in d.get("children") or []:
+            mps = [m for m in (c.get("mountpoints") or []) if m]
+            usage = None
+            if mps:
+                try:
+                    st = os.statvfs(mps[0])
+                    usage = {"total": st.f_blocks * st.f_frsize, "free": st.f_bavail * st.f_frsize}
+                except OSError:
+                    pass
+            parts.append({"name": c["name"], "size": c.get("size"), "fstype": c.get("fstype"), "mountpoints": mps, "usage": usage})
+        disks.append({"name": d["name"], "size": d.get("size"), "model": (d.get("model") or "").strip(),
+                      "rotational": bool(d.get("rota")), "transport": d.get("tran"), "partitions": parts})
+    return disks
+
+
+def _network():
+    out = _run(["ip", "-j", "addr"], timeout=10)
+    if not out:
+        return None
+    try:
+        ifs = json.loads(out)
+    except ValueError:
+        return None
+    res = []
+    for i in ifs:
+        name = i.get("ifname", "")
+        if name == "lo":
+            continue
+        speed = _read(f"/sys/class/net/{name}/speed")
+        kind = "wifi" if os.path.isdir(f"/sys/class/net/{name}/wireless") else \
+               "virtual" if os.path.islink(f"/sys/class/net/{name}/device") is False and not os.path.exists(f"/sys/class/net/{name}/device") else "ethernet"
+        res.append({
+            "name": name, "state": i.get("operstate"), "mac": i.get("address"),
+            "ipv4": [a["local"] for a in i.get("addr_info", []) if a.get("family") == "inet"],
+            "ipv6": [a["local"] for a in i.get("addr_info", []) if a.get("family") == "inet6" and a.get("scope") == "global"],
+            "speed_mbps": int(speed) if speed and speed.lstrip("-").isdigit() and int(speed) > 0 else None,
+            "kind": kind, "mtu": i.get("mtu"),
+        })
+    return res
+
+
+def _sensors():
+    res = []
+    for h in sorted(glob.glob("/sys/class/hwmon/hwmon*")):
+        chip = _read(os.path.join(h, "name"), "?")
+        for t in sorted(glob.glob(os.path.join(h, "temp*_input"))):
+            v = _read(t)
+            if not v or not v.lstrip("-").isdigit():
+                continue
+            label = _read(t.replace("_input", "_label"), "") or os.path.basename(t).replace("_input", "")
+            res.append({"chip": chip, "label": label, "temp_c": int(v) / 1000})
+    return res
+
+
+def _list_cmd(cmd):
+    out = _run(cmd, timeout=10)
+    return out.strip().splitlines() if out else None
+
+
+_HW_CACHE = {"ts": 0, "data": None}
+
+
+def hardware_static():
+    if _HW_CACHE["data"] and time.time() - _HW_CACHE["ts"] < 60:
+        return _HW_CACHE["data"]
+    osr = _os_release()
+    mem = _meminfo()
+    data = {
+        "system": {
+            **{k: _read(os.path.join(DMI_DIR, k)) for k in DMI_FIELDS},
+            "hostname": _read("/etc/hostname"),
+            "os": osr.get("PRETTY_NAME"),
+            "kernel": (_run(["uname", "-r"], timeout=5) or "").strip() or None,
+            "dgx_release": _dpkg_version("dgx-release"),
+            "dgx_dashboard": _dpkg_version("dgx-dashboard"),
+            "serial_note": "序號與主機板細節需要 root（dmidecode），本工具不提權，故不顯示",
+        },
+        "cpu": _lscpu(),
+        "memory": {"total": mem.get("MemTotal"), "swap_total": mem.get("SwapTotal")},
+        "gpu": _gpu_static(),
+        "disks": _disks(),
+        "network": _network(),
+        "usb": _list_cmd(["lsusb"]),
+        "pci": _list_cmd(["lspci"]),
+        "generated": datetime.now().isoformat(timespec="seconds"),
+    }
+    _HW_CACHE.update(ts=time.time(), data=data)
+    return data
+
+
+def hardware_live():
+    mem = _meminfo()
+    load = (_read("/proc/loadavg") or "").split()[:3]
+    up = _read("/proc/uptime")
+    return {
+        "memory": {"total": mem.get("MemTotal"), "available": mem.get("MemAvailable"),
+                   "swap_total": mem.get("SwapTotal"), "swap_free": mem.get("SwapFree")},
+        "load": [float(x) for x in load] if len(load) == 3 else None,
+        "uptime_s": float(up.split()[0]) if up else None,
+        "gpu": _gpu_live(),
+        "sensors": _sensors(),
+        "ts": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
 # ---------- HTTP ----------
 
 class Handler(BaseHTTPRequestHandler):
@@ -666,6 +882,16 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "entries": apt_history()})
         elif path == "/api/reboot":
             self._json(reboot_status())
+        elif path == "/api/hardware":
+            try:
+                self._json({"ok": True, **hardware_static()})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/hardware/live":
+            try:
+                self._json({"ok": True, **hardware_live()})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/apps":
             force = "force=1" in (self.path.split("?", 1) + [""])[1]
             try:
