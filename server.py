@@ -2323,6 +2323,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
+        elif path in ("/manifest.webmanifest", "/icon-256.png", "/icon-128.png", "/icon.svg"):
+            # Chrome app 模式的視窗／工作列圖示來自 web manifest
+            if path == "/manifest.webmanifest":
+                body = json.dumps({"name": "Spark Center", "short_name": "Spark Center", "start_url": "/", "display": "standalone",
+                                   "background_color": "#111312", "theme_color": "#111312",
+                                   "icons": [{"src": "/icon-256.png", "sizes": "256x256", "type": "image/png"},
+                                             {"src": "/icon-128.png", "sizes": "128x128", "type": "image/png"},
+                                             {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"}]}).encode()
+                ctype = "application/manifest+json"
+            else:
+                fn = {"/icon-256.png": "spark-center-256.png", "/icon-128.png": "spark-center-128.png", "/icon.svg": "spark-center.svg"}[path]
+                with open(os.path.join(HERE, "app", fn), "rb") as f:
+                    body = f.read()
+                ctype = "image/svg+xml" if fn.endswith(".svg") else "image/png"
+            self.send_response(200); self.send_header("Content-Type", ctype); self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store"); self.end_headers(); self.wfile.write(body)
         elif path == "/api/updates":
             try:
                 self._json({
