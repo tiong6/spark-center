@@ -93,8 +93,12 @@
   .stat div { min-width: 90px; } .stat b { font-size: 22px; display: block; line-height: 1.1; } .stat span { color: var(--muted); font-size: 12px; }
   .mon { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 18px; margin-bottom: 18px; }
   .mcard { background: rgba(26,28,27,.9); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px 14px; display: grid; grid-template-columns: 200px 1fr; gap: 16px; align-items: center; }
-  .mcard h3 { grid-column: 1 / -1; margin: 0 0 4px; font-size: 16px; font-weight: 700; }
+  .mcard h3 { grid-column: 1 / -1; margin: 0 0 4px; font-size: 12px; font-weight: 400; }
+  .mcard h3 .t { font-size: 16px; font-weight: 700; color: var(--text); margin-left: 0; }
   .mcard h3 span { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 8px; }
+  .mcard h3 .warnbtn { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--warn); color: var(--warn); font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 8px; }
+  .mcard h3 .warnbtn.danger { border-color: var(--danger); color: var(--danger); }
+  .mcard .warnbox { grid-column: 1 / -1; display: none; } .mcard .warnbox.open { display: block; }
   .gauge { position: relative; width: 200px; height: 142px; }
   .gauge svg { width: 200px; height: 120px; display: block; }
   .gauge .hero { position: absolute; left: 30px; right: 30px; top: 66px; text-align: center; }
@@ -121,7 +125,8 @@
   /* 小尺寸：三到四欄、儀表縮 62%、折線 70px、隱藏說明列 */
   .mon.compact { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
   .mon.compact .mcard { grid-template-columns: 128px 1fr; gap: 8px; padding: 10px 12px 8px; }
-  .mon.compact .mcard h3 { font-size: 13px; margin-bottom: 0; } .mon.compact .mcard h3 span:not(.t):not(.switch) { display: none; }
+  .mon.compact .mcard h3 { margin-bottom: 0; } .mon.compact .mcard h3 .t { font-size: 13px; } .mon.compact .mcard h3 span:not(.t):not(.switch):not(.warnbtn) { display: none; }
+  .mon.compact .warnbox.open { display: block; }
   .mon.compact .gauge { width: 128px; height: 92px; overflow: hidden; }
   .mon.compact .gauge svg { width: 128px; height: 77px; }
   .mon.compact .gauge .hero { top: 42px; left: 16px; right: 16px; } .mon.compact .gauge .hero b { font-size: 17px; }
@@ -860,7 +865,9 @@ function renderMon(j, rerender) {
       <dt>速率</dt><dd>↑ ${W.tx_mbps ?? '—'} / ↓ ${W.rx_mbps ?? '—'} Mb/s <span class="sub1">${W.tx_mcs ? `${W.tx_mcs.phy}-MCS ${W.tx_mcs.mcs}` : ''}${W.rx_mcs ? ` / MCS ${W.rx_mcs.mcs}` : ''}</span></dd>
       <dt>重試率</dt><dd>${hw.wifiRetryPct != null ? hw.wifiRetryPct.toFixed(0) + ' %' : '…'} <span class="sub1">累計 ${(W.tx_retries / Math.max(1, W.tx_packets) * 100).toFixed(0)}% · 失敗 ${W.tx_failed ?? '—'}</span></dd>
       <dt>穩定度</dt><dd>beacon 遺失 ${W.beacon_loss ?? '—'} · 24h 斷線 ${ex.events_24h ? ex.events_24h.disconnects : '—'} 次 <span class="sub1">連線 ${W.connected_s != null ? fmtUptime(W.connected_s) : '—'}</span></dd></dl>`;
-    cards.push(`<div class="mcard" id="mon-wifi"><h3><span class="t">Wi-Fi</span><span>${esc(W.iface)} · iw · 訊號等級 <b style="color:${grade[1]}">${grade[0]}</b></span></h3>${gaugeLeft(q, W.signal_dbm + ' dBm', `平均 ${W.signal_avg_dbm ?? '—'} dBm · 發射 ${W.txpower_dbm ?? '—'} dBm`)}<div><div class="spark" data-k="wifi">${sparkSvg([{color: C_LINE, data: hw.hist.wifi || []}], 100, v => (v * 0.6 - 90).toFixed(0) + ' dBm')}</div>${right}</div><div class="legend" style="display:block">${coex}${weak}</div></div>`);
+    const warns = [coex, weak].filter(Boolean);
+    const warnBtn = warns.length ? `<span class="warnbtn ${W.signal_dbm < -80 ? 'danger' : ''}" data-warn="wifi" title="有 ${warns.length} 則提醒，點開看">⚠</span>` : '';
+    cards.push(`<div class="mcard" id="mon-wifi"><h3><span class="t">Wi-Fi</span><span>${esc(W.iface)} · 訊號 <b style="color:${grade[1]}">${grade[0]}</b></span>${warnBtn}</h3>${gaugeLeft(q, W.signal_dbm + ' dBm', `平均 ${W.signal_avg_dbm ?? '—'} dBm · 發射 ${W.txpower_dbm ?? '—'} dBm`)}<div><div class="spark" data-k="wifi">${sparkSvg([{color: C_LINE, data: hw.hist.wifi || []}], 100, v => (v * 0.6 - 90).toFixed(0) + ' dBm')}</div>${right}</div>${warns.length ? `<div class="warnbox ${hw.warnOpen && hw.warnOpen.wifi ? 'open' : ''}" data-warnbox="wifi">${warns.join('')}</div>` : ''}</div>`);
     hovers.push(['wifi', [{color: C_LINE, data: hw.hist.wifi || []}], v => (v * 0.6 - 90).toFixed(0) + ' dBm']);
   } else if (W) {
     cards.push(`<div class="mcard" id="mon-wifi"><h3><span class="t">Wi-Fi</span><span>${esc(W.iface)}</span></h3>${tileLeft('未連線', '')}<div class="sub1">Wi-Fi 沒有連到任何網路。</div></div>`);
@@ -888,6 +895,8 @@ function renderMon(j, rerender) {
     hovers.push(['net-' + n.name, ser, fmtRate]);
   }
   $('#mon').innerHTML = cards.join('');
+  hw.warnOpen = hw.warnOpen || {};
+  document.querySelectorAll('.warnbtn[data-warn]').forEach(b => b.onclick = () => { const k = b.dataset.warn; hw.warnOpen[k] = !hw.warnOpen[k]; const box = document.querySelector(`.warnbox[data-warnbox="${k}"]`); if (box) box.classList.toggle('open', hw.warnOpen[k]); });
   const cpuH3 = document.querySelector('#mon-cpu h3'); if (cpuH3 && !cpuH3.querySelector('.switch')) cpuH3.insertAdjacentHTML('beforeend', sw);
   document.querySelectorAll('[data-cpuview]').forEach(el => el.onclick = () => { hw.cpuView = el.dataset.cpuview; if (hw.prev) renderMon(hw.prev, true); });
   for (const [k, ser, fmt] of hovers) { const el = document.querySelector(`.spark[data-k="${k}"]`); if (el) bindHover(el, ser, fmt); }
