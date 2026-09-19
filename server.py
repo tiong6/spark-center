@@ -783,6 +783,132 @@ def _sensors():
     return res
 
 
+# ---------- USB 樹（/sys/bus/usb/devices，免 root；名稱缺的用 usb.ids 補）----------
+
+USB_IDS = "/usr/share/misc/usb.ids"
+_USB_IDS_CACHE = None
+USB_CLASS = {
+    "00": ("依介面", ""), "01": ("音訊", "audio"), "02": ("通訊", "comm"), "03": ("人機介面", "hid"),
+    "05": ("實體", "other"), "06": ("影像", "image"), "07": ("印表機", "printer"), "08": ("大量儲存", "storage"),
+    "09": ("集線器", "hub"), "0a": ("CDC 資料", "comm"), "0b": ("智慧卡", "other"), "0d": ("內容安全", "other"),
+    "0e": ("視訊", "video"), "0f": ("個人健康", "other"), "10": ("音訊/視訊", "video"), "11": ("Billboard", "billboard"),
+    "dc": ("診斷", "other"), "e0": ("無線", "wireless"), "ef": ("複合", "other"), "fe": ("應用特定", "other"), "ff": ("廠商自訂", "vendor"),
+}
+USB_SPEED = {"1.5": "USB 1.0 低速 1.5 Mb/s", "12": "USB 1.1 全速 12 Mb/s", "480": "USB 2.0 高速 480 Mb/s",
+             "5000": "USB 3.0 5 Gb/s", "10000": "USB 3.1 10 Gb/s", "20000": "USB 3.2 20 Gb/s"}
+
+
+def _usb_ids():
+    global _USB_IDS_CACHE
+    if _USB_IDS_CACHE is not None:
+        return _USB_IDS_CACHE
+    vendors, products, cur = {}, {}, None
+    try:
+        with open(USB_IDS, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.startswith("#") or not line.strip():
+                    continue
+                if line[0] != "\t" and line[0] != " ":
+                    if line[0] in "0123456789abcdef" and len(line) > 6 and line[4] == " ":
+                        cur = line[:4].lower(); vendors[cur] = line[6:].strip()
+                    else:
+                        cur = None
+                elif line.startswith("\t") and not line.startswith("\t\t") and cur:
+                    products[(cur, line[1:5].lower())] = line[7:].strip()
+    except OSError:
+        pass
+    _USB_IDS_CACHE = (vendors, products)
+    return _USB_IDS_CACHE
+
+
+def _usb_tree():
+    base = "/sys/bus/usb/devices"
+    if not os.path.isdir(base):
+        return None
+    vendors, products = _usb_ids()
+    devs = {}
+    for n in os.listdir(base):
+        if ":" in n:
+            continue
+        d = os.path.join(base, n)
+        vid, pid = (_read(os.path.join(d, "idVendor")) or "").lower(), (_read(os.path.join(d, "idProduct")) or "").lower()
+        if not vid:
+            continue
+        ifaces = []
+        for i in sorted(os.listdir(base)):
+            if not i.startswith(n + ":"):
+                continue
+            ip = os.path.join(base, i)
+            cls = (_read(os.path.join(ip, "bInterfaceClass")) or "").lower()
+            sub = (_read(os.path.join(ip, "bInterfaceSubClass")) or "").lower()
+            proto = (_read(os.path.join(ip, "bInterfaceProtocol")) or "").lower()
+            drv = os.path.basename(os.readlink(os.path.join(ip, "driver"))) if os.path.islink(os.path.join(ip, "driver")) else None
+            ifaces.append({"id": i.split(":", 1)[1], "class": cls, "sub": sub, "proto": proto, "driver": drv,
+                           "label": USB_CLASS.get(cls, (cls, "other"))[0]})
+        # 分類：以介面類別為主，HID 再依 protocol 分鍵盤/滑鼠
+        kind, kind_label = "other", "裝置"
+        classes = [x["class"] for x in ifaces]
+        dev_class = (_read(os.path.join(d, "bDeviceClass")) or "").lower()
+        if n.startswith("usb"):
+            kind, kind_label = "roothub", "USB 根集線器"
+            product = None  # 下面會用 bus 編號取名，比 "xHCI Host Controller" 好認
+        elif "09" in classes or dev_class == "09":
+            kind, kind_label = "hub", "集線器"
+        elif "03" in classes:
+            protos = {x["proto"] for x in ifaces if x["class"] == "03"}
+            kind = "hid"; kind_label = "鍵盤" if "01" in protos else "滑鼠" if "02" in protos else "人機介面裝置"
+        elif "08" in classes: kind, kind_label = "storage", "大量儲存"
+        elif "e0" in classes: kind, kind_label = "wireless", "藍牙" if any(x["driver"] == "btusb" for x in ifaces) else "無線"
+        elif "01" in classes: kind, kind_label = "audio", "音訊"
+        elif "0e" in classes: kind, kind_label = "video", "視訊/攝影機"
+        elif "07" in classes: kind, kind_label = "printer", "印表機"
+        elif "02" in classes or "0a" in classes: kind, kind_label = "comm", "通訊/網路"
+        elif "06" in classes: kind, kind_label = "image", "影像"
+        elif "11" in classes: kind, kind_label = "billboard", "USB-C Billboard"
+        elif "ff" in classes: kind, kind_label = "vendor", "廠商自訂"
+        speed = _read(os.path.join(d, "speed")) or ""
+        if kind == "roothub":
+            product = f"USB {'3.x' if speed not in ('12', '480', '1.5') else '2.0'} 根集線器 · Bus {_read(os.path.join(d, 'busnum'))}"
+        else:
+            product = _read(os.path.join(d, "product"))
+        manufacturer = _read(os.path.join(d, "manufacturer"))
+        devs[n] = {
+            "path": n, "vid": vid, "pid": pid,
+            "name": product or products.get((vid, pid)) or f"未知裝置 {vid}:{pid}",
+            "manufacturer": manufacturer or vendors.get(vid),
+            "name_from_ids": not product and (vid, pid) in products,
+            "speed": speed, "speed_label": USB_SPEED.get(speed, f"{speed} Mb/s" if speed else "—"),
+            "kind": kind, "kind_label": kind_label,
+            "serial": _read(os.path.join(d, "serial")),
+            "ports": _read(os.path.join(d, "maxchild")),
+            "interfaces": ifaces,
+            "busnum": _read(os.path.join(d, "busnum")), "devnum": _read(os.path.join(d, "devnum")),
+            "children": [],
+        }
+    # 掛樹：usbN 是 bus N 的 root；"5-1.4.2" 的父是 "5-1.4"，"5-1" 的父是 "usb5"
+    roots = []
+    def parent_of(n):
+        if n.startswith("usb"):
+            return None
+        if "." in n:
+            return n.rsplit(".", 1)[0]
+        return "usb" + n.split("-", 1)[0]
+    def sortkey(n):
+        return [int(x) if x.isdigit() else x for x in re.split(r"[-.]", n.replace("usb", ""))]
+    for n in sorted(devs, key=sortkey):
+        p = parent_of(n)
+        if p and p in devs:
+            devs[p]["children"].append(devs[n])
+        else:
+            roots.append(devs[n])
+    empty = [r for r in roots if r["kind"] == "roothub" and not r["children"]]
+    used = [r for r in roots if not (r["kind"] == "roothub" and not r["children"])]
+    def count(node):
+        return 1 + sum(count(c) for c in node["children"])
+    return {"roots": used, "empty_roothubs": len(empty), "total": sum(count(r) for r in roots),
+            "ids_file": os.path.exists(USB_IDS)}
+
+
 def _list_cmd(cmd):
     out = _run(cmd, timeout=10)
     return out.strip().splitlines() if out else None
@@ -904,12 +1030,14 @@ def hardware_static():
         },
         "dmi": _dmi(),
         "cpu": _lscpu(),
+        "cpu_cores": _cpu_topology(),
         "memory": {"total": mem.get("MemTotal"), "swap_total": mem.get("SwapTotal")},
         "gpu": _gpu_static(),
         "disks": _disks(),
         "network": _network(),
         "bluetooth": _bluetooth(),
         "usb": _list_cmd(["lsusb"]),
+        "usb_tree": _usb_tree(),
         "pci": _list_cmd(["lspci"]),
         "generated": datetime.now().isoformat(timespec="seconds"),
     }
@@ -918,12 +1046,41 @@ def hardware_static():
 
 
 def _cpu_jiffies():
-    line = (_read("/proc/stat") or "").splitlines()[0:1]
-    if not line or not line[0].startswith("cpu "):
+    """/proc/stat 的總和與每核 jiffies；前端做差分算使用率。"""
+    lines = (_read("/proc/stat") or "").splitlines()
+    if not lines or not lines[0].startswith("cpu "):
         return None
-    v = [int(x) for x in line[0].split()[1:]]
-    idle = v[3] + (v[4] if len(v) > 4 else 0)
-    return {"total": sum(v), "idle": idle}
+    def parse(line):
+        v = [int(x) for x in line.split()[1:]]
+        return {"total": sum(v), "idle": v[3] + (v[4] if len(v) > 4 else 0)}
+    cores = []
+    for line in lines[1:]:
+        if not re.match(r"cpu\d+ ", line):
+            break
+        cores.append(parse(line))
+    out = parse(lines[0]); out["cores"] = cores
+    return out
+
+
+def _cpu_freqs():
+    """每核目前時脈（kHz → MHz）。拿不到的核心回 None。"""
+    res = []
+    for i in range(os.cpu_count() or 0):
+        v = _read(f"/sys/devices/system/cpu/cpu{i}/cpufreq/scaling_cur_freq")
+        res.append(int(v) // 1000 if v and v.isdigit() else None)
+    return res
+
+
+def _cpu_topology():
+    """每核的最高時脈與調速器，用來把核心分到叢集（X925/A725 靠最高時脈區分）。"""
+    cores = []
+    for i in range(os.cpu_count() or 0):
+        base = f"/sys/devices/system/cpu/cpu{i}/cpufreq/"
+        mx = _read(base + "cpuinfo_max_freq"); mn = _read(base + "cpuinfo_min_freq")
+        cores.append({"id": i, "max_mhz": int(mx) // 1000 if mx and mx.isdigit() else None,
+                      "min_mhz": int(mn) // 1000 if mn and mn.isdigit() else None,
+                      "governor": _read(base + "scaling_governor")})
+    return cores
 
 
 def _net_counters():
@@ -957,6 +1114,7 @@ def hardware_live():
         "gpu": _gpu_live(),
         "sensors": _sensors(),
         "cpu": _cpu_jiffies(),
+        "cpu_freq": _cpu_freqs(),
         "net": _net_counters(),
         "disk_root": _root_usage(),
         "ts": datetime.now().isoformat(timespec="seconds"),

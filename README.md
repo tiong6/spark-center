@@ -14,9 +14,11 @@ DGX Dashboard 的 Update 按鈕會一次升級全部套件（含 Chrome、ChatGP
 - **應用程式**：列出所有有桌面啟動項（.desktop）的 app，合併 apt、snap、flatpak 三種來源，顯示版本、來源與是否有新版
   （snap/flatpak 會向商店查，查不到就標「未能查詢」，不假裝是最新）
 - **歷史**：/var/log/apt/history.log 最近 8 筆，表格＋動作標籤
-- **硬體**：頂部是 DGX Dashboard 風格的即時監控（半圓儀表＋折線，SVG 手繪無外部庫）：系統記憶體、CPU 使用率（/proc/stat 差分）、
+- **監控**：DGX Dashboard 風格的即時儀表＋折線（SVG 手繪無外部庫）：系統記憶體、CPU 使用率（/proc/stat 差分，可切「每核」看 20 顆各自的使用率與時脈）、
   GPU 使用率、GPU 溫度（刻度上限為 tlimit 推算的降頻點）、GPU 功耗（nvidia-smi 無上限就不畫儀表）、磁碟、每個實體介面的上下行流量（/proc/net/dev 差分）。
-  每 5 秒取樣、保留 60 點、只存在頁面內。下方是類似 Windows 系統資訊的靜態清單，含藍牙（bluetoothctl：控制器、已配對裝置、連線狀態、電量）。機型/BIOS（/sys DMI）、CPU（lscpu）、記憶體、GPU（nvidia-smi，含溫度/使用率/功耗每 5 秒更新）、
+  每 2 秒取樣、保留 150 點、只存在頁面內；離開分頁即停止輪詢。每核溫度這台沒有感測器，不顯示。
+- **硬體**：類似 Windows 系統資訊／裝置管理員的靜態清單：系統、CPU、記憶體模組、GPU、儲存、網路、藍牙（bluetoothctl）、感測器、
+  USB 樹（/sys/bus/usb 依 hub 層級掛樹，名稱缺的以 usb.ids 補並標示）、PCI。進入分頁抓一次，不輪詢。機型/BIOS（/sys DMI）、CPU（lscpu）、記憶體、GPU（nvidia-smi，含溫度/使用率/功耗每 5 秒更新）、
   儲存（lsblk＋statvfs 用量）、網路（ip -j）、hwmon 溫度、USB、PCI。主要來源不提權。
   序號、UUID、記憶體模組明細來自 dmidecode，需要 root；工具用 `sudo -n` 呼叫，沒放行就在畫面上標明不顯示。
   要放行只開這一個唯讀指令（dmidecode 不會改任何東西）：
