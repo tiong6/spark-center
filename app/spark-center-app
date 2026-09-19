@@ -7,7 +7,7 @@ PROFILE="$HOME/.local/share/spark-center/chrome-profile"   # 獨立 profile：�
 mkdir -p "$PROFILE"
 for b in google-chrome google-chrome-stable chromium brave-browser; do
   if command -v "$b" >/dev/null 2>&1; then
-    exec "$b" --app="$URL" --class=SparkCenter --user-data-dir="$PROFILE" --window-size=1280,900 --no-first-run --no-default-browser-check "$@"
+    exec "$b" --app="$URL/" --class=SparkCenter --user-data-dir="$PROFILE" --window-size=1280,900 --no-first-run --no-default-browser-check "$@"
   fi
 done
 exec xdg-open "$URL"

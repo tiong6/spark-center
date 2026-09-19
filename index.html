@@ -173,15 +173,15 @@
 </div>
 <main>
   <div class="titlerow">
-    <h1 id="pageTitle">更新</h1>
+    <h1 id="pageTitle">監控</h1>
     <nav class="tabs">
-      <a data-tab="updates" class="active">更新<span id="dotUpd" class="dot hide"></span></a>
-      <a data-tab="apps">應用程式<span id="dotApps" class="dot hide"></span></a>
-      <a data-tab="history">歷史</a>
       <a data-tab="monitor">監控<span id="dotMon" class="dot hide" style="background:var(--danger)"></span></a>
       <a data-tab="llm">模型</a>
+      <a data-tab="updates">更新<span id="dotUpd" class="dot hide"></span></a>
+      <a data-tab="apps">應用程式<span id="dotApps" class="dot hide"></span></a>
       <a data-tab="disk">磁碟<span id="dotDisk" class="dot hide" style="background:var(--danger)"></span></a>
       <a data-tab="hardware">硬體</a>
+      <a data-tab="history">歷史</a>
     </nav>
   </div>
 
@@ -193,7 +193,7 @@
     <div id="jobactions" style="margin-top:10px; display:flex; gap:10px"></div>
   </div>
 
-  <section id="tab-updates">
+  <section id="tab-updates" class="hide">
     <div id="reboot" class="panel notice warn hide"></div>
     <div class="panel">
       <div class="panel-h">
@@ -233,7 +233,7 @@
     </div>
   </section>
 
-  <section id="tab-monitor" class="hide">
+  <section id="tab-monitor">
     <div id="gpuAlert" class="panel notice danger hide"></div>
     <div id="mon" class="mon"><div class="panel"><div class="empty">讀取中…</div></div></div>
     <div id="monNote" class="sub1" style="margin:-6px 0 18px"></div>
@@ -283,7 +283,8 @@
 <script>
 const $ = s => document.querySelector(s);
 const state = { items: [], selected: new Set(), job: null, polling: null, apps: null, src: 'all', q: '' };
-const TITLES = { updates: '更新', apps: '應用程式', history: '歷史', monitor: '監控', llm: '模型（LLM）', disk: '磁碟', hardware: '硬體' };
+const TITLES = { monitor: '監控', llm: '模型（LLM）', updates: '更新', apps: '應用程式', disk: '磁碟', hardware: '硬體', history: '歷史' };
+const DEFAULT_TAB = 'monitor';
 const fmtBytes = b => b == null ? '—' : b < 1048576 ? (b/1024).toFixed(0)+' KB' : (b/1048576).toFixed(1)+' MB';
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
@@ -299,6 +300,7 @@ function showTab(t) {
   for (const k of Object.keys(TITLES)) $('#tab-'+k).classList.toggle('hide', k !== t);
   $('#pageTitle').textContent = TITLES[t];
   history.replaceState(null, '', '#' + t);
+  try { localStorage.setItem('spark-center.lastTab', t); } catch (e) {}
   if (t === 'apps' && !state.apps) loadApps();
   if (t === 'history') loadHistory();
   if (t === 'monitor') startMon(); else stopHw();
@@ -903,7 +905,8 @@ async function pollHw(staticOnly) {
   const j = await api('/api/job');
   if (j.status === 'running') startPolling(j.kind === 'refresh' ? '重新整理 apt 來源' : '更新中：' + (j.packages||[]).join(', '));
   const t = location.hash.replace('#','');
-  showTab(TITLES[t] ? t : 'updates');
+  let last = null; try { last = localStorage.getItem('spark-center.lastTab'); } catch (e) {}
+  showTab(TITLES[t] ? t : (TITLES[last] ? last : DEFAULT_TAB));   // 網址有指定就照網址，否則回到上次分頁，都沒有就監控
   api('/api/hardware/live').then(r => { if (r.ok) renderGpuAlert(r.gpu_alert); if (r.ok && r.disk_root) $('#dotDisk').classList.toggle('hide', (1 - r.disk_root.free / r.disk_root.total) < 0.9); });
   api('/api/apps').then(r => { if (r.ok) { state.apps = r; $('#dotApps').classList.toggle('hide', !r.items.some(a => a.candidate)); if (!$('#tab-apps').classList.contains('hide')) renderApps(); } });
 })();
