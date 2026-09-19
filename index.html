@@ -283,7 +283,7 @@
   </section>
 
   <section id="tab-hardware" class="hide">
-    <div id="hwNote" class="sub1" style="margin:-8px 0 14px"></div>
+    <div style="display:flex;gap:10px;align-items:center;margin:-8px 0 14px"><div id="hwNote" class="sub1" style="flex:1"></div><button id="btnHwReload" class="small">重新讀取硬體</button></div>
     <div class="panel" id="usbPortsPanel"><div class="panel-h"><h2>後面板</h2><span class="sub" id="usbPortsSub">讀取中…</span><div class="actions"><button id="btnCalib" class="small">校準孔位</button><button id="btnCalibReset" class="small">清除校準</button></div></div><div id="rear"></div><div id="usbPorts" style="margin-top:14px"></div></div>
     <div id="hw" class="grid"><div class="panel"><div class="empty">讀取中…</div></div></div>
   </section>
@@ -651,10 +651,81 @@ async function loadStores() {
 }
 $('#btnStores').onclick = () => { $('#llmStoresSub').textContent = '掃描中…'; loadStores(); };
 
+async function showHardware() {      // 硬體分頁：靜態清單只渲染一次（伺服器快取 1 小時＋快照），動態欄位抓一次；只有 USB 埠每 2 秒偵測插拔
+  if (!(await ensureStatic())) return;
+  if (!hw.staticRendered) { renderHwStatic(); hw.staticRendered = true; }
+  pollHw(true);
+  pollPorts(); hw.portTimer = setInterval(pollPorts, 2000);
+}
+$('#btnHwReload').onclick = async () => { const b = $('#btnHwReload'); b.disabled = true; b.textContent = '讀取中…'; const j = await api('/api/hardware?force=1'); if (j.ok) { hw.static = j; renderHwStatic(); } b.disabled = false; b.textContent = '重新讀取硬體'; pollHw(true); pollPorts(); };
+/* ---- 後面板示意圖：USB-C 四孔（DP 輸出 + USB 裝置）、HDMI、10GbE、QSFP。
+   實體孔 ↔ 控制器 的對應存在伺服器端（data/usbc-map.json），所有瀏覽器共用。
+   slot 0 依規格是電源輸入孔；核心沒有 UCSI/typec，供電偵測不到，只能手動標記。 ---- */
+hw.rearPrev = null; hw.rearFlash = {}; hw.calibSlot = null; hw.calibMode = false;
+const PANEL_ZH = { left: '左側', right: '右側', back: '後方', front: '前方', top: '上方', bottom: '下方', unknown: '未知' };
+const ICON = {
+  usbc: '<svg viewBox="0 0 64 36"><rect class="jk" x="8" y="11" width="48" height="14" rx="7"/></svg>',
+  hdmi: '<svg viewBox="0 0 64 36"><path class="jk" d="M10 10 h44 v10 l-6 6 h-32 l-6 -6 z"/></svg>',
+  rj45: '<svg viewBox="0 0 64 36"><path class="jk" d="M14 6 h36 v24 h-10 v-5 h-16 v5 h-10 z"/></svg>',
+  qsfp: '<svg viewBox="0 0 64 36"><rect class="jk" x="4" y="9" width="56" height="18" rx="2"/><rect class="jk" x="12" y="14" width="40" height="8" rx="1"/></svg>',
+  klock: '<svg viewBox="0 0 64 36"><ellipse class="jk" cx="32" cy="18" rx="9" ry="6"/></svg>',
+  plug: '<svg viewBox="0 0 64 36"><rect class="jk" x="8" y="11" width="48" height="14" rx="7"/><path d="M26 6 v-4 M38 6 v-4" stroke="#7a827c" stroke-width="3"/></svg>',
+};
+const spd = v => v >= 5000 ? v / 1000 + ' Gb/s' : v + ' Mb/s';
+async function pollRear() {
+  const j = await api('/api/hardware/rear');
+  if (!j.ok) { $('#rear').innerHTML = `<div class="empty">讀取失敗：${esc(j.error)}</div>`; return; }
+  const calib = j.calib || {}; const now = Date.now();
+  const sig = Object.fromEntries(j.controllers.map(c => [c.controller, c.devices.map(d => d.path).join(',')]));
+  let newly = null;
+  if (hw.rearPrev) for (const k in sig) if (hw.rearPrev[k] !== undefined && hw.rearPrev[k] !== sig[k] && sig[k]) { newly = k; hw.rearFlash[k] = now; }
+  hw.rearPrev = sig;
+  // 校準模式外，若某個「推測」孔的控制器出現新裝置，視為使用者已插入確認 → 升級為 plug
+  if (newly && hw.calibSlot == null) { for (const k in calib) if (calib[k] && calib[k].controller === newly && calib[k].source === 'inferred') { await api('/api/hardware/usbc-map', {slot: +k, controller: newly, source: 'plug', note: '插入裝置確認'}); return pollRear(); } }
+  if (newly && hw.calibSlot != null) { const slot = hw.calibSlot; hw.calibSlot = null; await api('/api/hardware/usbc-map', {slot, controller: newly, source: 'plug'}); return pollRear(); }
+  const ctrl = Object.fromEntries(j.controllers.map(c => [c.controller, c]));
+  const dispByCtrl = k => j.usbc.find(u => u.controller_guess === k)?.display;  // 控制器 0k ↔ DP 輸出 USB-C-k（驅動編號一致，視為同一孔）
+  const assigned = new Set(Object.values(calib).map(v => v && v.controller).filter(Boolean));
+  const slots = [];
+  slots.push(`<div class="slot k-lock">${ICON.klock}<div class="lb">Kensington</div><div class="st"><span class="sub1">—</span></div></div>`);
+  for (let i = 0; i < 4; i++) {
+    const cal = calib[String(i)]; const cid = cal ? cal.controller : null; const c = cid ? ctrl[cid] : null; const disp = cid ? dispByCtrl(cid) : null;
+    const isPower = i === 0;
+    const on = !!((c && c.devices.length) || (disp && disp.connected));
+    const flash = cid && hw.rearFlash[cid] && now - hw.rearFlash[cid] < 6000;
+    let st = '';
+    if (isPower) st += `<b>電源供應器</b><span class="sub1">240 W PD 輸入</span>`;
+    if (disp && disp.connected) st += `<b>螢幕 ${esc(disp.mode || '')}${disp.hz ? ' @ ' + Math.round(disp.hz) + ' Hz' : ''}</b>`;
+    if (c && c.devices.length) { const dd = c.devices.filter(d => d.bus === 'usb3').concat(c.devices.filter(d => d.bus === 'usb2')); const d0 = dd[0]; const mw = Math.max(...c.devices.map(d => d.max_w || 0));
+      st += `<b>${esc(d0.name)}</b>` + (c.devices.some(d => d.children) ? `<span class="sub1">下接 ${c.devices.reduce((a, d) => a + d.children, 0)} 個裝置</span>` : '') + `<span class="sub1"> · ${mw ? `裝置枚舉時宣告 ${Math.round(mw*200)} mA（${mw} W），非實際供電` : '自供電（宣告 0 mA）'}</span>`; }
+    if (!st) st = cid ? '<span class="sub1">空</span>' : '<span class="sub1">未校準</span>';
+    const SRC = { plug: '插入法確認', manual: '手動告知', inferred: '插入即確認' };
+    // 已確認的孔不再貼標籤；只有推測、未校準才提示
+    const tag = isPower ? '' : cal ? (cal.source === 'inferred' ? `推測（${SRC.inferred}）` : '') : '未校準';
+    const sub2 = cid ? `${esc(cid.replace('NVDA8000:', '控制器 '))} · USB-C-${cid.slice(-1)}` : (isPower ? '控制器：無法得知' : '控制器：待校準');
+    slots.push(`<div class="slot ${isPower ? 'k-power' : 'k-usbc'} ${on || isPower ? 'on' : ''} ${flash ? 'flash' : ''} ${hw.calibSlot === i ? 'pick' : ''}" data-slot="${i}">${isPower ? ICON.plug : ICON.usbc}<div class="lb"><b class="kind">${isPower ? '電源' : 'USB-C'}</b> 孔 ${i + 1}<br>${sub2}</div><div class="st">${st}</div>${tag ? `<span class="tg">${tag}</span>` : ''}</div>`);
+  }
+  const h = j.hdmi; slots.push(`<div class="slot k-hdmi ${h && h.connected ? 'on' : ''}">${ICON.hdmi}<div class="lb"><b class="kind">HDMI</b> 2.1a<br>HDMI-0</div><div class="st">${h ? (h.connected ? `<b>螢幕 ${esc(h.mode || '')}</b>` : '<span class="sub1">空</span>') : '<span class="sub1">xrandr 不可用</span>'}</div></div>`);
+  const e = j.eth10g; slots.push(`<div class="slot k-lan ${e && e.carrier === '1' ? 'on' : ''}">${ICON.rj45}<div class="lb"><b class="kind">10GbE</b> LAN<br>${e ? esc(e.iface) : '—'}</div><div class="st">${e ? (e.carrier === '1' ? `<b>已連線 ${e.speed && e.speed > 0 ? spd(+e.speed) : ''}</b>` : '<span class="sub1">未插線</span>') : '<span class="sub1">未偵測到</span>'}</div></div>`);
+  const x = j.connectx7; slots.push(`<div class="slot k-qsfp ${x.ifaces.length ? 'on' : ''}">${ICON.qsfp}<div class="lb"><b class="kind">QSFP</b> · ConnectX-7</div><div class="st">${x.ifaces.length ? `<b>${esc(x.ifaces.join(', '))}</b>` : x.pci_present ? '<span class="sub1">有裝置，無介面</span>' : '<span class="sub1">lspci 未見 ConnectX-7</span>'}</div><span class="tg">mlx5 驅動${x.driver_loaded ? '已載入' : '未載入'}</span></div>`);
+  // 還沒對應到任何孔、但接著東西的控制器，不能藏起來
+  // 只算四個外露孔的控制器（00–03）；04 與 8001:00 韌體標「後方」，是內部（藍牙模組）
+  const orphan = j.controllers.filter(c => /^NVDA8000:0[0-3]$/.test(c.controller) && !assigned.has(c.controller) && (c.devices.length || (dispByCtrl(c.controller) || {}).connected));
+  const orphanHtml = orphan.length ? `<div class="sub1" style="margin-top:10px">尚未對應到孔位、但有接東西的控制器：${orphan.map(c => `${esc(c.controller.replace('NVDA8000:', '控制器 '))}（${c.devices.map(d => esc(d.name)).join('、') || '螢幕'}）`).join('；')}。用「校準孔位」對上去。</div>` : '';
+  const legend = `<div class="lgd"><span><i style="background:#e5484d"></i>電源</span><span><i style="background:#76b900"></i>USB-C 資料</span><span><i style="background:#3583d6"></i>HDMI</span><span><i style="background:#f5a524"></i>10GbE</span><span><i style="background:#a78bfa"></i>QSFP</span><span class="sub1">實心邊框＝有接東西，淡邊框＝空。mA 是裝置在 USB 枚舉時宣告的值（bMaxPower），只代表它「至少要這麼多」，不是這個孔能給多少，也不是實際充電功率；PD 協商功率核心無 UCSI 驅動看不到。</span></div>`;
+  $('#rear').innerHTML = `<div class="chassis"><div class="vents"></div><div class="slots">${slots.join('')}</div></div>${legend}${orphanHtml}`;
+  $('#rear').querySelectorAll('.slot[data-slot]').forEach(el => el.onclick = () => { if (hw.calibMode && +el.dataset.slot !== 0) { hw.calibSlot = +el.dataset.slot; pollRear(); } });
+  const n = Object.keys(calib).filter(k => k !== '0' && calib[k].source !== 'inferred').length;
+  $('#usbPortsSub').textContent = hw.calibMode ? (hw.calibSlot == null ? '校準中：先點一個 USB-C 孔（孔 1 是電源，不用校準），再把裝置插進那個洞。' : `校準中：請把裝置插進「USB-C 孔 ${hw.calibSlot + 1}」，偵測到新裝置就綁定。`) :
+    `左→右：Kensington、USB-C ×4（孔 1 為電源）、HDMI、10GbE、QSFP。${n < 3 ? `已校準 ${n} / 3 個資料孔。` : ''}${j.displays_available ? '' : ' xrandr 不可用，螢幕狀態未知。'}`;
+}
+async function pollPorts() { return pollRear(); }
+$('#btnCalib').onclick = () => { hw.calibMode = !hw.calibMode; hw.calibSlot = null; $('#btnCalib').textContent = hw.calibMode ? '結束校準' : '校準孔位'; pollRear(); };
+$('#btnCalibReset').onclick = async () => { if (!confirm('清除所有孔位對應（含電源孔標記）？')) return; await api('/api/hardware/usbc-map', {reset: true}); hw.calibSlot = null; pollRear(); };
 function stopHw() { if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } if (hw.wifiTimer) { clearInterval(hw.wifiTimer); hw.wifiTimer = null; } if (hw.portTimer) { clearInterval(hw.portTimer); hw.portTimer = null; } if (hw.llmTimer) { clearInterval(hw.llmTimer); hw.llmTimer = null; } if (hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; } }
 function renderHwStatic() {
   const j = hw.static, S = j.system, C = j.cpu, G = j.gpu, D = j.dmi || {available:false};
-  $('#hwNote').textContent = `資料來源：/sys DMI、lscpu、nvidia-smi、lsblk、ip、bluetoothctl、lsusb、lspci、hwmon` + (D.available ? '，序號與記憶體模組來自 dmidecode（sudoers 僅放行此指令）' : '') + `。靜態資料快取 60 秒；這頁的開機時間、負載、感測器是進入分頁時抓一次，即時曲線在「監控」分頁。` + (D.available ? '' : ' ' + (D.note || ''));
+  $('#hwNote').textContent = `硬體資料快取 1 小時並存快照，換硬體請按右邊按鈕。來源：/sys DMI、lscpu、nvidia-smi、lsblk、ip、bluetoothctl、lsusb、lspci、hwmon` + (D.available ? '，序號與記憶體模組來自 dmidecode（sudoers 僅放行此指令）' : '') + `。靜態資料快取 60 秒；這頁的開機時間、負載、感測器是進入分頁時抓一次，即時曲線在「監控」分頁。` + (D.available ? '' : ' ' + (D.note || ''));
   const sys = `<div class="panel"><div class="panel-h"><h2>系統</h2></div><dl class="kv">
     <dt>機型</dt><dd>${dash(S.sys_vendor)} ${dash(S.product_name)}<div class="sub1">${dash(S.product_version)}</div></dd>
     <dt>主機板</dt><dd>${dash(S.board_vendor)} ${dash(S.board_name)}${D.available && (D.board.version || D.board.serial) ? `<div class="sub1">${[D.board.version ? '版本 ' + esc(D.board.version) : '', D.board.serial ? '序號 ' + esc(D.board.serial) : ''].filter(Boolean).join(' · ')}</div>` : ''}</dd>
