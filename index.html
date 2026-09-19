@@ -538,7 +538,7 @@ async function pollRear() {
     if (disp && disp.connected) st += `<b>螢幕 ${esc(disp.mode || '')}${disp.hz ? ' @ ' + Math.round(disp.hz) + ' Hz' : ''}</b>`;
     if (c && c.devices.length) st += c.devices.filter(d => d.bus === 'usb3').concat(c.devices.filter(d => d.bus === 'usb2')).slice(0, 1).map(d => `<b>${esc(d.name)}</b>`).join('') + (c.devices.some(d => d.children) ? `<span class="sub1">下接 ${c.devices.reduce((a, d) => a + d.children, 0)} 個裝置</span>` : '');
     if (!st) st = cid ? '<span class="sub1">空</span>' : '<span class="sub1">未校準</span>';
-    const SRC = { plug: '插入法確認', manual: '手動告知', inferred: '推測，插入即確認' };
+    const SRC = { plug: '插入法確認', manual: '手動告知', inferred: '插入即確認' };
     const tag = isPower ? '手動標記 · 供電狀態核心偵測不到' : cal ? (cal.source === 'inferred' ? '推測' : '已校準') + `（${SRC[cal.source] || cal.source}）` : '未校準';
     const sub2 = cid ? `${esc(cid.replace('NVDA8000:', '控制器 '))} · USB-C-${cid.slice(-1)}${c && c.location ? ' · 韌體 ' + (PANEL_ZH[c.location.panel] || c.location.panel) : ''}` : (isPower ? '控制器：電源線不帶資料，無法得知' : '控制器：待校準');
     slots.push(`<div class="slot ${on || isPower ? 'on' : ''} ${flash ? 'flash' : ''} ${hw.calibSlot === i ? 'pick' : ''}" data-slot="${i}">${isPower ? ICON.plug : ICON.usbc}<div class="lb">USB-C 孔 ${i + 1}${isPower ? ' · 電源輸入' : ''}<br>${sub2}</div><div class="st">${st}</div><span class="tg">${tag}</span></div>`);
