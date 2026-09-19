@@ -179,6 +179,7 @@
       <a data-tab="apps">應用程式<span id="dotApps" class="dot hide"></span></a>
       <a data-tab="history">歷史</a>
       <a data-tab="monitor">監控</a>
+      <a data-tab="disk">磁碟<span id="dotDisk" class="dot hide" style="background:var(--danger)"></span></a>
       <a data-tab="hardware">硬體</a>
     </nav>
   </div>
@@ -236,6 +237,17 @@
     <div id="llm" class="panel"><div class="panel-h"><h2>本機 LLM</h2><span class="sub">偵測中…</span></div></div>
   </section>
 
+  <section id="tab-disk" class="hide">
+    <div id="diskWarn" class="panel notice danger hide"></div>
+    <div class="panel"><div class="panel-h"><h2>根分割區 /</h2><span class="sub" id="diskMeta">讀取中…</span><div class="actions"><button id="btnDiskScan">重新掃描</button></div></div>
+      <div class="stat" id="diskStat"></div><div id="diskMeter" style="margin-top:10px"></div></div>
+    <div class="panel"><div class="panel-h"><h2>誰在吃空間</h2><span class="sub">依大小排序；有「清理」鈕的才是本工具能安全動的，其餘只列出</span></div><div id="diskCats"><div class="empty">掃描中…</div></div></div>
+    <div class="grid">
+      <div class="panel"><div class="panel-h"><h2>家目錄第一層</h2></div><div id="diskHome"></div></div>
+      <div class="panel"><div class="panel-h"><h2>大於 1 GB 的檔案</h2><span class="sub">家目錄內，前 25 個</span></div><div id="diskBig"></div></div>
+    </div>
+  </section>
+
   <section id="tab-hardware" class="hide">
     <div id="hwNote" class="sub1" style="margin:-8px 0 14px"></div>
     <div class="panel" id="usbPortsPanel"><div class="panel-h"><h2>後面板</h2><span class="sub" id="usbPortsSub">讀取中…</span><div class="actions"><button id="btnCalib" class="small">校準孔位</button><button id="btnCalibReset" class="small">清除校準</button></div></div><div id="rear"></div><div id="usbPorts" style="margin-top:14px"></div></div>
@@ -261,7 +273,7 @@
 <script>
 const $ = s => document.querySelector(s);
 const state = { items: [], selected: new Set(), job: null, polling: null, apps: null, src: 'all', q: '' };
-const TITLES = { updates: '更新', apps: '應用程式', history: '歷史', monitor: '監控', hardware: '硬體' };
+const TITLES = { updates: '更新', apps: '應用程式', history: '歷史', monitor: '監控', disk: '磁碟', hardware: '硬體' };
 const fmtBytes = b => b == null ? '—' : b < 1048576 ? (b/1024).toFixed(0)+' KB' : (b/1048576).toFixed(1)+' MB';
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
@@ -281,6 +293,7 @@ function showTab(t) {
   if (t === 'history') loadHistory();
   if (t === 'monitor') startMon(); else stopHw();
   if (t === 'hardware') showHardware();
+  if (t === 'disk') loadDisk(); else if (hw.diskTimer) { clearInterval(hw.diskTimer); hw.diskTimer = null; }
 }
 document.querySelectorAll('nav.tabs a').forEach(a => a.onclick = () => showTab(a.dataset.tab));
 
@@ -390,6 +403,7 @@ async function pollJob() {
     $('#jobClose').onclick = () => $('#jobcard').classList.add('hide');
     state.apps = null; await load();
     if (!$('#tab-apps').classList.contains('hide')) loadApps(true);
+    if (!$('#tab-disk').classList.contains('hide')) loadDisk(true);
   }
 }
 
@@ -441,6 +455,50 @@ $('#appsNote') && $('#appsNote').addEventListener('click', () => {});
 $('#srcChips').querySelectorAll('.chip').forEach(c => c.onclick = () => { state.src = c.dataset.src; $('#srcChips').querySelectorAll('.chip').forEach(x => x.classList.toggle('active', x === c)); if (state.apps) renderApps(); });
 $('#appSearch').oninput = e => { state.q = e.target.value; if (state.apps) renderApps(); };
 $('#btnAppsReload').onclick = () => loadApps(true);
+
+/* ---- 磁碟分頁 ---- */
+const ACT_LABEL = { apt_clean: '清 apt 快取', apt_autoremove: 'apt autoremove', docker_prune: '清 dangling 映像', npm_cache_clean: '清 npm 快取', trash_empty: '清空垃圾桶' };
+async function loadDisk(force) {
+  const j = await api('/api/disk' + (force ? '?force=1' : ''));
+  if (!j.ok) { $('#diskCats').innerHTML = `<div class="empty">讀取失敗：${esc(j.error)}</div>`; return; }
+  const L = j.live, used = L.total - L.free, pct = used / L.total * 100;
+  $('#diskStat').innerHTML = `<div><b>${GB(used)}</b><span>已使用（${pct.toFixed(1)}%）</span></div><div><b>${GB(L.free)}</b><span>剩餘</span></div><div><b>${GB(L.total)}</b><span>總量</span></div>`;
+  $('#diskMeter').innerHTML = meter(pct, 85, 90);
+  const warn = $('#diskWarn'); warn.classList.toggle('hide', pct < 90); if (pct >= 90) warn.innerHTML = `<b>根分割區已用 ${pct.toFixed(0)}%</b>，剩 ${GB(L.free)}。超過 90% 時每 6 小時會跳一次桌面通知。Ollama 拉一個 120B 模型要 60 GB，拉之前先清。`;
+  $('#dotDisk').classList.toggle('hide', pct < 90);
+  const d = j.data;
+  $('#diskMeta').textContent = j.scanning ? '掃描中（約 1 分鐘）…' : d ? `掃描於 ${d.scanned.replace('T',' ')} · 明細快取 10 分鐘，頂端用量即時` : '';
+  if (j.scanning) { if (!hw.diskTimer) hw.diskTimer = setInterval(() => loadDisk(), 5000); } else if (hw.diskTimer) { clearInterval(hw.diskTimer); hw.diskTimer = null; }
+  if (!d) return;
+  const cats = d.categories.slice().sort((a, b) => b.bytes - a.bytes);
+  let html = `<table><thead><tr><th>類別</th><th style="width:100px">大小</th><th>說明</th><th style="width:150px"></th></tr></thead><tbody>`;
+  for (const c of cats) {
+    const act = c.action ? `<button class="small" data-act="${c.action}">${ACT_LABEL[c.action] || c.action}</button>` : '';
+    const more = c.items.length ? `<details><summary class="sub1">明細 ${c.items.length} 項</summary><table style="margin-top:6px">${c.items.map(i => `<tr><td class="mono" style="font-size:12px">${esc(i.name)}${i.note ? `<span class="sub1"> · ${esc(i.note)}</span>` : ''}${i.modified ? `<span class="sub1"> · ${esc(i.modified)}</span>` : ''}</td><td style="width:90px" class="sub1">${i.bytes ? GB(i.bytes) : ''}</td><td style="width:70px">${c.key === 'ollama' ? `<button class="small" data-olrm="${esc(i.name)}">刪除</button>` : ''}</td></tr>`).join('')}</table></details>` : '';
+    html += `<tr><td><b>${esc(c.label)}</b>${more}</td><td class="mono">${c.bytes ? GB(c.bytes) : '—'}</td><td class="sub1">${esc(c.note)}</td><td>${act}</td></tr>`;
+  }
+  $('#diskCats').innerHTML = html + `</tbody></table>`;
+  $('#diskHome').innerHTML = `<table><tbody>${d.home_top.map(h => `<tr><td class="mono">${esc(h.name)}</td><td style="width:90px" class="sub1">${GB(h.bytes)}</td></tr>`).join('')}</tbody></table>`;
+  $('#diskBig').innerHTML = d.big_files.length ? `<table><tbody>${d.big_files.map(b => `<tr><td class="mono" style="font-size:12px">${esc(b.path.replace(/^\/home\/[^/]+/, '~'))}</td><td style="width:80px" class="sub1">${GB(b.bytes)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">沒有</div>';
+  $('#diskCats').querySelectorAll('button[data-act]').forEach(b => b.onclick = async () => {
+    const act = b.dataset.act; const msg = { docker_prune: '只刪沒有 tag 的 dangling 映像與 build cache，不動有名字的映像和卷。', trash_empty: '垃圾桶內容會永久刪除。', apt_autoremove: '會移除不再需要的相依套件（含舊核心），桌面會跳密碼視窗。', apt_clean: '刪除已下載的 .deb 快取，之後需要時會重新下載。', npm_cache_clean: '清 npm 快取，下次 npm install 會重新下載。' }[act] || '';
+    if (!confirm(`${ACT_LABEL[act]}\n${msg}\n確定？`)) return;
+    b.disabled = true;
+    if (act === 'docker_prune') { const r1 = await api('/api/disk/action', {action: 'docker_prune'}); if (!r1.ok) { alert(r1.error); b.disabled = false; return; } startPolling('Docker：清 dangling 映像'); const w = setInterval(async () => { const jj = await api('/api/job'); if (jj.status !== 'running') { clearInterval(w); const r2 = await api('/api/disk/action', {action: 'docker_builder_prune'}); if (r2.ok) startPolling('Docker：清 build cache'); } }, 1500); return; }
+    const r = await api('/api/disk/action', {action: act});
+    if (!r.ok) { alert('無法開始：' + r.error); b.disabled = false; return; }
+    startPolling(`${ACT_LABEL[act]}${r.packages ? '：' + r.packages.join(' ') : ''}`);
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  });
+  $('#diskCats').querySelectorAll('button[data-olrm]').forEach(b => b.onclick = async () => {
+    const name = b.dataset.olrm;
+    if (!confirm(`刪除 Ollama 模型 ${name}？\n同一模型的其他 tag 若共用 blob，實際釋放的空間可能比列出的小。`)) return;
+    b.disabled = true; const r = await api('/api/disk/action', {action: 'ollama_delete', name});
+    if (!r.ok) { alert('失敗：' + r.error); b.disabled = false; return; }
+    loadDisk(true);
+  });
+}
+$('#btnDiskScan').onclick = () => loadDisk(true);
 
 async function loadHistory() {
   const j = await api('/api/history');
@@ -807,6 +865,7 @@ async function pollHw(staticOnly) {
   if (j.status === 'running') startPolling(j.kind === 'refresh' ? '重新整理 apt 來源' : '更新中：' + (j.packages||[]).join(', '));
   const t = location.hash.replace('#','');
   showTab(TITLES[t] ? t : 'updates');
+  api('/api/hardware/live').then(r => { if (r.ok && r.disk_root) $('#dotDisk').classList.toggle('hide', (1 - r.disk_root.free / r.disk_root.total) < 0.9); });
   api('/api/apps').then(r => { if (r.ok) { state.apps = r; $('#dotApps').classList.toggle('hide', !r.items.some(a => a.candidate)); if (!$('#tab-apps').classList.contains('hide')) renderApps(); } });
 })();
 </script>

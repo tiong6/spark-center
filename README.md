@@ -22,6 +22,11 @@ DGX Dashboard 的 Update 按鈕會一次升級全部套件（含 Chrome、ChatGP
   （先暖機 1 token 把載入時間隔開，再量 128 token；數字直接取自 Ollama 回應的 eval_count/eval_duration）。
   GPU 讀取改走 NVML（ctypes 開系統的 libnvidia-ml.so，不需 pip）：四項讀取 0.001 ms，nvidia-smi 子程序要 20 ms；
   降頻門檻用 NVML 的 slowdown threshold（這台是 86 °C），不再用 tlimit 推算。NVML 不可用時退回 nvidia-smi。
+- **磁碟**：根分割區用量（即時）＋「誰在吃空間」明細（背景掃描、快取 10 分鐘）：Ollama 模型（可逐一刪除，透過 Ollama API）、
+  LM Studio 模型、Docker（映像／容器／卷／build cache）、~/snap、flatpak、snapd、apt 快取、apt autoremove、journal、~/.cache、~/.npm、垃圾桶，
+  加家目錄第一層與 >1 GB 大檔。清理動作只做白名單：apt clean（aptdaemon，免密碼）、apt autoremove（aptdaemon，跳密碼）、
+  docker image/builder prune（只清 dangling）、npm cache clean、清空垃圾桶。Docker 卷、journal、LM Studio、Steam 只列不動。
+  背景每 10 分鐘檢查，≥90% 時每 6 小時 notify-send 一次。
 - **硬體** 頂部是「後面板」示意圖：USB-C ×4（最左為電源輸入）、HDMI、10GbE、QSFP（ConnectX-7）、Kensington，順序依 ServeTheHome 評測。
   每個 USB-C 孔同時顯示 DP Alt Mode 輸出（xrandr 的 USB-C-0..3）與 USB 裝置（xHCI 控制器 NVDA8000:00..03）。
   編號對應實體位置是推測；「校準孔位」：點一個孔、把裝置插進那個洞，偵測到新裝置就綁定，存在瀏覽器 localStorage。

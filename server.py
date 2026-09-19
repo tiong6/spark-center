@@ -271,6 +271,14 @@ class Job:
             _APPS_CACHE["ts"] = 0  # 讓應用程式清單重新掃描
 
     def _run(self, kind, packages):
+        if kind == "shell":
+            # packages[0] 是指令名（見 DISK_ACTIONS 白名單），不接受任意指令
+            cmd = DISK_ACTIONS.get(packages[0]) if packages else None
+            if not cmd:
+                with self.lock:
+                    self.state.update(status="error", error="未知動作", finished=datetime.now().isoformat(timespec="seconds"))
+                return
+            return self._run_subprocess(cmd, packages)
         if kind == "flatpak":
             return self._run_subprocess(["flatpak", "update", "-y", "--noninteractive"] + packages, packages)
         if kind == "snap":
@@ -280,6 +288,10 @@ class Job:
             client = aptdaemon.client.AptClient()
             if kind == "refresh":
                 trans = client.update_cache()
+            elif kind == "aptclean":
+                trans = client.clean()                 # polkit org.debian.apt.clean：active session 免密碼
+            elif kind == "remove":
+                trans = client.remove_packages(packages)  # autoremove 用；會跳 polkit 密碼視窗
             else:
                 trans = client.upgrade_packages(packages)
 
@@ -1549,6 +1561,197 @@ def _llm_bench_run(model, num_predict=128):
         _LLM_BENCH["state"] = res
 
 
+# ---------- 磁碟：誰在吃空間（掃描在背景執行緒，快取 10 分鐘）----------
+
+HOME = os.path.expanduser("~")
+DISK_ACTIONS = {  # 白名單：只有這些指令能被 /api/disk/action 觸發
+    "docker_prune": ["docker", "image", "prune", "-f"],          # 只清 dangling 映像，不動有 tag 的
+    "docker_builder_prune": ["docker", "builder", "prune", "-f"],
+    "trash_empty": ["bash", "-c", "rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null; echo 已清空垃圾桶"],
+    "npm_cache_clean": ["bash", "-c", "npm cache clean --force 2>&1 | tail -2; du -sh ~/.npm"],
+}
+_DISK = {"lock": threading.Lock(), "data": None, "ts": 0, "scanning": False}
+DISK_TTL = 600
+
+
+def _du(path):
+    try:
+        r = subprocess.run(["du", "-sxb", path], capture_output=True, text=True, timeout=120)
+        return int(r.stdout.split()[0]) if r.stdout.strip() else None
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        return None
+
+
+def _du_children(path, limit=12):
+    """path 底下第一層各項大小，由大到小。"""
+    out = []
+    try:
+        names = os.listdir(path)
+    except OSError:
+        return out
+    for n in names:
+        full = os.path.join(path, n)
+        if os.path.islink(full):
+            continue
+        v = _du(full)
+        if v:
+            out.append({"name": n, "path": full, "bytes": v})
+    out.sort(key=lambda x: -x["bytes"])
+    return out[:limit]
+
+
+def _big_files(root, min_bytes=1 << 30, limit=25):
+    try:
+        r = subprocess.run(["find", root, "-xdev", "-type", "f", "-size", f"+{min_bytes // 1024}k", "-printf", "%s\t%p\n"],
+                           capture_output=True, text=True, timeout=180)
+        rows = [l.split("\t", 1) for l in r.stdout.splitlines() if "\t" in l]
+        rows = [{"bytes": int(a), "path": b} for a, b in rows]
+        rows.sort(key=lambda x: -x["bytes"])
+        return rows[:limit]
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        return []
+
+
+def _docker_df():
+    out = _run(["docker", "system", "df", "--format", "{{json .}}"], timeout=60)
+    if not out:
+        return None
+    rows = []
+    for line in out.splitlines():
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            pass
+    vols = []
+    v = _run(["docker", "volume", "ls", "-q"], timeout=30) or ""
+    dfv = _run(["docker", "system", "df", "-v", "--format", "{{json .}}"], timeout=60)
+    if dfv:
+        try:
+            j = json.loads(dfv.splitlines()[0]) if dfv.strip().startswith("{") else None
+            for vol in (j or {}).get("Volumes", []) or []:
+                vols.append({"name": vol.get("Name"), "size": vol.get("Size"), "links": vol.get("Links")})
+        except (ValueError, IndexError, AttributeError):
+            pass
+    if not vols and dfv:
+        # 舊版 docker 沒有 json，退回文字表
+        txt = _run(["docker", "system", "df", "-v"], timeout=60) or ""
+        sec = txt.split("VOLUME NAME", 1)
+        if len(sec) > 1:
+            for l in sec[1].splitlines()[1:]:
+                parts = l.split()
+                if len(parts) >= 3 and parts[0] != "":
+                    vols.append({"name": parts[0], "links": parts[1], "size": parts[2]})
+                elif not l.strip():
+                    break
+    return {"summary": rows, "volumes": vols}
+
+
+def _ollama_models():
+    j = _http_json("http://127.0.0.1:11434/api/tags")
+    if not j:
+        return None
+    ms = [{"name": m.get("name"), "bytes": m.get("size") or 0, "modified": (m.get("modified_at") or "")[:10]} for m in j.get("models", [])]
+    ms.sort(key=lambda x: -x["bytes"])
+    return ms
+
+
+def _apt_autoremovable():
+    out = _run(["apt-get", "-s", "autoremove"], timeout=60) or ""
+    return [l.split()[1] for l in out.splitlines() if l.startswith("Remv ")]
+
+
+def disk_scan():
+    with _DISK["lock"]:
+        if _DISK["scanning"]:
+            return
+        _DISK["scanning"] = True
+    try:
+        st = os.statvfs("/")
+        total, free = st.f_blocks * st.f_frsize, st.f_bavail * st.f_frsize
+        cats = []
+        def cat(key, label, b, note="", action=None, items=None):
+            cats.append({"key": key, "label": label, "bytes": b or 0, "note": note, "action": action, "items": items or []})
+        # Ollama（系統服務，模型在 /usr/share/ollama）
+        om = _ollama_models()
+        cat("ollama", "Ollama 模型", _du("/usr/share/ollama"),
+            "系統服務，存在 /usr/share/ollama；同一模型的不同 tag 共用 blob，清單加總會大於實際占用。可在此刪除個別模型", None, om)
+        # LM Studio
+        lm = os.path.join(HOME, ".lmstudio", "models")
+        if os.path.isdir(lm):
+            items = []
+            for pub in _du_children(lm, 30):
+                for mdl in _du_children(pub["path"], 30):
+                    items.append({"name": f"{pub['name']}/{mdl['name']}", "bytes": mdl["bytes"], "path": mdl["path"]})
+            items.sort(key=lambda x: -x["bytes"])
+            cat("lmstudio", "LM Studio 模型", _du(lm), "~/.lmstudio/models；請在 LM Studio 內刪除，這裡只列出", None, items[:30])
+        # Docker
+        dk = _docker_df()
+        if dk:
+            def gb(x):
+                m = re.match(r"([\d.]+)\s*([KMGT]?B)", str(x or ""))
+                if not m: return 0
+                return float(m.group(1)) * {"B": 1, "KB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12}[m.group(2)]
+            total_dk = sum(gb(r.get("Size")) for r in dk["summary"])
+            recl = sum(gb(r.get("Reclaimable", "").split(" ")[0]) for r in dk["summary"])
+            items = [{"name": f"{r.get('Type')}：{r.get('TotalCount') or r.get('Total')} 個，可回收 {r.get('Reclaimable')}", "bytes": gb(r.get("Size"))} for r in dk["summary"]]
+            items += [{"name": f"卷 {v['name']}", "bytes": gb(v.get("size")), "note": f"被 {v.get('links')} 個容器用"} for v in dk["volumes"]]
+            cat("docker", "Docker", total_dk, f"映像可回收約 {recl/1e9:.1f} GB；卷不自動清（可能是資料）", "docker_prune", items)
+        # snap 使用者資料（Steam 等）
+        sn = os.path.join(HOME, "snap")
+        if os.path.isdir(sn):
+            cat("snap_home", "snap 應用資料（~/snap）", _du(sn), "Steam 遊戲、瀏覽器設定檔等；請在各應用內管理", None, _du_children(sn, 10))
+        cat("flatpak", "flatpak（系統）", _du("/var/lib/flatpak"), "app＋runtime；未使用的 runtime 可用 flatpak uninstall --unused", None)
+        cat("snapd", "snap（系統）", _du("/var/lib/snapd"), "snapd 預設保留舊版本 2 份", None)
+        cat("apt_cache", "apt 套件快取", _du("/var/cache/apt"), "下載過的 .deb，清掉無害", "apt_clean")
+        ar = _apt_autoremovable()
+        cat("apt_autoremove", "apt 可自動移除的套件", None, f"{len(ar)} 個不再需要的相依套件（含舊核心）" if ar else "沒有", "apt_autoremove" if ar else None, [{"name": n, "bytes": 0} for n in ar])
+        cat("journal", "系統日誌 journal", _du("/var/log/journal"), "需 root 才能 vacuum，這裡不動", None)
+        cat("cache", "~/.cache", _du(os.path.join(HOME, ".cache")), "各應用快取", None, _du_children(os.path.join(HOME, ".cache"), 8))
+        cat("npm", "~/.npm", _du(os.path.join(HOME, ".npm")), "npm 快取", "npm_cache_clean")
+        tr = os.path.join(HOME, ".local", "share", "Trash")
+        cat("trash", "垃圾桶", _du(tr), "", "trash_empty")
+        home_top = _du_children(HOME, 15)
+        big = _big_files(HOME)
+        data = {"total": total, "free": free, "used": total - free, "categories": cats, "home_top": home_top, "big_files": big,
+                "scanned": datetime.now().isoformat(timespec="seconds")}
+        with _DISK["lock"]:
+            _DISK.update(data=data, ts=time.time())
+    finally:
+        with _DISK["lock"]:
+            _DISK["scanning"] = False
+
+
+def disk_status(force=False):
+    with _DISK["lock"]:
+        stale = not _DISK["data"] or time.time() - _DISK["ts"] > DISK_TTL
+        scanning = _DISK["scanning"]
+        data = _DISK["data"]
+    if (stale or force) and not scanning:
+        threading.Thread(target=disk_scan, daemon=True).start()
+        scanning = True
+    st = os.statvfs("/")
+    live = {"total": st.f_blocks * st.f_frsize, "free": st.f_bavail * st.f_frsize}
+    return {"scanning": scanning, "data": data, "live": live}
+
+
+# ---------- 磁碟快滿通知（背景，每 10 分鐘；≥90% 每 6 小時提醒一次）----------
+
+def _disk_watch():
+    last = 0
+    while True:
+        try:
+            st = os.statvfs("/")
+            pct = (1 - st.f_bavail / st.f_blocks) * 100
+            if pct >= 90 and time.time() - last > 6 * 3600:
+                free_gb = st.f_bavail * st.f_frsize / 1e9
+                subprocess.run(["notify-send", "-u", "critical", "-a", "Spark Center", "根分割區快滿了",
+                                f"已用 {pct:.0f}%，剩 {free_gb:.0f} GB。開 http://localhost:{PORT}/#disk 看誰在吃空間。"], timeout=10)
+                last = time.time()
+        except Exception:
+            pass
+        time.sleep(600)
+
+
 # ---------- HTTP ----------
 
 class Handler(BaseHTTPRequestHandler):
@@ -1623,6 +1826,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, **hardware_live()})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/disk":
+            try:
+                self._json({"ok": True, **disk_status(force="force=1" in (self.path.split("?", 1) + [""])[1])})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/llm":
             try:
                 with _LLM_BENCH["lock"]:
@@ -1693,6 +1901,34 @@ class Handler(BaseHTTPRequestHandler):
             if not llm_bench_start(model, npred):
                 return self._json({"ok": False, "error": "已有量測在進行中"}, 409)
             return self._json({"ok": True})
+        if path == "/api/disk/action":
+            act = data.get("action")
+            if act == "ollama_delete":
+                name = data.get("name")
+                if not name or not isinstance(name, str):
+                    return self._json({"ok": False, "error": "缺 name"}, 400)
+                req = urllib.request.Request("http://127.0.0.1:11434/api/delete", data=json.dumps({"name": name}).encode(),
+                                             headers={"Content-Type": "application/json"}, method="DELETE")
+                try:
+                    with urllib.request.urlopen(req, timeout=60) as r:
+                        r.read()
+                except urllib.error.HTTPError as e:
+                    return self._json({"ok": False, "error": f"Ollama 回 {e.code}：{e.read().decode(errors='replace')[:200]}"}, 502)
+                except (urllib.error.URLError, OSError) as e:
+                    return self._json({"ok": False, "error": f"連不到 Ollama：{e}"}, 502)
+                _DISK["ts"] = 0
+                return self._json({"ok": True})
+            if act == "apt_clean":
+                ok = JOB.start("aptclean")
+                return self._json({"ok": ok} if ok else {"ok": False, "error": "已有工作在進行中"}, 200 if ok else 409)
+            if act == "apt_autoremove":
+                pk = _apt_autoremovable()
+                if not pk:
+                    return self._json({"ok": False, "error": "沒有可移除的套件"}, 400)
+                return self._json({"ok": JOB.start("remove", pk), "packages": pk})
+            if act in DISK_ACTIONS:
+                return self._json({"ok": JOB.start("shell", [act])})
+            return self._json({"ok": False, "error": "未知動作"}, 400)
         if path == "/api/apps/update":
             source = data.get("source"); ids = [i for i in data.get("ids", []) if isinstance(i, str) and re.fullmatch(r"[A-Za-z0-9._+-]+", i)]
             if source not in ("flatpak", "snap") or not ids:
@@ -1708,6 +1944,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    threading.Thread(target=_disk_watch, daemon=True).start()
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Spark Center on http://{HOST}:{PORT}", flush=True)
     try:
