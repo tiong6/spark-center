@@ -314,7 +314,7 @@ function renderApps() {
   const rows = j.items.filter(a => (state.src === 'all' || (state.src === 'upd' ? !!a.candidate : a.source === state.src)) &&
     (!q || [a.name, a.name_zh, a.id, a.comment].some(x => (x||'').toLowerCase().includes(q))));
   if (!rows.length) { $('#apps').innerHTML = `<div class="empty">沒有符合的應用程式。</div>`; return; }
-  let html = `<table><thead><tr><th style="width:30%">應用程式</th><th style="width:22%">識別</th><th style="width:20%">版本</th><th class="col-opt">來源</th><th style="width:150px">狀態</th><th style="width:80px"></th></tr></thead><tbody>`;
+  let html = `<table><thead><tr><th style="width:27%">應用程式</th><th style="width:21%">識別</th><th style="width:15%">版本</th><th class="col-opt">來源</th><th style="width:135px">狀態</th><th style="width:70px"></th></tr></thead><tbody>`;
   for (const a of rows) {
     const status = a.candidate ? `<span class="to mono">→ ${esc(a.candidate)}</span>` :
       (a.source !== 'apt' && a.checked_updates === false) ? `<span class="tag">未能查詢</span>` : `<span class="tag ok">最新</span>`;

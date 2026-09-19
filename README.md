@@ -9,6 +9,16 @@ DGX Dashboard 的 Update 按鈕會一次升級全部套件（含 Chrome、ChatGP
 - 只讀 `/var/run/reboot-required` 決定要不要提示重開，程式本身絕不重開機
 - 只綁 127.0.0.1:11001，不要改成對外
 
+另外兩個分頁：
+
+- **應用程式**：列出所有有桌面啟動項（.desktop）的 app，合併 apt、snap、flatpak 三種來源，顯示版本、來源與是否有新版
+  （snap/flatpak 會向商店查，查不到就標「未能查詢」，不假裝是最新）
+- **歷史**：/var/log/apt/history.log 最近 8 筆，表格＋動作標籤
+
+有新版時可按「說明」看更新內容。各來源能給的不一樣，畫面上會標明：
+apt 走 `apt-get changelog`（Ubuntu 官方套件有，第三方 repo 多半沒有）；
+flatpak 本機沒有 appstream 時只能給遠端 commit 的提交訊息，不是 release notes；snap 商店不提供。
+
 它取代不了 Dashboard 的 Spark OS 韌體 OTA（那段是 NVIDIA 閉源流程）。
 定位：日常軟體更新用這頁；清單裡出現 dgx-release / dgx-spark-ota-update-meta / linux-image-nvidia 這類 Spark OS 本體更新時，再用 Dashboard。
 
