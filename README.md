@@ -71,7 +71,7 @@ flatpak 本機沒有 appstream 時只能給遠端 commit 的提交訊息，不�
 DGX Dashboard 的啟動器其實只是 xdg-open 開瀏覽器分頁。安裝：
 
 ```
-cp app/spark-center.desktop ~/.local/share/applications/
+cp app/spark-center.desktop ~/.local/share/applications/   # Exec 路徑含空格，已加引號
 for s in 256 128 64 48; do cp app/spark-center-$s.png ~/.local/share/icons/hicolor/${s}x${s}/apps/spark-center.png; done
 update-desktop-database ~/.local/share/applications
 ```
