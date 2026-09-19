@@ -1467,6 +1467,85 @@ def _root_usage():
         return None
 
 
+# ---------- Wi-Fi 品質（iw，免 root）----------
+
+def _wifi_iface():
+    for i in os.listdir("/sys/class/net"):
+        if os.path.isdir(f"/sys/class/net/{i}/wireless"):
+            return i
+    return None
+
+
+def _wifi_live():
+    """iw link + station dump：訊號、速率、MCS、重試、beacon loss。約 10 ms。"""
+    iface = _wifi_iface()
+    if not iface:
+        return None
+    link = _run(["iw", "dev", iface, "link"], timeout=5) or ""
+    if "Not connected" in link or not link.strip():
+        return {"iface": iface, "connected": False}
+    info = _run(["iw", "dev", iface, "info"], timeout=5) or ""
+    st = _run(["iw", "dev", iface, "station", "dump"], timeout=5) or ""
+    g = lambda pat, src, cast=str: (lambda m: cast(m.group(1)) if m else None)(re.search(pat, src))
+    freq = g(r"freq:\s*([\d.]+)", link, float)
+    band = "6 GHz" if freq and freq >= 5925 else "5 GHz" if freq and freq >= 4900 else "2.4 GHz" if freq else None
+    rate_re = lambda k: g(rf"{k} bitrate:\s*([\d.]+) MBit/s", st, float)
+    mcs = lambda k: g(rf"{k} bitrate:.*?(HE|VHT|EHT|HT)-MCS (\d+)", st)
+    def mcs_val(k):
+        m = re.search(rf"{k} bitrate:.*?(HE|VHT|EHT|HT)-MCS (\d+)", st)
+        return {"phy": m.group(1), "mcs": int(m.group(2))} if m else None
+    return {
+        "iface": iface, "connected": True,
+        "ssid": g(r"SSID:\s*(.+)", link), "bssid": g(r"Connected to ([0-9a-f:]{17})", link),
+        "freq_mhz": freq, "band": band, "channel": g(r"channel (\d+)", info, int), "width_mhz": g(r"width:\s*(\d+) MHz", info, int),
+        "signal_dbm": g(r"signal:\s*(-?\d+)", link, int), "signal_avg_dbm": g(r"signal avg:\s*(-?\d+)", st, int),
+        "tx_mbps": rate_re("tx"), "rx_mbps": rate_re("rx"), "tx_mcs": mcs_val("tx"), "rx_mcs": mcs_val("rx"),
+        "tx_packets": g(r"tx packets:\s*(\d+)", st, int), "tx_retries": g(r"tx retries:\s*(\d+)", st, int),
+        "tx_failed": g(r"tx failed:\s*(\d+)", st, int), "beacon_loss": g(r"beacon loss:\s*(\d+)", st, int),
+        "rx_drop": g(r"rx drop misc:\s*(\d+)", st, int), "connected_s": g(r"connected time:\s*(\d+)", st, int),
+        "txpower_dbm": g(r"txpower ([\d.]+) dBm", info, float),
+    }
+
+
+_WIFI_SCAN = {"ts": 0, "data": None}
+
+
+def _wifi_aps():
+    """nmcli 看得到的 AP（不主動重掃，用 NetworkManager 快取）；快取 60 秒。"""
+    if time.time() - _WIFI_SCAN["ts"] < 60 and _WIFI_SCAN["data"] is not None:
+        return _WIFI_SCAN["data"]
+    out = _run(["nmcli", "-t", "-f", "SSID,BSSID,FREQ,CHAN,SIGNAL,RATE,SECURITY,IN-USE", "dev", "wifi", "list"], timeout=15)
+    aps = []
+    if out:
+        for line in out.splitlines():
+            # BSSID 裡的冒號被跳脫成 \:
+            parts = re.split(r"(?<!\\):", line)
+            if len(parts) < 8:
+                continue
+            ssid, bssid, freq, chan, sig, rate, sec, inuse = parts[:8]
+            aps.append({"ssid": ssid, "bssid": bssid.replace("\\:", ":"), "freq_mhz": int(freq.split()[0]) if freq.split() else None,
+                        "chan": int(chan) if chan.isdigit() else None, "signal_pct": int(sig) if sig.isdigit() else None,
+                        "rate_mbps": int(rate.split()[0]) if rate.split() and rate.split()[0].isdigit() else None,
+                        "security": sec, "in_use": inuse.strip() == "*"})
+    aps.sort(key=lambda a: -(a["signal_pct"] or 0))
+    _WIFI_SCAN.update(ts=time.time(), data=aps)
+    return aps
+
+
+def _bt_connected():
+    out = _run(["bluetoothctl", "devices", "Connected"], timeout=5) or ""
+    return [l.split(" ", 2)[2] for l in out.splitlines() if l.startswith("Device ") and len(l.split(" ", 2)) == 3]
+
+
+def _wifi_events_24h():
+    """NetworkManager 24 小時內 Wi-Fi 斷線／重連次數（journal，免 root 可讀系統單元）。"""
+    out = _run(["journalctl", "-u", "NetworkManager", "--since", "-24 h", "--no-pager", "-o", "short"], timeout=15) or ""
+    iface = _wifi_iface() or "wl"
+    disc = len([l for l in out.splitlines() if iface in l and "activated -> deactivating" in l])
+    act = len([l for l in out.splitlines() if iface in l and "Activation: successful" in l])
+    return {"disconnects": disc, "activations": act}
+
+
 def hardware_live():
     mem = _meminfo()
     load = (_read("/proc/loadavg") or "").split()[:3]
@@ -1480,6 +1559,7 @@ def hardware_live():
         "sensors": _sensors(),
         "cpu": _cpu_jiffies(),
         "cpu_freq": _cpu_freqs(),
+        "wifi": _wifi_live(),
         "net": _net_counters(),
         "disk_root": _root_usage(),
         "ts": datetime.now().isoformat(timespec="seconds"),
@@ -1883,6 +1963,11 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/hardware/usbports":
             try:
                 self._json({"ok": True, "ports": usb_ports(), "ts": time.time()})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/hardware/wifi":
+            try:
+                self._json({"ok": True, "live": _wifi_live(), "aps": _wifi_aps(), "bt_connected": _bt_connected(), "events_24h": _wifi_events_24h()})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/hardware/live":

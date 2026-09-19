@@ -17,6 +17,9 @@ DGX Dashboard 的 Update 按鈕會一次升級全部套件（含 Chrome、ChatGP
 - **監控**：DGX Dashboard 風格的即時儀表＋折線（SVG 手繪無外部庫）：系統記憶體、CPU 使用率（/proc/stat 差分，可切「每核」看 20 顆各自的使用率與時脈）、
   GPU 使用率、GPU 溫度（刻度上限為 tlimit 推算的降頻點）、GPU 功耗（nvidia-smi 無上限就不畫儀表）、磁碟、每個實體介面的上下行流量（/proc/net/dev 差分）。
   每 2 秒取樣、保留 150 點、只存在頁面內；離開分頁即停止輪詢。每核溫度這台沒有感測器，不顯示。
+- **監控** 有「Wi-Fi」卡：訊號儀表（-90 dBm=0%、-30 dBm=100%）與曲線、頻段／頻道／頻寬、上下行速率與 MCS、
+  重試率（差分）、beacon 遺失、24h 斷線次數（NetworkManager journal）。2.4 GHz 且有藍牙裝置連著時提示共存問題（同一顆 MT7925）；
+  訊號 < -75 dBm 時列出同一路由器其他頻段的訊號供比較。來源 iw／nmcli／bluetoothctl，免 root。
 - **監控** 底下另有「本機 LLM」：探測 127.0.0.1 的 Ollama（11434）、LM Studio（1234）、llama.cpp（8080）、vLLM（8000）；
   Ollama 列已載入模型（佔用、上下文、保留到期）與已安裝數，並可對任一模型跑 decode / prefill tok/s 量測
   （先暖機 1 token 把載入時間隔開，再量 128 token；數字直接取自 Ollama 回應的 eval_count/eval_duration）。

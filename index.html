@@ -538,7 +538,9 @@ async function startMon() {          // 監控分頁：持續輪詢
   if (!(await ensureStatic())) return;
   stopHw(); pollHw(); hw.timer = setInterval(pollHw, MON_INTERVAL_MS);
   pollLlm(); hw.llmTimer = setInterval(pollLlm, 10000);
+  pollWifiExtra(); hw.wifiTimer = setInterval(pollWifiExtra, 10000);
 }
+async function pollWifiExtra() { const r = await api('/api/hardware/wifi'); if (r.ok) hw.wifiExtra = r; }
 /* ---- 本機 LLM（Ollama / LM Studio / llama.cpp / vLLM）---- */
 hw.llmBenchModel = null;
 async function pollLlm() {
@@ -646,7 +648,7 @@ async function pollRear() {
 async function pollPorts() { return pollRear(); }
 $('#btnCalib').onclick = () => { hw.calibMode = !hw.calibMode; hw.calibSlot = null; $('#btnCalib').textContent = hw.calibMode ? '結束校準' : '校準孔位'; pollRear(); };
 $('#btnCalibReset').onclick = async () => { if (!confirm('清除所有孔位對應（含電源孔標記）？')) return; await api('/api/hardware/usbc-map', {reset: true}); hw.calibSlot = null; pollRear(); };
-function stopHw() { if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } if (hw.portTimer) { clearInterval(hw.portTimer); hw.portTimer = null; } if (hw.llmTimer) { clearInterval(hw.llmTimer); hw.llmTimer = null; } if (hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; } }
+function stopHw() { if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } if (hw.wifiTimer) { clearInterval(hw.wifiTimer); hw.wifiTimer = null; } if (hw.portTimer) { clearInterval(hw.portTimer); hw.portTimer = null; } if (hw.llmTimer) { clearInterval(hw.llmTimer); hw.llmTimer = null; } if (hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; } }
 function renderHwStatic() {
   const j = hw.static, S = j.system, C = j.cpu, G = j.gpu, D = j.dmi || {available:false};
   $('#hwNote').textContent = `資料來源：/sys DMI、lscpu、nvidia-smi、lsblk、ip、bluetoothctl、lsusb、lspci、hwmon` + (D.available ? '，序號與記憶體模組來自 dmidecode（sudoers 僅放行此指令）' : '') + `。靜態資料快取 60 秒；這頁的開機時間、負載、感測器是進入分頁時抓一次，即時曲線在「監控」分頁。` + (D.available ? '' : ' ' + (D.note || ''));
@@ -816,6 +818,30 @@ function renderMon(j, rerender) {
     const ph = hw.hist.power || [], pmax = S.gpu.power_limit_w || Math.max(1, ...ph.map(d => d[1])) * 1.15;
     cards.push(monCard('power', 'GPU 功耗', S.gpu.power_limit_w ? `上限 ${S.gpu.power_limit_w} W` : 'nvidia-smi 未提供功耗上限，不畫儀表；折線刻度為區間最大值', S.gpu.power_limit_w ? gaugeLeft(g.power_w / S.gpu.power_limit_w * 100, g.power_w.toFixed(1) + ' W', `上限 ${S.gpu.power_limit_w} W`) : tileLeft(g.power_w == null ? '—' : g.power_w.toFixed(1) + ' W', '目前功耗'), [{color: C_LINE, data: ph}], pmax, v => v.toFixed(1) + ' W'));
     hovers.push(['power', [{color: C_LINE, data: ph}], v => v.toFixed(1) + ' W']);
+  }
+  // Wi-Fi：訊號儀表（-90 dBm=0%、-30 dBm=100%）＋曲線；速率／MCS／重試率／斷線
+  const W = j.wifi;
+  if (W && W.connected) {
+    const q = Math.max(0, Math.min(100, (W.signal_dbm + 90) / 60 * 100));
+    pushHist('wifi', t, q);
+    let retryPct = null;
+    if (prev && prev.wifi && prev.wifi.connected && prev.wifi.bssid === W.bssid) { const dp = W.tx_packets - prev.wifi.tx_packets, dr = W.tx_retries - prev.wifi.tx_retries; if (dp > 0) retryPct = dr / dp * 100; }
+    hw.wifiRetryPct = retryPct ?? hw.wifiRetryPct ?? null;
+    const grade = W.signal_dbm >= -60 ? ['好', 'var(--accent)'] : W.signal_dbm >= -70 ? ['尚可', 'var(--accent)'] : W.signal_dbm >= -80 ? ['弱', 'var(--warn)'] : ['很差', 'var(--danger)'];
+    const ex = hw.wifiExtra || {};
+    const sameRouter = (ex.aps || []).filter(a => a.ssid && W.ssid && a.ssid.replace(/[_-]?5G$/i, '') === W.ssid.replace(/[_-]?5G$/i, '') && !a.in_use);
+    const btNames = ex.bt_connected || [];
+    const coex = W.band === '2.4 GHz' && btNames.length ? `<div class="panel notice warn" style="margin-top:8px;padding:8px 12px">Wi-Fi 在 2.4 GHz，且藍牙連著 ${btNames.map(esc).join('、')}：同一顆 MT7925 晶片、同一頻段，大量下載時藍牙裝置會斷線。${sameRouter.find(a => a.freq_mhz > 4900) ? `路由器有 5 GHz（${esc(sameRouter.find(a => a.freq_mhz > 4900).ssid)}，訊號 ${sameRouter.find(a => a.freq_mhz > 4900).signal_pct}%），建議切過去。` : ''}</div>` : '';
+    const weak = W.signal_dbm < -75 ? `<div class="sub1" style="margin-top:6px;color:var(--warn)">訊號 ${W.signal_dbm} dBm 偏弱，速率被壓到 MCS ${W.tx_mcs ? W.tx_mcs.mcs : '?'}${hw.wifiRetryPct != null ? `、重試率 ${hw.wifiRetryPct.toFixed(0)}%` : ''}。${sameRouter.length ? `同一台路由器的 ${sameRouter.map(a => `${esc(a.ssid)}（${a.freq_mhz > 4900 ? '5 GHz' : '2.4 GHz'}，${a.signal_pct}%）`).join('、')} 訊號較強，但 2.4 GHz 會影響藍牙。` : ''}最穩的解法是 10GbE 插線。</div>` : '';
+    const right = `<dl class="kv" style="margin-top:0;grid-template-columns:96px 1fr;font-size:13px">
+      <dt>連到</dt><dd>${esc(W.ssid)} <span class="sub1">${esc(W.band)} · ch ${W.channel} · ${W.width_mhz} MHz</span></dd>
+      <dt>速率</dt><dd>↑ ${W.tx_mbps ?? '—'} / ↓ ${W.rx_mbps ?? '—'} Mb/s <span class="sub1">${W.tx_mcs ? `${W.tx_mcs.phy}-MCS ${W.tx_mcs.mcs}` : ''}${W.rx_mcs ? ` / MCS ${W.rx_mcs.mcs}` : ''}</span></dd>
+      <dt>重試率</dt><dd>${hw.wifiRetryPct != null ? hw.wifiRetryPct.toFixed(0) + ' %' : '…'} <span class="sub1">累計 ${(W.tx_retries / Math.max(1, W.tx_packets) * 100).toFixed(0)}% · 失敗 ${W.tx_failed ?? '—'}</span></dd>
+      <dt>穩定度</dt><dd>beacon 遺失 ${W.beacon_loss ?? '—'} · 24h 斷線 ${ex.events_24h ? ex.events_24h.disconnects : '—'} 次 <span class="sub1">連線 ${W.connected_s != null ? fmtUptime(W.connected_s) : '—'}</span></dd></dl>`;
+    cards.push(`<div class="mcard" id="mon-wifi"><h3><span class="t">Wi-Fi</span><span>${esc(W.iface)} · iw · 訊號等級 <b style="color:${grade[1]}">${grade[0]}</b></span></h3>${gaugeLeft(q, W.signal_dbm + ' dBm', `平均 ${W.signal_avg_dbm ?? '—'} dBm · 發射 ${W.txpower_dbm ?? '—'} dBm`)}<div><div class="spark" data-k="wifi">${sparkSvg([{color: C_LINE, data: hw.hist.wifi || []}], 100, v => (v * 0.6 - 90).toFixed(0) + ' dBm')}</div>${right}</div><div class="legend" style="display:block">${coex}${weak}</div></div>`);
+    hovers.push(['wifi', [{color: C_LINE, data: hw.hist.wifi || []}], v => (v * 0.6 - 90).toFixed(0) + ' dBm']);
+  } else if (W) {
+    cards.push(`<div class="mcard" id="mon-wifi"><h3><span class="t">Wi-Fi</span><span>${esc(W.iface)}</span></h3>${tileLeft('未連線', '')}<div class="sub1">Wi-Fi 沒有連到任何網路。</div></div>`);
   }
   // NVMe 溫度（hwmon nvme Composite，免 root）
   const nv = (j.sensors || []).find(x => x.chip === 'nvme' && /composite/i.test(x.label));
