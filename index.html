@@ -520,6 +520,8 @@ async function pollRear() {
   let newly = null;
   if (hw.rearPrev) for (const k in sig) if (hw.rearPrev[k] !== undefined && hw.rearPrev[k] !== sig[k] && sig[k]) { newly = k; hw.rearFlash[k] = now; }
   hw.rearPrev = sig;
+  // 校準模式外，若某個「推測」孔的控制器出現新裝置，視為使用者已插入確認 → 升級為 plug
+  if (newly && hw.calibSlot == null) { for (const k in calib) if (calib[k] && calib[k].controller === newly && calib[k].source === 'inferred') { await api('/api/hardware/usbc-map', {slot: +k, controller: newly, source: 'plug', note: '插入裝置確認'}); return pollRear(); } }
   if (newly && hw.calibSlot != null) { const slot = hw.calibSlot; hw.calibSlot = null; await api('/api/hardware/usbc-map', {slot, controller: newly, source: 'plug'}); return pollRear(); }
   const ctrl = Object.fromEntries(j.controllers.map(c => [c.controller, c]));
   const dispByCtrl = k => j.usbc.find(u => u.controller_guess === k)?.display;  // 控制器 0k ↔ DP 輸出 USB-C-k（驅動編號一致，視為同一孔）
@@ -536,7 +538,8 @@ async function pollRear() {
     if (disp && disp.connected) st += `<b>螢幕 ${esc(disp.mode || '')}${disp.hz ? ' @ ' + Math.round(disp.hz) + ' Hz' : ''}</b>`;
     if (c && c.devices.length) st += c.devices.filter(d => d.bus === 'usb3').concat(c.devices.filter(d => d.bus === 'usb2')).slice(0, 1).map(d => `<b>${esc(d.name)}</b>`).join('') + (c.devices.some(d => d.children) ? `<span class="sub1">下接 ${c.devices.reduce((a, d) => a + d.children, 0)} 個裝置</span>` : '');
     if (!st) st = cid ? '<span class="sub1">空</span>' : '<span class="sub1">未校準</span>';
-    const tag = isPower ? '手動標記 · 供電狀態核心偵測不到' : cal ? `已校準（${cal.source === 'plug' ? '插入法' : '手動'}）` : '未校準';
+    const SRC = { plug: '插入法確認', manual: '手動告知', inferred: '推測，插入即確認' };
+    const tag = isPower ? '手動標記 · 供電狀態核心偵測不到' : cal ? (cal.source === 'inferred' ? '推測' : '已校準') + `（${SRC[cal.source] || cal.source}）` : '未校準';
     const sub2 = cid ? `${esc(cid.replace('NVDA8000:', '控制器 '))} · USB-C-${cid.slice(-1)}${c && c.location ? ' · 韌體 ' + (PANEL_ZH[c.location.panel] || c.location.panel) : ''}` : (isPower ? '控制器：電源線不帶資料，無法得知' : '控制器：待校準');
     slots.push(`<div class="slot ${on || isPower ? 'on' : ''} ${flash ? 'flash' : ''} ${hw.calibSlot === i ? 'pick' : ''}" data-slot="${i}">${isPower ? ICON.plug : ICON.usbc}<div class="lb">USB-C 孔 ${i + 1}${isPower ? ' · 電源輸入' : ''}<br>${sub2}</div><div class="st">${st}</div><span class="tg">${tag}</span></div>`);
   }
@@ -549,7 +552,7 @@ async function pollRear() {
   const orphanHtml = orphan.length ? `<div class="sub1" style="margin-top:10px">尚未對應到孔位、但有接東西的控制器：${orphan.map(c => `${esc(c.controller.replace('NVDA8000:', '控制器 '))}（${c.devices.map(d => esc(d.name)).join('、') || '螢幕'}）`).join('；')}。用「校準孔位」對上去。</div>` : '';
   $('#rear').innerHTML = `<div class="chassis"><div class="vents"></div><div class="slots">${slots.join('')}</div></div>${orphanHtml}`;
   $('#rear').querySelectorAll('.slot[data-slot]').forEach(el => el.onclick = () => { if (hw.calibMode && +el.dataset.slot !== 0) { hw.calibSlot = +el.dataset.slot; pollRear(); } });
-  const n = Object.keys(calib).filter(k => k !== '0').length;
+  const n = Object.keys(calib).filter(k => k !== '0' && calib[k].source !== 'inferred').length;
   $('#usbPortsSub').textContent = hw.calibMode ? (hw.calibSlot == null ? '校準中：先點一個 USB-C 孔（孔 1 是電源，不用校準），再把裝置插進那個洞。' : `校準中：請把裝置插進「USB-C 孔 ${hw.calibSlot + 1}」，偵測到新裝置就綁定。`) :
     `版面順序（左→右，使用者實機確認）：Kensington、USB-C ×4（孔 1 為電源輸入）、HDMI、10GbE、QSFP。孔位對應存在伺服器端，所有瀏覽器共用；已校準 ${n} / 3 個資料孔。${j.displays_available ? '' : ' xrandr 不可用，螢幕狀態未知。'}`;
 }
