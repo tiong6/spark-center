@@ -1261,6 +1261,44 @@ def _pci_devices():
             "empty_ports": [{"slot": b["slot"], "max_gen": b["max_gen"], "max_width": b["max_width"]} for b in empty]}
 
 
+# ---------- 印表機（CUPS 佇列 + 區網 IPP 探索 + USB）----------
+
+def _printers():
+    res = {"cups_active": (_run(["systemctl", "is-active", "cups"], timeout=5) or "").strip() == "active", "queues": [], "discovered": [], "usb": []}
+    lp = _run(["lpstat", "-p", "-d"], timeout=10) or ""
+    for line in lp.splitlines():
+        m = re.match(r"printer (\S+) is (\w+)", line)
+        if m:
+            res["queues"].append({"name": m.group(1), "state": m.group(2), "default": False})
+    m = re.search(r"system default destination: (\S+)", lp)
+    if m:
+        for q in res["queues"]:
+            q["default"] = q["name"] == m.group(1)
+    lv = _run(["lpstat", "-v"], timeout=10) or ""
+    uris = dict(re.findall(r"device for (\S+): (\S+)", lv))
+    for q in res["queues"]:
+        q["uri"] = uris.get(q["name"])
+    jobs = _run(["lpstat", "-o"], timeout=10) or ""
+    res["jobs"] = len([l for l in jobs.splitlines() if l.strip()])
+    # 區網探索：driverless 列出 IPP Everywhere 印表機（mDNS），沒有就是空
+    dl = _run(["driverless", "list"], timeout=20) or ""
+    for line in dl.splitlines():
+        if line.startswith("DEBUG"):
+            continue
+        m = re.match(r'"?(\S+)"?\s+\S+\s+"([^"]+)"', line)
+        if m:
+            res["discovered"].append({"uri": m.group(1), "name": m.group(2)})
+        elif line.strip() and "://" in line:
+            res["discovered"].append({"uri": line.split()[0], "name": line.strip()})
+    # USB 印表機：介面類別 07
+    base = "/sys/bus/usb/devices"
+    for i in os.listdir(base):
+        if ":" in i and (_read(os.path.join(base, i, "bInterfaceClass")) or "") == "07":
+            dev = os.path.join(base, i.split(":")[0])
+            res["usb"].append({"name": _read(os.path.join(dev, "product")) or i, "manufacturer": _read(os.path.join(dev, "manufacturer"))})
+    return res
+
+
 def _list_cmd(cmd):
     out = _run(cmd, timeout=10)
     return out.strip().splitlines() if out else None
@@ -1456,6 +1494,7 @@ def hardware_static():
         "usb_tree": _usb_tree(),
         "pci": _list_cmd(["lspci"]),
         "pci_devices": _pci_devices(),
+        "printers": _printers(),
         "generated": datetime.now().isoformat(timespec="seconds"),
     }
     _HW_CACHE.update(ts=time.time(), data=data)

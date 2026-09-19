@@ -724,7 +724,12 @@ function renderHwStatic() {
       (P.empty_ports.length ? `<div class="sub1" style="margin-top:10px">另有 ${P.empty_ports.length} 個根埠底下沒接任何裝置：${P.empty_ports.map(e => `${esc(e.slot)}（上限 ${genLbl(e.max_gen, e.max_width)}）`).join('、')}。${P.empty_ports.some(e => e.max_gen === 5 && e.max_width === 4) ? '兩個 Gen5 ×4 空埠正是 ConnectX-7 網卡在 DGX Spark 上的接法（兩條 Gen5 ×4），本機這位置沒有裝置。' : ''}</div>` : '') +
       `<details style="margin-top:8px"><summary class="sub1">lspci 原始輸出</summary><pre class="raw">${esc((j.pci || []).join('\n'))}</pre></details>`
     : (j.pci ? `<pre class="raw">${esc(j.pci.join('\n'))}</pre>` : '<div class="empty">lspci 不可用</div>')) + `</div>`;
-  $('#hw').innerHTML = sys + cpu + mem + dimm + gpu + disks + nvmeHtml + net + bt + sens + usb + pci;
+  const PR = j.printers;
+  const printer = !PR ? '' : `<div class="panel"><div class="panel-h"><h2>印表機</h2><span class="sub">CUPS ${PR.cups_active ? '執行中' : '未執行'} · 來源 lpstat／driverless（mDNS）／USB</span></div>` +
+    (PR.queues.length ? `<table><thead><tr><th>佇列</th><th style="width:80px">狀態</th><th>連線</th></tr></thead><tbody>${PR.queues.map(q => `<tr><td><b>${esc(q.name)}</b>${q.default ? '<span class="tag ok">預設</span>' : ''}</td><td><span class="tag ${q.state === 'idle' ? 'ok' : ''}">${esc(q.state)}</span></td><td class="mono sub1" style="font-size:11px">${esc(q.uri || '—')}</td></tr>`).join('')}</tbody></table><div class="sub1" style="margin-top:6px">佇列中 ${PR.jobs} 個工作</div>` : `<div class="sub1" style="margin-top:8px">CUPS 沒有設定任何印表機。</div>`) +
+    (PR.discovered.length ? `<div style="margin-top:10px"><b>區網上找到、尚未加入的</b><table><tbody>${PR.discovered.map(d => `<tr><td>${esc(d.name)}</td><td class="mono sub1" style="font-size:11px">${esc(d.uri)}</td></tr>`).join('')}</tbody></table><div class="sub1">可用 <span class="mono">lpadmin -p 名稱 -E -v URI -m everywhere</span> 加入（IPP Everywhere 免驅動）。</div></div>` : `<div class="sub1" style="margin-top:6px">區網上用 mDNS／IPP 掃不到任何印表機（掃描時印表機要開機且與這台同一網段）。</div>`) +
+    (PR.usb.length ? `<div class="sub1" style="margin-top:6px">USB 印表機：${PR.usb.map(u => esc((u.manufacturer ? u.manufacturer + ' ' : '') + u.name)).join('、')}</div>` : `<div class="sub1">USB 沒有接印表機。</div>`) + `</div>`;
+  $('#hw').innerHTML = sys + cpu + mem + dimm + gpu + disks + nvmeHtml + net + bt + printer + sens + usb + pci;
 }
 /* ---- 即時監控：儀表 + 折線（SVG 手繪，無外部庫）---- */
 const MON_INTERVAL_MS = 2000, MON_MAX_POINTS = 150;   // 2 秒一點 → 5 分鐘
