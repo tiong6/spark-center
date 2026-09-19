@@ -1326,8 +1326,8 @@ def _nvme_health():
     vid = (_read(base + "/device/vendor") or "").lower()
     did = (_read(base + "/device/device") or "").lower()
     wwid = _read("/sys/class/block/nvme0n1/wwid") or ""
-    m = re.match(r"eui\.([0-9a-f]{16})", wwid)
-    oui = m.group(1)[:6] if m else None
+    m = re.match(r"eui\.([0-9a-f]+)", wwid)
+    oui = m.group(1)[-16:][:6] if m and len(m.group(1)) >= 16 else None   # 可能有前導 0 補到 32 位，取最後 16 位才是 EUI-64
     ctrl = _run(["lspci", "-nn", "-s", os.path.basename(os.path.realpath(base + "/device"))], timeout=5) or ""
     ctrl_name = re.sub(r"^.*?: ", "", ctrl.strip().splitlines()[0]) if ctrl.strip() else None
     info = {"model": (_read(base + "/model") or "").strip(), "firmware": (_read(base + "/firmware_rev") or "").strip(),
