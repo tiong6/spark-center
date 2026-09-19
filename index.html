@@ -553,7 +553,7 @@ async function pollRear() {
     if (isPower) st += `<b>電源供應器</b><span class="sub1">240 W PD 輸入</span>`;
     if (disp && disp.connected) st += `<b>螢幕 ${esc(disp.mode || '')}${disp.hz ? ' @ ' + Math.round(disp.hz) + ' Hz' : ''}</b>`;
     if (c && c.devices.length) { const dd = c.devices.filter(d => d.bus === 'usb3').concat(c.devices.filter(d => d.bus === 'usb2')); const d0 = dd[0]; const mw = Math.max(...c.devices.map(d => d.max_w || 0));
-      st += `<b>${esc(d0.name)}</b>` + (c.devices.some(d => d.children) ? `<span class="sub1">下接 ${c.devices.reduce((a, d) => a + d.children, 0)} 個裝置</span>` : '') + `<span class="sub1">${mw ? `宣告 ${mw} W（${Math.round(mw*200)} mA @ 5 V）` : '自供電，宣告 0 mA'}</span>`; }
+      st += `<b>${esc(d0.name)}</b>` + (c.devices.some(d => d.children) ? `<span class="sub1">下接 ${c.devices.reduce((a, d) => a + d.children, 0)} 個裝置</span>` : '') + `<span class="sub1"> · ${mw ? `裝置枚舉時宣告 ${Math.round(mw*200)} mA（${mw} W），非實際供電` : '自供電（宣告 0 mA）'}</span>`; }
     if (!st) st = cid ? '<span class="sub1">空</span>' : '<span class="sub1">未校準</span>';
     const SRC = { plug: '插入法確認', manual: '手動告知', inferred: '插入即確認' };
     // 已確認的孔不再貼標籤；只有推測、未校準才提示
@@ -568,7 +568,7 @@ async function pollRear() {
   // 只算四個外露孔的控制器（00–03）；04 與 8001:00 韌體標「後方」，是內部（藍牙模組）
   const orphan = j.controllers.filter(c => /^NVDA8000:0[0-3]$/.test(c.controller) && !assigned.has(c.controller) && (c.devices.length || (dispByCtrl(c.controller) || {}).connected));
   const orphanHtml = orphan.length ? `<div class="sub1" style="margin-top:10px">尚未對應到孔位、但有接東西的控制器：${orphan.map(c => `${esc(c.controller.replace('NVDA8000:', '控制器 '))}（${c.devices.map(d => esc(d.name)).join('、') || '螢幕'}）`).join('；')}。用「校準孔位」對上去。</div>` : '';
-  const legend = `<div class="lgd"><span><i style="background:#e5484d"></i>電源</span><span><i style="background:#76b900"></i>USB-C 資料</span><span><i style="background:#3583d6"></i>HDMI</span><span><i style="background:#f5a524"></i>10GbE</span><span><i style="background:#a78bfa"></i>QSFP</span><span class="sub1">實心邊框＝有接東西，淡邊框＝空。瓦數是裝置在 USB 描述子宣告的上限（bMaxPower × 5 V），不是實測；PD 協商功率核心無 UCSI 驅動看不到。</span></div>`;
+  const legend = `<div class="lgd"><span><i style="background:#e5484d"></i>電源</span><span><i style="background:#76b900"></i>USB-C 資料</span><span><i style="background:#3583d6"></i>HDMI</span><span><i style="background:#f5a524"></i>10GbE</span><span><i style="background:#a78bfa"></i>QSFP</span><span class="sub1">實心邊框＝有接東西，淡邊框＝空。mA 是裝置在 USB 枚舉時宣告的值（bMaxPower），只代表它「至少要這麼多」，不是這個孔能給多少，也不是實際充電功率；PD 協商功率核心無 UCSI 驅動看不到。</span></div>`;
   $('#rear').innerHTML = `<div class="chassis"><div class="vents"></div><div class="slots">${slots.join('')}</div></div>${legend}${orphanHtml}`;
   $('#rear').querySelectorAll('.slot[data-slot]').forEach(el => el.onclick = () => { if (hw.calibMode && +el.dataset.slot !== 0) { hw.calibSlot = +el.dataset.slot; pollRear(); } });
   const n = Object.keys(calib).filter(k => k !== '0' && calib[k].source !== 'inferred').length;
