@@ -387,11 +387,14 @@ async function startHw() {
 }
 function stopHw() { if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } }
 function renderHwStatic() {
-  const j = hw.static, S = j.system, C = j.cpu, G = j.gpu;
-  $('#hwNote').textContent = `資料來源：/sys DMI、lscpu、nvidia-smi、lsblk、ip、lsusb、lspci、hwmon，全部不提權。${S.serial_note}。靜態資料快取 60 秒，動態數值每 5 秒更新。`;
+  const j = hw.static, S = j.system, C = j.cpu, G = j.gpu, D = j.dmi || {available:false};
+  $('#hwNote').textContent = `資料來源：/sys DMI、lscpu、nvidia-smi、lsblk、ip、lsusb、lspci、hwmon` + (D.available ? '，序號與記憶體模組來自 dmidecode（sudoers 僅放行此指令）' : '') + `。靜態資料快取 60 秒，動態數值每 5 秒更新。` + (D.available ? '' : ' ' + (D.note || ''));
   const sys = `<div class="panel"><div class="panel-h"><h2>系統</h2></div><dl class="kv">
     <dt>機型</dt><dd>${dash(S.sys_vendor)} ${dash(S.product_name)}<div class="sub1">${dash(S.product_version)}</div></dd>
-    <dt>主機板</dt><dd>${dash(S.board_vendor)} ${dash(S.board_name)}</dd>
+    <dt>主機板</dt><dd>${dash(S.board_vendor)} ${dash(S.board_name)}${D.available && (D.board.version || D.board.serial) ? `<div class="sub1">${[D.board.version ? '版本 ' + esc(D.board.version) : '', D.board.serial ? '序號 ' + esc(D.board.serial) : ''].filter(Boolean).join(' · ')}</div>` : ''}</dd>
+    ${D.available ? `<dt>序號</dt><dd class="mono">${dash(D.system.serial)}${D.system.sku ? `<div class="sub1">SKU ${esc(D.system.sku)}</div>` : ''}</dd>
+    <dt>UUID</dt><dd class="mono" style="font-size:12px">${dash(D.system.uuid)}</dd>
+    <dt>機殼</dt><dd>${dash(D.chassis.type)}</dd>` : `<dt>序號</dt><dd class="sub1">需要 dmidecode（root），未放行</dd>`}
     <dt>BIOS</dt><dd>${dash(S.bios_version)}<div class="sub1">${dash(S.bios_vendor)} · ${dash(S.bios_date)}</div></dd>
     <dt>作業系統</dt><dd>${dash(S.os)}<div class="sub1">DGX OS ${dash(S.dgx_release)} · Dashboard ${dash(S.dgx_dashboard)}</div></dd>
     <dt>核心</dt><dd class="mono">${dash(S.kernel)}</dd>
@@ -407,6 +410,9 @@ function renderHwStatic() {
     <div class="stat"><div><b id="hwMemUsed">—</b><span>已使用</span></div><div><b>${GB(j.memory.total)}</b><span>總量</span></div><div><b id="hwSwap">—</b><span>swap 使用 / ${GB(j.memory.swap_total)}</span></div></div>
     <div id="hwMemMeter"></div>
     ${G && G.unified_memory ? `<div class="sub1" style="margin-top:8px">GB10 是統一記憶體架構，GPU 與 CPU 共用這塊記憶體，nvidia-smi 不會回報獨立的顯示記憶體。</div>` : ''}</div>`;
+  const dimm = D.available ? `<div class="panel"><div class="panel-h"><h2>記憶體模組</h2><span class="sub">上限 ${dash(D.memory.max_capacity)} · ${dash(D.memory.slots)} 插槽${D.memory.error_correction ? ' · ' + esc(D.memory.error_correction) : ''}</span></div>` +
+    (D.memory.modules.length ? `<table><thead><tr><th style="width:80px">插槽</th><th style="width:80px">容量</th><th>規格</th><th>廠牌 / 零件號</th></tr></thead><tbody>` +
+      D.memory.modules.map(m => `<tr><td class="mono">${dash(m.slot)}</td><td>${dash(m.size)}</td><td>${dash(m.type)}${m.form ? ' · ' + esc(m.form) : ''}<div class="sub1">${m.speed ? esc(m.speed) : '—'}${m.configured_speed && m.configured_speed !== m.speed ? '，實際 ' + esc(m.configured_speed) : ''}</div></td><td>${dash(m.manufacturer)}<div class="sub1">${m.part ? esc(m.part) : '零件號未提供'}</div></td></tr>`).join('') + `</tbody></table>` : '<div class="empty">dmidecode 沒有回報任何模組</div>') + `</div>` : '';
   const gpu = G ? `<div class="panel"><div class="panel-h"><h2>GPU</h2></div><dl class="kv">
     <dt>型號</dt><dd>${dash(G.name)}</dd>
     <dt>驅動 / CUDA</dt><dd>${dash(G.driver)} / ${dash(G.cuda)}</dd>
@@ -424,7 +430,7 @@ function renderHwStatic() {
   const sens = `<div class="panel"><div class="panel-h"><h2>感測器</h2></div><div id="hwSensors"><div class="empty">讀取中…</div></div></div>`;
   const usb = `<div class="panel"><div class="panel-h"><h2>USB</h2><span class="sub">${j.usb ? j.usb.length + ' 個裝置' : '—'}</span></div>${j.usb ? `<pre class="raw">${esc(j.usb.map(l => l.replace(/^Bus \d+ Device \d+: ID /, '')).join('\n'))}</pre>` : '<div class="empty">lsusb 不可用</div>'}</div>`;
   const pci = `<div class="panel"><div class="panel-h"><h2>PCI</h2><span class="sub">${j.pci ? j.pci.length + ' 個裝置' : '—'}</span></div>${j.pci ? `<pre class="raw">${esc(j.pci.join('\n'))}</pre>` : '<div class="empty">lspci 不可用</div>'}</div>`;
-  $('#hw').innerHTML = sys + cpu + mem + gpu + disks + net + sens + usb + pci;
+  $('#hw').innerHTML = sys + cpu + mem + dimm + gpu + disks + net + sens + usb + pci;
 }
 async function pollHw() {
   const j = await api('/api/hardware/live');

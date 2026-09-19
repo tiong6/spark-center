@@ -782,6 +782,55 @@ def _list_cmd(cmd):
     return out.strip().splitlines() if out else None
 
 
+def _dmi():
+    """sudo -n dmidecode：只有 sudoers 放行 dmidecode 免密碼時才拿得到；否則回 available=False，前端照實說明。"""
+    try:
+        # dmidecode 的 -t 不吃逗號分隔的關鍵字，只吃逗號分隔的數字：1 system、2 baseboard、3 chassis、16 memory array、17 memory device
+        r = subprocess.run(["sudo", "-n", "/usr/sbin/dmidecode", "-t", "1,2,3,16,17"],
+                           capture_output=True, text=True, timeout=10, env=_ENV_C)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {"available": False, "note": f"dmidecode 執行失敗：{e}"}
+    if r.returncode != 0:
+        err = (r.stderr or "").strip().splitlines()
+        err = err[-1] if err else f"rc={r.returncode}"
+        if "password" in err.lower() or "sudo" in err.lower():
+            return {"available": False,
+                    "note": "dmidecode 需要 root。要顯示序號與記憶體模組，請在 sudoers 只放行 /usr/sbin/dmidecode 免密碼（見 README）"}
+        return {"available": False, "note": f"dmidecode 失敗：{err}"}
+    sections, cur = [], None
+    for line in r.stdout.splitlines():
+        if line.startswith("Handle "):
+            cur = {"_type": re.search(r"DMI type (\d+)", line).group(1), "_fields": {}}
+            sections.append(cur)
+        elif cur is not None and line.startswith("\t") and ":" in line and not line.startswith("\t\t"):
+            k, _, v = line.strip().partition(":")
+            cur["_fields"][k.strip()] = v.strip()
+    def first(t):
+        return next((x["_fields"] for x in sections if x["_type"] == t), {})
+    sysf, board, chassis, arr = first("1"), first("2"), first("3"), first("16")
+    mods = []
+    for x in sections:
+        if x["_type"] != "17":
+            continue
+        f = x["_fields"]
+        if f.get("Size", "").lower() in ("no module installed", "not installed", ""):
+            continue
+        mods.append({k2: (None if f.get(k1) in (None, "None", "Unknown", "Not Specified", "Not Provided") else f.get(k1)) for k1, k2 in (
+            ("Locator", "slot"), ("Size", "size"), ("Type", "type"), ("Form Factor", "form"),
+            ("Speed", "speed"), ("Configured Memory Speed", "configured_speed"),
+            ("Manufacturer", "manufacturer"), ("Part Number", "part"), ("Serial Number", "serial"))})
+    clean = lambda v: None if v in (None, "", "None", "Unknown", "Not Specified", "Not Provided", "To Be Filled By O.E.M.", "Default string") else v
+    return {
+        "available": True,
+        "system": {"serial": clean(sysf.get("Serial Number")), "uuid": clean(sysf.get("UUID")),
+                   "sku": clean(sysf.get("SKU Number")), "family": clean(sysf.get("Family"))},
+        "board": {"serial": clean(board.get("Serial Number")), "version": clean(board.get("Version"))},
+        "chassis": {"type": clean(chassis.get("Type")), "serial": clean(chassis.get("Serial Number"))},
+        "memory": {"max_capacity": clean(arr.get("Maximum Capacity")), "slots": clean(arr.get("Number Of Devices")),
+                   "error_correction": clean(arr.get("Error Correction Type")), "modules": mods},
+    }
+
+
 _HW_CACHE = {"ts": 0, "data": None}
 
 
@@ -798,8 +847,8 @@ def hardware_static():
             "kernel": (_run(["uname", "-r"], timeout=5) or "").strip() or None,
             "dgx_release": _dpkg_version("dgx-release"),
             "dgx_dashboard": _dpkg_version("dgx-dashboard"),
-            "serial_note": "序號與主機板細節需要 root（dmidecode），本工具不提權，故不顯示",
         },
+        "dmi": _dmi(),
         "cpu": _lscpu(),
         "memory": {"total": mem.get("MemTotal"), "swap_total": mem.get("SwapTotal")},
         "gpu": _gpu_static(),

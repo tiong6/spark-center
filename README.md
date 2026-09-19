@@ -15,7 +15,15 @@ DGX Dashboard 的 Update 按鈕會一次升級全部套件（含 Chrome、ChatGP
   （snap/flatpak 會向商店查，查不到就標「未能查詢」，不假裝是最新）
 - **歷史**：/var/log/apt/history.log 最近 8 筆，表格＋動作標籤
 - **硬體**：類似 Windows 系統資訊。機型/BIOS（/sys DMI）、CPU（lscpu）、記憶體、GPU（nvidia-smi，含溫度/使用率/功耗每 5 秒更新）、
-  儲存（lsblk＋statvfs 用量）、網路（ip -j）、hwmon 溫度、USB、PCI。全部不提權；序號與主機板細節需要 dmidecode（root），畫面上標明不顯示
+  儲存（lsblk＋statvfs 用量）、網路（ip -j）、hwmon 溫度、USB、PCI。主要來源不提權。
+  序號、UUID、記憶體模組明細來自 dmidecode，需要 root；工具用 `sudo -n` 呼叫，沒放行就在畫面上標明不顯示。
+  要放行只開這一個唯讀指令（dmidecode 不會改任何東西）：
+
+  ```
+  echo "$USER ALL=(root) NOPASSWD: /usr/sbin/dmidecode" | sudo tee /etc/sudoers.d/spark-center-dmidecode
+  sudo chmod 440 /etc/sudoers.d/spark-center-dmidecode
+  sudo visudo -c
+  ```
 
 有新版時可按「說明」看更新內容。各來源能給的不一樣，畫面上會標明：
 apt 走 `apt-get changelog`（Ubuntu 官方套件有，第三方 repo 多半沒有）；
