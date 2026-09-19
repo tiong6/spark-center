@@ -7,120 +7,165 @@
 <link rel="icon" href="data:,">
 <style>
   :root {
-    --bg: #0d0f0e; --surface: #161918; --surface2: #1f2321; --border: #2c312e;
-    --text: #e6e8e6; --muted: #8f968f; --accent: #76b900; --accent-text: #0d0f0e;
+    --bg: #111312; --surface: #1a1c1b; --surface2: #222524; --line: #343836;
+    --text: #e8eae8; --muted: #9aa19a; --accent: #76b900; --accent-text: #0e1010;
     --danger: #e5484d; --warn: #f5a524; --info: #4aa3ff;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: radial-gradient(1200px 600px at 10% -10%, #1c2a12 0%, var(--bg) 55%); color: var(--text);
-         font: 15px/1.5 system-ui, -apple-system, "Noto Sans TC", "Segoe UI", sans-serif; min-height: 100vh; }
-  header { display: flex; align-items: center; gap: 14px; padding: 14px 24px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,.35); }
-  header .dot { width: 12px; height: 12px; border-radius: 3px; background: var(--accent); }
-  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
-  header .sub { color: var(--muted); font-size: 13px; margin-left: auto; }
-  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }
-  .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
-  .bar .grow { flex: 1; }
-  button { border: 1px solid var(--border); background: var(--surface2); color: var(--text); padding: 9px 16px; border-radius: 8px;
-           font: inherit; font-size: 14px; cursor: pointer; }
-  button:hover { border-color: #444; }
-  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 14px; }
+  html, body { margin: 0; min-height: 100%; }
+  body { background: radial-gradient(900px 520px at 8% 0%, #1f2a14 0%, var(--bg) 60%) fixed; color: var(--text);
+         font: 15px/1.5 "NVIDIA Sans", system-ui, -apple-system, "Noto Sans TC", "Segoe UI", sans-serif; }
+  .topbar { display: flex; align-items: center; gap: 12px; padding: 0 24px; height: 52px; background: #000; border-bottom: 1px solid #1f1f1f; }
+  .mark { width: 22px; height: 16px; background: var(--accent); clip-path: polygon(0 50%, 30% 0, 100% 0, 100% 100%, 30% 100%); }
+  .topbar .brand { font-weight: 700; letter-spacing: .02em; }
+  .topbar .brand small { color: var(--muted); font-weight: 400; margin-left: 10px; font-size: 12px; }
+  .topbar .right { margin-left: auto; color: var(--muted); font-size: 12px; }
+  main { max-width: 1200px; margin: 0 auto; padding: 56px 24px 80px; }
+  .titlerow { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 22px; flex-wrap: wrap; }
+  h1 { font-size: 30px; margin: 0; font-weight: 700; }
+  nav.tabs { display: flex; gap: 28px; }
+  nav.tabs a { color: var(--muted); text-decoration: none; padding: 6px 2px; border-bottom: 2px solid transparent; font-size: 15px; cursor: pointer; }
+  nav.tabs a.active { color: var(--text); border-bottom-color: var(--accent); }
+  nav.tabs a .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-left: 6px; vertical-align: middle; }
+  .panel { background: rgba(26,28,27,.9); border: 1px solid var(--line); border-radius: 14px; padding: 22px 26px; margin-bottom: 18px; }
+  .panel-h { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .panel-h h2 { font-size: 19px; margin: 0; font-weight: 700; }
+  .panel-h .sub { color: var(--muted); font-size: 13px; }
+  .panel-h .actions { margin-left: auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .notice { border-left: 4px solid var(--info); }
-  .notice.warn { border-left-color: var(--warn); }
-  .notice.danger { border-left-color: var(--danger); }
-  .notice.ok { border-left-color: var(--accent); }
+  .notice.warn { border-left-color: var(--warn); } .notice.danger { border-left-color: var(--danger); } .notice.ok { border-left-color: var(--accent); }
   .muted { color: var(--muted); }
-  .group { margin-bottom: 14px; }
-  .group-h { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--surface2); border-radius: 8px 8px 0 0;
-             border: 1px solid var(--border); border-bottom: none; font-weight: 600; }
-  .group-h .site { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: auto; }
-  table { width: 100%; border-collapse: collapse; border: 1px solid var(--border); background: var(--surface); table-layout: fixed; }
-  th.name { width: 34%; } th.verc { width: 26%; } th.size { width: 90px; }
-  td { overflow-wrap: anywhere; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
-  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  button { border: 1px solid #3a3f3c; background: var(--surface2); color: var(--text); padding: 9px 16px; border-radius: 6px; font: inherit; font-size: 14px; cursor: pointer; }
+  button:hover { border-color: #555; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 700; }
+  button.small { padding: 4px 10px; font-size: 12px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  input[type=search] { background: #0f1110; border: 1px solid #3a3f3c; color: var(--text); padding: 8px 12px; border-radius: 6px; font: inherit; font-size: 14px; min-width: 220px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { border: 1px solid #3a3f3c; border-radius: 999px; padding: 4px 12px; font-size: 13px; cursor: pointer; color: var(--muted); }
+  .chip.active { color: var(--accent-text); background: var(--accent); border-color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; table-layout: fixed; }
+  th, td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
   tr:last-child td { border-bottom: none; }
-  td.ck, th.ck { width: 36px; }
-  td.ver { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; white-space: nowrap; }
-  td.ver .to { color: var(--accent); }
-  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); margin-left: 6px; vertical-align: middle; }
+  td { overflow-wrap: anywhere; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  .to { color: var(--accent); }
+  .grp td { background: var(--surface2); font-weight: 700; padding: 8px 10px; }
+  .grp .site { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 10px; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid #3a3f3c; color: var(--muted); margin-left: 6px; vertical-align: middle; white-space: nowrap; }
   .tag.sec { color: var(--warn); border-color: var(--warn); }
   .tag.reboot { color: var(--danger); border-color: var(--danger); }
-  .sum { color: var(--muted); font-size: 13px; }
+  .tag.ok { color: var(--accent); border-color: var(--accent); }
+  .tag.apt { color: #d8b45a; border-color: #6b5a2a; } .tag.snap { color: #f0a06a; border-color: #6b4a2a; } .tag.flatpak { color: #7ab8ff; border-color: #2a4a6b; }
+  .badge { display: inline-block; font-size: 12px; padding: 2px 9px; border-radius: 4px; background: var(--surface2); border: 1px solid #3a3f3c; margin-right: 6px; white-space: nowrap; }
+  .badge.upgrade { border-color: #4b6b1e; color: #b9e46a; } .badge.install { border-color: #2a4a6b; color: #7ab8ff; }
+  .badge.remove, .badge.purge { border-color: #6b2a2a; color: #ff8a8a; }
+  .pk { display: inline-block; font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: #0f1110; border: 1px solid #2c302e; border-radius: 4px; padding: 1px 6px; margin: 2px 4px 2px 0; }
+  .sub1 { color: var(--muted); font-size: 12px; }
   input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
-  .empty { text-align: center; padding: 40px; color: var(--muted); }
-  /* modal */
-  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; padding: 16px; }
-  .overlay.open { display: flex; }
-  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; width: min(720px, 100%); max-height: 90vh; display: flex; flex-direction: column; }
-  .modal h2 { margin: 0; padding: 16px 20px; font-size: 16px; border-bottom: 1px solid var(--border); }
-  .modal .body { padding: 16px 20px; overflow: auto; }
-  .modal .foot { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; }
-  .chg { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
-  .chg .extra { color: var(--warn); }
-  .chg .rm { color: var(--danger); }
+  .empty { text-align: center; padding: 36px; color: var(--muted); }
+  .clrow td { background: #0f1110; }
+  pre.cl { margin: 0; white-space: pre-wrap; font-size: 12px; color: #c9cfc9; max-height: 320px; overflow: auto; }
   progress { width: 100%; height: 10px; accent-color: var(--accent); }
-  pre.log { background: #0a0c0b; border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 12px; max-height: 220px; overflow: auto; color: var(--muted); margin: 10px 0 0; white-space: pre-wrap; }
+  pre.log { background: #0a0c0b; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 12px; max-height: 220px; overflow: auto; color: var(--muted); margin: 10px 0 0; white-space: pre-wrap; }
   details summary { cursor: pointer; color: var(--muted); }
-  .hist { font-size: 13px; }
-  .hist li { margin: 4px 0; }
-  code { background: var(--surface2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
-  @media (max-width: 640px) { th.sumc, td.sumc { display: none; } }
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+  .overlay.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; width: min(760px, 100%); max-height: 90vh; display: flex; flex-direction: column; }
+  .modal h2 { margin: 0; padding: 16px 22px; font-size: 17px; border-bottom: 1px solid var(--line); }
+  .modal .body { padding: 16px 22px; overflow: auto; }
+  .modal .foot { padding: 12px 22px; border-top: 1px solid var(--line); display: flex; gap: 10px; justify-content: flex-end; }
+  .chg { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+  .chg .extra { color: var(--warn); } .chg .rm { color: var(--danger); }
+  .hide { display: none !important; }
+  @media (max-width: 720px) { main { padding: 28px 16px 60px; } h1 { font-size: 24px; } .col-opt { display: none; } }
 </style>
 </head>
 <body>
-<header>
-  <span class="dot"></span>
-  <h1>Spark Center</h1>
-  <span class="sub">只綁 127.0.0.1 · 不自動重開機 · 資料來源：本機 apt</span>
-</header>
+<div class="topbar">
+  <span class="mark"></span>
+  <span class="brand">Spark Center <small>ASUS Ascend GX10</small></span>
+  <span class="right">127.0.0.1 only · 不自動重開機</span>
+</div>
 <main>
-  <div id="reboot" class="card notice warn" hidden></div>
-  <div id="jobcard" class="card notice" hidden>
-    <div id="jobtitle" style="font-weight:600"></div>
-    <div id="jobstatus" class="muted" style="margin:4px 0 8px"></div>
-    <progress id="jobprog" max="100" value="0"></progress>
-    <details style="margin-top:8px"><summary>詳細記錄</summary><pre class="log" id="joblog"></pre></details>
-    <div id="jobactions" style="margin-top:10px; display:flex; gap:10px"></div>
+  <div class="titlerow">
+    <h1 id="pageTitle">更新</h1>
+    <nav class="tabs">
+      <a data-tab="updates" class="active">更新<span id="dotUpd" class="dot hide"></span></a>
+      <a data-tab="apps">應用程式<span id="dotApps" class="dot hide"></span></a>
+      <a data-tab="history">歷史</a>
+    </nav>
   </div>
 
-  <div class="bar">
-    <button id="btnRefresh">重新整理來源 (apt update)</button>
-    <button id="btnAll">全選</button>
-    <button id="btnNone">全不選</button>
-    <span class="grow"></span>
-    <span id="meta" class="muted" style="font-size:13px"></span>
-    <button id="btnGo" class="primary" disabled>檢查影響並更新 (0)</button>
-  </div>
+  <section id="tab-updates">
+    <div id="reboot" class="panel notice warn hide"></div>
+    <div id="jobcard" class="panel notice hide">
+      <div id="jobtitle" style="font-weight:700"></div>
+      <div id="jobstatus" class="muted" style="margin:4px 0 8px"></div>
+      <progress id="jobprog" max="100" value="0"></progress>
+      <details style="margin-top:8px"><summary>詳細記錄</summary><pre class="log" id="joblog"></pre></details>
+      <div id="jobactions" style="margin-top:10px; display:flex; gap:10px"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-h">
+        <h2>可用更新</h2>
+        <span id="meta" class="sub"></span>
+        <div class="actions">
+          <button id="btnRefresh">重新整理來源</button>
+          <button id="btnAll">全選</button>
+          <button id="btnNone">全不選</button>
+          <button id="btnGo" class="primary" disabled>檢查影響並更新 (0)</button>
+        </div>
+      </div>
+      <div id="list"></div>
+    </div>
+  </section>
 
-  <div id="list"></div>
+  <section id="tab-apps" class="hide">
+    <div class="panel">
+      <div class="panel-h">
+        <h2>已安裝的應用程式</h2>
+        <span id="appsMeta" class="sub"></span>
+        <div class="actions">
+          <div class="chips" id="srcChips">
+            <span class="chip active" data-src="all">全部</span>
+            <span class="chip" data-src="apt">apt</span>
+            <span class="chip" data-src="snap">snap</span>
+            <span class="chip" data-src="flatpak">flatpak</span>
+            <span class="chip" data-src="upd">有新版</span>
+          </div>
+          <input type="search" id="appSearch" placeholder="搜尋名稱或套件">
+          <button id="btnAppsReload">重新掃描</button>
+        </div>
+      </div>
+      <div id="appsNote" class="sub1" style="margin-top:8px"></div>
+      <div id="apps"><div class="empty">掃描中（snap 與 flatpak 要連商店查新版，第一次約需幾秒）…</div></div>
+    </div>
+  </section>
 
-  <div class="card">
-    <details><summary>最近的 apt 歷史（來自 /var/log/apt/history.log）</summary>
-      <ul id="hist" class="hist"></ul>
-    </details>
-  </div>
+  <section id="tab-history" class="hide">
+    <div class="panel">
+      <div class="panel-h"><h2>apt 歷史</h2><span class="sub">來源：/var/log/apt/history.log，最近 8 筆</span></div>
+      <div id="hist"></div>
+    </div>
+  </section>
 </main>
 
 <div id="overlay" class="overlay">
   <div class="modal">
     <h2 id="mTitle">確認變更</h2>
     <div class="body" id="mBody"></div>
-    <div class="foot">
-      <button id="mCancel">取消</button>
-      <button id="mOk" class="primary">確認更新</button>
-    </div>
+    <div class="foot"><button id="mCancel">取消</button><button id="mOk" class="primary">確認更新</button></div>
   </div>
 </div>
 
 <script>
 const $ = s => document.querySelector(s);
-const state = { items: [], selected: new Set(), job: null, polling: null };
-
+const state = { items: [], selected: new Set(), job: null, polling: null, apps: null, src: 'all', q: '' };
+const TITLES = { updates: '更新', apps: '應用程式', history: '歷史' };
 const fmtBytes = b => b == null ? '—' : b < 1048576 ? (b/1024).toFixed(0)+' KB' : (b/1048576).toFixed(1)+' MB';
-const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 async function api(path, body) {
   const r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)} : {});
@@ -129,130 +174,108 @@ async function api(path, body) {
   return j;
 }
 
+function showTab(t) {
+  document.querySelectorAll('nav.tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === t));
+  for (const k of Object.keys(TITLES)) $('#tab-'+k).classList.toggle('hide', k !== t);
+  $('#pageTitle').textContent = TITLES[t];
+  history.replaceState(null, '', '#' + t);
+  if (t === 'apps' && !state.apps) loadApps();
+  if (t === 'history') loadHistory();
+}
+document.querySelectorAll('nav.tabs a').forEach(a => a.onclick = () => showTab(a.dataset.tab));
+
+async function toggleChangelog(btn, source, id, installed) {
+  const tr = btn.closest('tr'); const next = tr.nextElementSibling;
+  if (next && next.classList.contains('clrow')) { next.remove(); btn.textContent = '說明'; return; }
+  btn.disabled = true; btn.textContent = '讀取中…';
+  const j = await api(`/api/changelog?source=${encodeURIComponent(source)}&id=${encodeURIComponent(id)}&installed=${encodeURIComponent(installed||'')}`);
+  btn.disabled = false; btn.textContent = '收合';
+  const row = document.createElement('tr'); row.className = 'clrow';
+  row.innerHTML = `<td colspan="${tr.children.length}"><div class="sub1" style="margin-bottom:6px">${esc(j.note || j.error || '')}</div>${j.text ? `<pre class="cl">${esc(j.text)}</pre>` : ''}</td>`;
+  tr.after(row);
+}
+
 function renderReboot(rb) {
   const el = $('#reboot');
-  if (!rb || !rb.required) { el.hidden = true; return; }
-  el.hidden = false;
+  if (!rb || !rb.required) { el.classList.add('hide'); return; }
+  el.classList.remove('hide');
   el.innerHTML = `<b>系統目前需要重開機</b>（依據 /var/run/reboot-required）。` +
-    (rb.packages.length ? `觸發的套件：${rb.packages.map(esc).join('、')}。` : '') +
-    ` 本工具不會自動重開，請你自己決定時機。`;
+    (rb.packages.length ? `觸發的套件：${rb.packages.map(esc).join('、')}。` : '') + ` 本工具不會自動重開，時機由你決定。`;
 }
-
 function renderList() {
   const box = $('#list');
-  if (!state.items.length) {
-    box.innerHTML = `<div class="card empty">目前沒有可升級的套件。<br><span class="muted">依據本機 apt 索引，最後更新見上方時間。</span></div>`;
-    updateGo(); return;
-  }
+  $('#dotUpd').classList.toggle('hide', state.items.length === 0);
+  if (!state.items.length) { box.innerHTML = `<div class="empty">目前沒有可升級的套件。</div>`; updateGo(); return; }
   const groups = {};
   for (const it of state.items) (groups[it.group] ||= []).push(it);
-  let html = '';
+  let html = `<table><thead><tr><th style="width:36px"></th><th style="width:32%">套件</th><th style="width:24%">版本</th><th class="col-opt">說明</th><th style="width:80px">大小</th><th style="width:80px"></th></tr></thead><tbody>`;
   for (const g of Object.keys(groups).sort()) {
-    const items = groups[g];
-    const allSel = items.every(i => state.selected.has(i.name));
-    html += `<div class="group">
-      <div class="group-h"><input type="checkbox" data-group="${esc(g)}" ${allSel?'checked':''}> ${esc(g)}
-        <span class="muted" style="font-weight:400">${items.length} 個</span>
-        <span class="site">${esc(items[0].site)}</span></div>
-      <table><thead><tr><th class="ck"></th><th class="name">套件</th><th class="verc">版本</th><th class="sumc">說明</th><th class="size">大小</th></tr></thead><tbody>`;
+    const items = groups[g]; const allSel = items.every(i => state.selected.has(i.name));
+    html += `<tr class="grp"><td><input type="checkbox" data-group="${esc(g)}" ${allSel?'checked':''}></td><td colspan="5">${esc(g)} <span class="site">${items.length} 個 · ${esc(items[0].site)}</span></td></tr>`;
     for (const it of items) {
       html += `<tr>
-        <td class="ck"><input type="checkbox" data-pkg="${esc(it.name)}" ${state.selected.has(it.name)?'checked':''}></td>
+        <td><input type="checkbox" data-pkg="${esc(it.name)}" ${state.selected.has(it.name)?'checked':''}></td>
         <td>${esc(it.name)}${it.security?'<span class="tag sec">security</span>':''}${it.reboot_hint?'<span class="tag reboot" title="依套件名稱推測，非系統判定">通常需重開（推測）</span>':''}</td>
-        <td class="ver">${esc(it.installed)}<br><span class="to">→ ${esc(it.candidate)}</span></td>
-        <td class="sumc sum">${esc(it.summary)}</td>
-        <td class="sum">${fmtBytes(it.size)}</td></tr>`;
+        <td class="mono">${esc(it.installed)}<br><span class="to">→ ${esc(it.candidate)}</span></td>
+        <td class="col-opt sub1">${esc(it.summary)}</td>
+        <td class="sub1">${fmtBytes(it.size)}</td>
+        <td><button class="small" data-cl="apt" data-id="${esc(it.name)}" data-inst="${esc(it.installed)}">說明</button></td></tr>`;
     }
-    html += `</tbody></table></div>`;
   }
-  box.innerHTML = html;
-  box.querySelectorAll('input[data-pkg]').forEach(cb => cb.onchange = () => {
-    cb.checked ? state.selected.add(cb.dataset.pkg) : state.selected.delete(cb.dataset.pkg); renderList();
-  });
-  box.querySelectorAll('input[data-group]').forEach(cb => cb.onchange = () => {
-    for (const it of state.items) if (it.group === cb.dataset.group) cb.checked ? state.selected.add(it.name) : state.selected.delete(it.name);
-    renderList();
-  });
+  box.innerHTML = html + `</tbody></table>`;
+  box.querySelectorAll('input[data-pkg]').forEach(cb => cb.onchange = () => { cb.checked ? state.selected.add(cb.dataset.pkg) : state.selected.delete(cb.dataset.pkg); renderList(); });
+  box.querySelectorAll('input[data-group]').forEach(cb => cb.onchange = () => { for (const it of state.items) if (it.group === cb.dataset.group) cb.checked ? state.selected.add(it.name) : state.selected.delete(it.name); renderList(); });
+  box.querySelectorAll('button[data-cl]').forEach(b => b.onclick = () => toggleChangelog(b, b.dataset.cl, b.dataset.id, b.dataset.inst));
   updateGo();
 }
-
 function updateGo() {
   const n = state.selected.size, running = state.job && state.job.status === 'running';
   $('#btnGo').textContent = `檢查影響並更新 (${n})`;
-  $('#btnGo').disabled = n === 0 || running;
-  $('#btnRefresh').disabled = running;
+  $('#btnGo').disabled = n === 0 || running; $('#btnRefresh').disabled = running;
 }
-
 async function load() {
   const j = await api('/api/updates');
-  if (!j.ok) { $('#list').innerHTML = `<div class="card notice danger">讀取清單失敗：${esc(j.error)}</div>`; return; }
+  if (!j.ok) { $('#list').innerHTML = `<div class="panel notice danger">讀取清單失敗：${esc(j.error)}</div>`; return; }
   const names = new Set(j.items.map(i => i.name));
   for (const s of [...state.selected]) if (!names.has(s)) state.selected.delete(s);
   state.items = j.items;
-  $('#meta').textContent = `可升級 ${j.items.length} 個 · apt 索引最後更新：${j.last_refresh ? j.last_refresh.replace('T',' ') : '—'}`;
-  renderReboot(j.reboot);
-  renderList();
-  loadHistory();
+  $('#meta').textContent = `可升級 ${j.items.length} 個 · apt 索引最後更新 ${j.last_refresh ? j.last_refresh.replace('T',' ') : '—'}`;
+  renderReboot(j.reboot); renderList();
 }
 
-async function loadHistory() {
-  const j = await api('/api/history');
-  if (!j.ok) return;
-  $('#hist').innerHTML = j.entries.map(e => {
-    const who = /dashboard|aptdaemon/.test(e.commandline) ? 'aptdaemon（Dashboard 或本工具）' : e.commandline || '—';
-    const acts = e.actions.map(a => `${a.action} ${a.count}：${a.names.slice(0,8).join(', ')}${a.count>8?' …':''}`).join('；');
-    return `<li><b>${esc(e.start)}</b> <span class="muted">${esc(who)}</span><br><span class="muted">${esc(acts)}</span></li>`;
-  }).join('') || '<li class="muted">沒有記錄</li>';
-}
-
-// ---- 模擬 → 確認 → 安裝 ----
 $('#btnGo').onclick = async () => {
   const names = [...state.selected];
   $('#btnGo').disabled = true;
   const sim = await api('/api/simulate', {packages: names});
   $('#btnGo').disabled = false;
   const body = $('#mBody');
-  if (!sim.ok) {
-    body.innerHTML = `<div class="notice danger card">無法模擬：${esc(sim.error)}</div>`;
-    $('#mOk').hidden = true; openModal('無法進行'); return;
-  }
-  const extra = sim.changes.filter(c => !c.requested);
-  const rm = sim.changes.filter(c => c.action === 'remove');
+  if (!sim.ok) { body.innerHTML = `<div class="panel notice danger">無法模擬：${esc(sim.error)}</div>`; $('#mOk').classList.add('hide'); openModal('無法進行'); return; }
+  const extra = sim.changes.filter(c => !c.requested), rm = sim.changes.filter(c => c.action === 'remove');
   let html = `<p>你勾了 <b>${names.length}</b> 個，apt 實際會動到 <b>${sim.changes.length}</b> 個套件。下載約 ${fmtBytes(sim.download_bytes)}，磁碟變化 ${fmtBytes(Math.abs(sim.space_bytes))}${sim.space_bytes<0?'（釋放）':''}。</p>`;
-  if (rm.length) html += `<div class="card notice danger">這次會<b>移除</b> ${rm.length} 個套件，請確認你真的要這樣。</div>`;
-  if (extra.length) html += `<div class="card notice warn">有 ${extra.length} 個你沒勾、但因相依性會一起動到的套件（下方橘色）。</div>`;
-  html += `<div class="chg">` + sim.changes.map(c =>
-    `<div class="${c.action==='remove'?'rm':(c.requested?'':'extra')}">${c.action.padEnd(9)} ${esc(c.name)} ${esc(c.from)}${c.to?' → '+esc(c.to):''}</div>`).join('') + `</div>`;
-  html += `<p class="muted" style="margin-top:12px">按下確認後，桌面會跳出 polkit 密碼視窗，這是 aptdaemon 的正常授權流程。更新完成後<b>不會</b>自動重開機。</p>`;
-  body.innerHTML = html;
-  $('#mOk').hidden = false;
+  if (rm.length) html += `<div class="panel notice danger">這次會<b>移除</b> ${rm.length} 個套件，請確認你真的要這樣。</div>`;
+  if (extra.length) html += `<div class="panel notice warn">有 ${extra.length} 個你沒勾、但因相依性會一起動到的套件（橘色）。</div>`;
+  html += `<div class="chg">` + sim.changes.map(c => `<div class="${c.action==='remove'?'rm':(c.requested?'':'extra')}">${c.action.padEnd(9)} ${esc(c.name)} ${esc(c.from)}${c.to?' → '+esc(c.to):''}</div>`).join('') + `</div>`;
+  html += `<p class="muted" style="margin-top:12px">按下確認後，桌面會跳出 polkit 密碼視窗（aptdaemon 的正常授權流程）。更新完成後<b>不會</b>自動重開機。</p>`;
+  body.innerHTML = html; $('#mOk').classList.remove('hide');
   $('#mOk').onclick = async () => {
     closeModal();
     const r = await api('/api/install', {packages: names});
     if (!r.ok) { alert('無法開始：' + r.error); return; }
-    state.selected.clear();
-    startPolling('更新中：' + names.join(', '));
+    state.selected.clear(); startPolling('更新中：' + names.join(', '));
   };
   openModal('確認變更');
 };
-
-$('#btnRefresh').onclick = async () => {
-  const r = await api('/api/refresh', {});
-  if (!r.ok) { alert('無法開始：' + r.error); return; }
-  startPolling('重新整理 apt 來源');
-};
+$('#btnRefresh').onclick = async () => { const r = await api('/api/refresh', {}); if (!r.ok) { alert('無法開始：' + r.error); return; } startPolling('重新整理 apt 來源'); };
 $('#btnAll').onclick = () => { state.items.forEach(i => state.selected.add(i.name)); renderList(); };
 $('#btnNone').onclick = () => { state.selected.clear(); renderList(); };
-
 function openModal(t) { $('#mTitle').textContent = t; $('#overlay').classList.add('open'); }
 function closeModal() { $('#overlay').classList.remove('open'); }
 $('#mCancel').onclick = closeModal;
 
 function startPolling(title) {
-  $('#jobcard').hidden = false; $('#jobcard').className = 'card notice';
+  const c = $('#jobcard'); c.className = 'panel notice';
   $('#jobtitle').textContent = title; $('#jobactions').innerHTML = '';
-  clearInterval(state.polling);
-  state.polling = setInterval(pollJob, 1000); pollJob();
+  clearInterval(state.polling); state.polling = setInterval(pollJob, 1000); pollJob();
 }
 async function pollJob() {
   const j = await api('/api/job'); state.job = j; updateGo();
@@ -261,19 +284,79 @@ async function pollJob() {
   $('#joblog').textContent = (j.log || []).join('\n');
   if (j.status === 'done' || j.status === 'error') {
     clearInterval(state.polling); state.polling = null;
-    $('#jobcard').className = 'card notice ' + (j.status === 'done' ? 'ok' : 'danger');
+    $('#jobcard').className = 'panel notice ' + (j.status === 'done' ? 'ok' : 'danger');
     $('#jobstatus').textContent = j.status === 'done' ? `完成（${j.finished}）` : `失敗：${j.error || '未知錯誤'}`;
     $('#jobactions').innerHTML = `<button id="jobClose">關閉</button>`;
-    $('#jobClose').onclick = () => { $('#jobcard').hidden = true; };
-    await load();
+    $('#jobClose').onclick = () => $('#jobcard').classList.add('hide');
+    state.apps = null; await load();
   }
 }
 
-// 啟動：若後端已有工作在跑（例如頁面重整），接上輪詢。
+async function loadApps(force) {
+  $('#apps').innerHTML = `<div class="empty">掃描中（snap 與 flatpak 要連商店查新版，第一次約需幾秒）…</div>`;
+  const j = await api('/api/apps' + (force ? '?force=1' : ''));
+  if (!j.ok) { $('#apps').innerHTML = `<div class="panel notice danger">讀取失敗：${esc(j.error)}</div>`; return; }
+  state.apps = j; renderApps();
+}
+function renderApps() {
+  const j = state.apps; const s = j.sources;
+  const upd = j.items.filter(a => a.candidate).length;
+  $('#appsMeta').textContent = `apt ${s.apt.count} · snap ${s.snap.ok ? s.snap.count : '—'} · flatpak ${s.flatpak.ok ? s.flatpak.count : '—'} · 有新版 ${upd} · 掃描於 ${j.generated.replace('T',' ')}`;
+  $('#dotApps').classList.toggle('hide', upd === 0);
+  const notes = [];
+  if (!s.snap.ok) notes.push('snap 指令失敗，snap 應用未列出。');
+  if (!s.flatpak.ok) notes.push('flatpak 指令失敗，flatpak 應用未列出。');
+  const uncheck = [...new Set(j.items.filter(a => a.source !== 'apt' && a.checked_updates === false).map(a => a.source))];
+  if (uncheck.length) notes.push(`${uncheck.join('、')} 無法向商店查新版（逾時或離線），該來源的狀態顯示「未能查詢」。`);
+  notes.push('只列有桌面啟動項（.desktop）的應用程式，命令列工具與函式庫不在此。apt 應用的「有新版」與更新分頁同源。');
+  $('#appsNote').textContent = notes.join(' ');
+  const q = state.q.trim().toLowerCase();
+  const rows = j.items.filter(a => (state.src === 'all' || (state.src === 'upd' ? !!a.candidate : a.source === state.src)) &&
+    (!q || [a.name, a.name_zh, a.id, a.comment].some(x => (x||'').toLowerCase().includes(q))));
+  if (!rows.length) { $('#apps').innerHTML = `<div class="empty">沒有符合的應用程式。</div>`; return; }
+  let html = `<table><thead><tr><th style="width:30%">應用程式</th><th style="width:22%">識別</th><th style="width:20%">版本</th><th class="col-opt">來源</th><th style="width:150px">狀態</th><th style="width:80px"></th></tr></thead><tbody>`;
+  for (const a of rows) {
+    const status = a.candidate ? `<span class="to mono">→ ${esc(a.candidate)}</span>` :
+      (a.source !== 'apt' && a.checked_updates === false) ? `<span class="tag">未能查詢</span>` : `<span class="tag ok">最新</span>`;
+    html += `<tr>
+      <td><b>${esc(a.name_zh || a.name)}</b>${a.name_zh ? `<span class="sub1"> ${esc(a.name)}</span>` : ''}${a.comment ? `<div class="sub1">${esc(a.comment)}</div>` : ''}</td>
+      <td class="mono">${esc(a.id)}<span class="tag ${a.source}">${a.source}</span></td>
+      <td class="mono">${esc(a.version)}</td>
+      <td class="col-opt sub1">${esc(a.origin)}</td>
+      <td>${status}</td>
+      <td>${a.candidate ? `<button class="small" data-cl="${a.source}" data-id="${esc(a.id)}" data-inst="${esc(a.version)}">說明</button>` : ''}</td></tr>`;
+  }
+  $('#apps').innerHTML = html + `</tbody></table>`;
+  $('#apps').querySelectorAll('button[data-cl]').forEach(b => b.onclick = () => toggleChangelog(b, b.dataset.cl, b.dataset.id, b.dataset.inst));
+}
+$('#srcChips').querySelectorAll('.chip').forEach(c => c.onclick = () => { state.src = c.dataset.src; $('#srcChips').querySelectorAll('.chip').forEach(x => x.classList.toggle('active', x === c)); if (state.apps) renderApps(); });
+$('#appSearch').oninput = e => { state.q = e.target.value; if (state.apps) renderApps(); };
+$('#btnAppsReload').onclick = () => loadApps(true);
+
+async function loadHistory() {
+  const j = await api('/api/history');
+  if (!j.ok) { $('#hist').innerHTML = `<div class="empty">讀不到歷史</div>`; return; }
+  if (!j.entries.length) { $('#hist').innerHTML = `<div class="empty">沒有記錄</div>`; return; }
+  let html = `<table><thead><tr><th style="width:170px">時間</th><th style="width:170px">執行者</th><th style="width:200px">動作</th><th>套件</th></tr></thead><tbody>`;
+  for (const e of j.entries) {
+    const who = /aptdaemon/.test(e.commandline) ? 'aptdaemon<div class="sub1">Dashboard 或本工具</div>' :
+      /apt-get|apt /.test(e.commandline) ? `apt-get<div class="sub1">${esc(e.commandline.replace(/^\/usr\/bin\//,''))}</div>` : esc(e.commandline || '—');
+    const badges = e.actions.map(a => `<span class="badge ${a.action}">${a.action} ${a.count}</span>`).join('');
+    const all = e.actions.flatMap(a => a.names);
+    const shown = all.slice(0, 8).map(n => `<span class="pk">${esc(n)}</span>`).join('');
+    const more = all.length > 8 ? `<details><summary class="sub1">還有 ${all.length - 8} 個</summary>${all.slice(8).map(n => `<span class="pk">${esc(n)}</span>`).join('')}</details>` : '';
+    html += `<tr><td class="mono">${esc(e.start)}</td><td>${who}</td><td>${badges}</td><td>${shown}${more}</td></tr>`;
+  }
+  $('#hist').innerHTML = html + `</tbody></table>`;
+}
+
 (async () => {
   await load();
   const j = await api('/api/job');
   if (j.status === 'running') startPolling(j.kind === 'refresh' ? '重新整理 apt 來源' : '更新中：' + (j.packages||[]).join(', '));
+  const t = location.hash.replace('#','');
+  showTab(TITLES[t] ? t : 'updates');
+  api('/api/apps').then(r => { if (r.ok) { state.apps = r; $('#dotApps').classList.toggle('hide', !r.items.some(a => a.candidate)); if (!$('#tab-apps').classList.contains('hide')) renderApps(); } });
 })();
 </script>
 </body>

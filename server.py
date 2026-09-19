@@ -7,11 +7,16 @@
 - 安裝：走 aptdaemon 的 D-Bus 介面（和 DGX Dashboard 同一個後端），授權由 polkit 桌面視窗處理。
 - 重開機：只讀 /var/run/reboot-required，有才提示，程式本身絕不重開。
 """
+import concurrent.futures
+import glob
+import gzip
 import json
 import os
 import re
+import subprocess
 import threading
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -300,6 +305,313 @@ class Job:
 JOB = Job()
 
 
+# ---------- 應用程式清單（apt / snap / flatpak）----------
+
+DESKTOP_DIRS_APT = ("/usr/share/applications",)
+SNAP_DESKTOP_DIR = "/var/lib/snapd/desktop/applications"
+FLATPAK_APPSTREAM_GLOB = (
+    "/var/lib/flatpak/appstream/*/*/active/appstream.xml.gz",
+    os.path.expanduser("~/.local/share/flatpak/appstream/*/*/active/appstream.xml.gz"),
+)
+_ENV_C = dict(os.environ, LANG="C.UTF-8", LC_ALL="C.UTF-8")
+
+
+def _run(cmd, timeout=20):
+    """跑外部指令，失敗或逾時回 None（呼叫端要把「拿不到」當一級狀態處理）。"""
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=_ENV_C)
+        return r.stdout if r.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def parse_desktop(path):
+    """只讀 [Desktop Entry] 主段落。回 None 表示不是要顯示的應用程式。"""
+    d = {"name": "", "name_zh": "", "comment": "", "icon": "", "categories": ""}
+    nodisplay = hidden = False
+    typ = "Application"
+    try:
+        with open(path, errors="replace") as f:
+            in_main = False
+            for line in f:
+                line = line.strip()
+                if line.startswith("["):
+                    if in_main:
+                        break
+                    in_main = line == "[Desktop Entry]"
+                    continue
+                if not in_main or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                if k == "Name":
+                    d["name"] = v
+                elif k in ("Name[zh_TW]", "Name[zh_Hant]"):
+                    d["name_zh"] = v
+                elif k == "Comment":
+                    d["comment"] = v
+                elif k == "Icon":
+                    d["icon"] = v
+                elif k == "Categories":
+                    d["categories"] = v
+                elif k == "NoDisplay":
+                    nodisplay = v.lower() == "true"
+                elif k == "Hidden":
+                    hidden = v.lower() == "true"
+                elif k == "Type":
+                    typ = v
+    except OSError:
+        return None
+    if nodisplay or hidden or typ != "Application" or not d["name"]:
+        return None
+    return d
+
+
+def _apt_desktop_owner_map():
+    """dpkg 檔案清單 → {套件名: [desktop 路徑]}。純本機檔案，約 50ms。"""
+    m = {}
+    for lst in glob.glob("/var/lib/dpkg/info/*.list"):
+        pkg = os.path.basename(lst)[:-5].split(":")[0]
+        try:
+            with open(lst, errors="replace") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith(DESKTOP_DIRS_APT) and line.endswith(".desktop"):
+                        m.setdefault(pkg, []).append(line)
+        except OSError:
+            continue
+    return m
+
+
+def apps_apt(cache):
+    out = []
+    for pkg, paths in _apt_desktop_owner_map().items():
+        if pkg not in cache or not cache[pkg].installed:
+            continue
+        entry = None
+        for p in sorted(paths):
+            entry = parse_desktop(p)
+            if entry:
+                break
+        if not entry:
+            continue
+        ap = cache[pkg]
+        out.append({
+            "source": "apt", "id": pkg,
+            "name": entry["name"], "name_zh": entry["name_zh"], "comment": entry["comment"],
+            "icon": entry["icon"], "categories": entry["categories"],
+            "version": ap.installed.version,
+            "candidate": ap.candidate.version if ap.is_upgradable else None,
+            "origin": _group_name(_origin_of(ap.candidate or ap.installed)),
+            "changelog": "apt",
+        })
+    return out
+
+
+def apps_snap(check_updates):
+    txt = _run(["snap", "list"])
+    if txt is None:
+        return None
+    names = {}
+    for p in glob.glob(os.path.join(SNAP_DESKTOP_DIR, "*.desktop")):
+        snap = os.path.basename(p).split("_", 1)[0]
+        e = parse_desktop(p)
+        if e and snap not in names:
+            names[snap] = e
+    updates = {}
+    if check_updates:
+        u = _run(["snap", "refresh", "--list"], timeout=30)
+        if u is not None and not u.startswith("All snaps"):
+            for line in u.splitlines()[1:]:
+                parts = line.split()
+                if len(parts) >= 2:
+                    updates[parts[0]] = parts[1]
+    out = []
+    for line in txt.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        name, ver, rev, tracking, publisher = parts[:5]
+        notes = parts[5] if len(parts) > 5 else ""
+        if "base" in notes or name.startswith("core") or name in ("bare", "snapd"):
+            continue
+        if "disabled" in notes:
+            continue
+        e = names.get(name, {})
+        out.append({
+            "source": "snap", "id": name,
+            "name": e.get("name") or name, "name_zh": e.get("name_zh", ""), "comment": e.get("comment", ""),
+            "icon": e.get("icon", ""), "categories": e.get("categories", ""),
+            "version": ver, "candidate": updates.get(name),
+            "origin": f"snap · {publisher.rstrip('*')} · {tracking}",
+            "changelog": "snap",
+            "checked_updates": check_updates and u is not None,
+        })
+    return out
+
+
+def apps_flatpak(check_updates):
+    txt = _run(["flatpak", "list", "--app", "--columns=application,name,version,origin"])
+    if txt is None:
+        return None
+    updates = {}
+    checked = False
+    if check_updates:
+        u = _run(["flatpak", "remote-ls", "--updates", "--app", "--columns=application,version,commit"], timeout=30)
+        if u is not None:
+            checked = True
+            for line in u.splitlines():
+                parts = line.split("\t")
+                if parts and parts[0]:
+                    ver = parts[1] if len(parts) > 1 and parts[1] else ""
+                    commit = parts[2][:12] if len(parts) > 2 else ""
+                    # flathub 常不帶版本號，只有 commit；照實標示，不編版本
+                    updates[parts[0]] = ver or (f"新 commit {commit}" if commit else "有新版（版本未提供）")
+    out = []
+    for line in txt.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 4:
+            continue
+        app, name, ver, origin = parts[:4]
+        out.append({
+            "source": "flatpak", "id": app,
+            "name": name or app, "name_zh": "", "comment": "", "icon": "", "categories": "",
+            "version": ver, "candidate": updates.get(app),
+            "origin": f"flatpak · {origin}",
+            "remote": origin,
+            "changelog": "flatpak",
+            "checked_updates": checked,
+        })
+    return out
+
+
+_APPS_CACHE = {"ts": 0, "data": None, "lock": threading.Lock()}
+APPS_TTL = 300
+
+
+def list_apps(force=False):
+    with _APPS_CACHE["lock"]:
+        if not force and _APPS_CACHE["data"] and time.time() - _APPS_CACHE["ts"] < APPS_TTL:
+            return _APPS_CACHE["data"]
+        cache = apt.Cache()
+        apt_apps = apps_apt(cache)
+        snap_apps = apps_snap(check_updates=True)
+        fp_apps = apps_flatpak(check_updates=True)
+        items = apt_apps + (snap_apps or []) + (fp_apps or [])
+        items.sort(key=lambda a: (a["name_zh"] or a["name"]).lower())
+        data = {
+            "items": items,
+            "sources": {
+                "apt": {"ok": True, "count": len(apt_apps)},
+                "snap": {"ok": snap_apps is not None, "count": len(snap_apps or [])},
+                "flatpak": {"ok": fp_apps is not None, "count": len(fp_apps or [])},
+            },
+            "generated": datetime.now().isoformat(timespec="seconds"),
+        }
+        _APPS_CACHE.update(ts=time.time(), data=data)
+        return data
+
+
+# ---------- 更新說明 ----------
+
+_CHANGELOG_CACHE = {}
+
+
+def changelog_apt(pkg, installed_version=""):
+    """用 `apt-get changelog`（不需 root）抓候選版本的 changelog，截到已安裝版本為止。
+    第三方 repo 多半沒提供，照實回報。python-apt 的 get_changelog 在這台機器上抓不到，所以走子程序。"""
+    try:
+        r = subprocess.run(["apt-get", "-q", "changelog", pkg], capture_output=True, text=True, timeout=25, env=_ENV_C)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "text": "", "note": "下載 changelog 逾時（25 秒）"}
+    except OSError as e:
+        return {"ok": False, "text": "", "note": f"無法執行 apt-get：{e}"}
+    if r.returncode != 0:
+        err = (r.stderr or "").strip().splitlines()
+        return {"ok": False, "text": "", "note": "此來源未提供更新說明（多為第三方 repo）" + (f"：{err[-1]}" if err else "")}
+    head_re = re.compile(r"^(\S+) \(([^)]+)\)")
+    kept, seen_any, truncated = [], False, False
+    for line in r.stdout.splitlines():
+        if line.startswith(("Get:", "Fetched", "Hit:")):
+            continue
+        m = head_re.match(line)
+        if m:
+            seen_any = True
+            if installed_version and m.group(2) == installed_version:
+                truncated = True
+                break
+        kept.append(line)
+    if not seen_any:
+        return {"ok": False, "text": "", "note": "此來源未提供更新說明（多為第三方 repo）"}
+    text = "\n".join(kept).strip()
+    if truncated and not text:
+        return {"ok": True, "text": "", "note": "已安裝版本就是最新條目，沒有更新的 changelog"}
+    if len(text) > 20000:
+        text = text[:20000] + "\n…（已截斷）"
+    note = "來源：apt changelog" + ("，已安裝版本之後的條目" if truncated else "，全部條目（找不到已安裝版本的分界）")
+    return {"ok": True, "text": text, "note": note}
+
+
+def changelog_flatpak(app_id, installed_version):
+    """從本機 appstream 目錄讀 <releases>，回最新幾筆到已安裝版本為止。"""
+    for pattern in FLATPAK_APPSTREAM_GLOB:
+        for path in glob.glob(pattern):
+            try:
+                with gzip.open(path) as f:
+                    root = ET.parse(f).getroot()
+            except (OSError, ET.ParseError):
+                continue
+            for comp in root.iter("component"):
+                if (comp.findtext("id") or "").removesuffix(".desktop") != app_id:
+                    continue
+                rels = comp.find("releases")
+                if rels is None:
+                    return {"ok": False, "text": "", "note": "appstream 裡沒有 release 記錄"}
+                lines = []
+                for r in list(rels)[:8]:
+                    v = r.get("version", "?")
+                    d = r.get("date", "")[:10]
+                    desc = " ".join(t.strip() for t in r.itertext() if t.strip())
+                    lines.append(f"{v}  {d}\n  {desc or '（無說明）'}")
+                    if v == installed_version:
+                        break
+                return {"ok": True, "text": "\n\n".join(lines), "note": f"來源：{os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(path))))} appstream"}
+    # 本機沒有 appstream（flatpak 未同步 appstream 時就是這樣）→ 退回 remote-info 的提交訊息
+    remote = ""
+    data = _APPS_CACHE.get("data") or {}
+    for a in data.get("items", []):
+        if a.get("source") == "flatpak" and a.get("id") == app_id:
+            remote = a.get("remote", "")
+    if remote:
+        txt = _run(["flatpak", "remote-info", remote, app_id], timeout=25)
+        if txt:
+            info = {}
+            for line in txt.splitlines():
+                k, _, v = line.strip().partition(":")
+                if k in ("Version", "Commit", "Subject", "Date"):
+                    info[k] = v.strip()
+            body = "\n".join(f"{k}: {info[k]}" for k in ("Version", "Date", "Subject", "Commit") if k in info)
+            return {"ok": True, "text": body,
+                    "note": f"{remote} 未提供 release notes（本機無 appstream 資料）；以下是遠端最新版的提交資訊，不是更新說明"}
+    return {"ok": False, "text": "", "note": "找不到這個 app 的 appstream 資料，也無法查詢遠端"}
+
+
+def get_changelog(source, ident, installed_version=""):
+    key = (source, ident, installed_version)
+    if key in _CHANGELOG_CACHE:
+        return _CHANGELOG_CACHE[key]
+    if source == "apt":
+        res = changelog_apt(ident, installed_version)
+    elif source == "flatpak":
+        res = changelog_flatpak(ident, installed_version)
+    elif source == "snap":
+        res = {"ok": False, "text": "", "note": f"Snap 商店不提供更新說明。可到 https://snapcraft.io/{ident} 查看發行者頁面。"}
+    else:
+        res = {"ok": False, "text": "", "note": "未知來源"}
+    if res["ok"]:
+        _CHANGELOG_CACHE[key] = res
+    return res
+
+
 # ---------- HTTP ----------
 
 class Handler(BaseHTTPRequestHandler):
@@ -354,6 +666,21 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "entries": apt_history()})
         elif path == "/api/reboot":
             self._json(reboot_status())
+        elif path == "/api/apps":
+            force = "force=1" in (self.path.split("?", 1) + [""])[1]
+            try:
+                self._json({"ok": True, **list_apps(force=force)})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/changelog":
+            from urllib.parse import parse_qs
+            q = parse_qs((self.path.split("?", 1) + [""])[1])
+            source = (q.get("source") or [""])[0]
+            ident = (q.get("id") or [""])[0]
+            ver = (q.get("installed") or [""])[0]
+            if not source or not ident:
+                return self._json({"ok": False, "error": "缺 source 或 id"}, 400)
+            self._json(get_changelog(source, ident, ver))
         else:
             self._json({"ok": False, "error": "not found"}, 404)
 
