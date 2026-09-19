@@ -1101,6 +1101,28 @@ def displays():
     return out
 
 
+USBC_MAP_FILE = os.path.join(HERE, "data", "usbc-map.json")
+
+
+def usbc_map_load():
+    """實體孔 → 控制器 的對應（伺服器端持久化，所有瀏覽器共用）。
+    slot 0 固定是電源輸入孔（依 ASUS 規格與評測），核心無 UCSI/typec，供電狀態偵測不到，只能手動標記。"""
+    try:
+        with open(USBC_MAP_FILE) as f:
+            d = json.load(f)
+            return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def usbc_map_save(d):
+    os.makedirs(os.path.dirname(USBC_MAP_FILE), exist_ok=True)
+    tmp = USBC_MAP_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, USBC_MAP_FILE)
+
+
 def rear_panel():
     """後面板各孔的即時狀態。版面順序（左→右）依 ServeTheHome 評測：USB-C ×4（最左為 PD 電源輸入）、HDMI、10GbE、QSFP（ConnectX-7）。"""
     ports = usb_ports()
@@ -1126,7 +1148,7 @@ def rear_panel():
             "controller_guess": ctrl, "usb": c and {"devices": c["devices"], "location": c["location"]},
         })
     return {
-        "usbc": usbc, "hdmi": disp.get("HDMI-0"),
+        "usbc": usbc, "hdmi": disp.get("HDMI-0"), "calib": usbc_map_load(),
         "eth10g": eth and {"iface": eth[0], **eth[1]},
         "connectx7": {"pci_present": mlx_pci, "ifaces": mlx, "driver_loaded": os.path.isdir("/sys/module/mlx5_core")},
         "controllers": ports, "displays_available": bool(disp),
@@ -1571,6 +1593,23 @@ class Handler(BaseHTTPRequestHandler):
             if not JOB.start("install", names):
                 return self._json({"ok": False, "error": "已有工作在進行中"}, 409)
             return self._json({"ok": True})
+        if path == "/api/hardware/usbc-map":
+            # {"slot": 0-3, "controller": "NVDA8000:0x" | null, "note": "..."}；或 {"reset": true}
+            if data.get("reset"):
+                usbc_map_save({}); return self._json({"ok": True, "calib": {}})
+            slot, ctrl = data.get("slot"), data.get("controller")
+            if slot not in (0, 1, 2, 3):
+                return self._json({"ok": False, "error": "slot 需為 0–3"}, 400)
+            if ctrl is not None and not re.fullmatch(r"NVDA800[01]:0\d", str(ctrl)):
+                return self._json({"ok": False, "error": "controller 格式不對"}, 400)
+            m = usbc_map_load()
+            if ctrl is None and not data.get("note"):
+                m.pop(str(slot), None)
+            else:
+                m[str(slot)] = {"controller": ctrl, "note": (data.get("note") or "")[:80], "source": (data.get("source") or "manual")[:20],
+                                "at": datetime.now().isoformat(timespec="seconds")}
+            usbc_map_save(m)
+            return self._json({"ok": True, "calib": m})
         if path == "/api/llm/bench":
             model = data.get("model")
             if not model or not isinstance(model, str):

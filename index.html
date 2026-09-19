@@ -499,53 +499,63 @@ async function showHardware() {      // 硬體分頁：靜態清單＋抓一次�
   pollPorts(); hw.portTimer = setInterval(pollPorts, 2000);
 }
 /* ---- 後面板示意圖：USB-C 四孔（DP 輸出 + USB 裝置）、HDMI、10GbE、QSFP。
-   USB-C-k ↔ 實體孔序為推測（驅動編號），可用「校準孔位」：點一個孔，再插入裝置，該孔就綁定新出現裝置的控制器。校準只存在這個瀏覽器（localStorage）。 ---- */
+   實體孔 ↔ 控制器 的對應存在伺服器端（data/usbc-map.json），所有瀏覽器共用。
+   slot 0 依規格是電源輸入孔；核心沒有 UCSI/typec，供電偵測不到，只能手動標記。 ---- */
 hw.rearPrev = null; hw.rearFlash = {}; hw.calibSlot = null; hw.calibMode = false;
 const PANEL_ZH = { left: '左側', right: '右側', back: '後方', front: '前方', top: '上方', bottom: '下方', unknown: '未知' };
-const CALIB_KEY = 'spark-center.usbc-map';
-function loadCalib() { try { return JSON.parse(localStorage.getItem(CALIB_KEY) || '{}'); } catch (e) { return {}; } }
-function saveCalib(m) { try { localStorage.setItem(CALIB_KEY, JSON.stringify(m)); } catch (e) {} }
 const ICON = {
   usbc: '<svg viewBox="0 0 64 36"><rect class="jk" x="8" y="11" width="48" height="14" rx="7"/></svg>',
   hdmi: '<svg viewBox="0 0 64 36"><path class="jk" d="M10 10 h44 v10 l-6 6 h-32 l-6 -6 z"/></svg>',
   rj45: '<svg viewBox="0 0 64 36"><path class="jk" d="M14 6 h36 v24 h-10 v-5 h-16 v5 h-10 z"/></svg>',
   qsfp: '<svg viewBox="0 0 64 36"><rect class="jk" x="4" y="9" width="56" height="18" rx="2"/><rect class="jk" x="12" y="14" width="40" height="8" rx="1"/></svg>',
   klock: '<svg viewBox="0 0 64 36"><ellipse class="jk" cx="32" cy="18" rx="9" ry="6"/></svg>',
+  plug: '<svg viewBox="0 0 64 36"><rect class="jk" x="8" y="11" width="48" height="14" rx="7"/><path d="M26 6 v-4 M38 6 v-4" stroke="#7a827c" stroke-width="3"/></svg>',
 };
+const spd = v => v >= 5000 ? v / 1000 + ' Gb/s' : v + ' Mb/s';
 async function pollRear() {
   const j = await api('/api/hardware/rear');
   if (!j.ok) { $('#rear').innerHTML = `<div class="empty">讀取失敗：${esc(j.error)}</div>`; return; }
-  const calib = loadCalib(); const now = Date.now();
-  // 目前各控制器接的裝置簽章，用來偵測「新插入」
+  const calib = j.calib || {}; const now = Date.now();
   const sig = Object.fromEntries(j.controllers.map(c => [c.controller, c.devices.map(d => d.path).join(',')]));
   let newly = null;
   if (hw.rearPrev) for (const k in sig) if (hw.rearPrev[k] !== undefined && hw.rearPrev[k] !== sig[k] && sig[k]) { newly = k; hw.rearFlash[k] = now; }
   hw.rearPrev = sig;
-  if (newly && hw.calibSlot != null) { calib[hw.calibSlot] = newly; saveCalib(calib); hw.calibSlot = null; }
+  if (newly && hw.calibSlot != null) { const slot = hw.calibSlot; hw.calibSlot = null; await api('/api/hardware/usbc-map', {slot, controller: newly, source: 'plug'}); return pollRear(); }
   const ctrl = Object.fromEntries(j.controllers.map(c => [c.controller, c]));
+  const dispByCtrl = k => j.usbc.find(u => u.controller_guess === k)?.display;  // 控制器 0k ↔ DP 輸出 USB-C-k（驅動編號一致，視為同一孔）
+  const assigned = new Set(Object.values(calib).map(v => v && v.controller).filter(Boolean));
   const slots = [];
   for (let i = 0; i < 4; i++) {
-    const u = j.usbc[i]; const cid = calib[i] || u.controller_guess; const c = ctrl[cid]; const calibrated = !!calib[i];
-    const disp = u.display; const on = (c && c.devices.length) || (disp && disp.connected);
-    const flash = hw.rearFlash[cid] && now - hw.rearFlash[cid] < 6000;
+    const cal = calib[String(i)]; const cid = cal ? cal.controller : null; const c = cid ? ctrl[cid] : null; const disp = cid ? dispByCtrl(cid) : null;
+    const isPower = i === 0;
+    const on = !!((c && c.devices.length) || (disp && disp.connected));
+    const flash = cid && hw.rearFlash[cid] && now - hw.rearFlash[cid] < 6000;
     let st = '';
+    if (isPower) st += `<b>電源供應器</b><span class="sub1">${cal && cal.note ? esc(cal.note) : '規格：PD 輸入孔'}</span>`;
     if (disp && disp.connected) st += `<b>螢幕 ${esc(disp.mode || '')}${disp.hz ? ' @ ' + Math.round(disp.hz) + ' Hz' : ''}</b>`;
     if (c && c.devices.length) st += c.devices.filter(d => d.bus === 'usb3').concat(c.devices.filter(d => d.bus === 'usb2')).slice(0, 1).map(d => `<b>${esc(d.name)}</b>`).join('') + (c.devices.some(d => d.children) ? `<span class="sub1">下接 ${c.devices.reduce((a, d) => a + d.children, 0)} 個裝置</span>` : '');
-    if (!st) st = '<span class="sub1">空</span>';
-    slots.push(`<div class="slot ${on ? 'on' : ''} ${flash ? 'flash' : ''} ${hw.calibSlot === i ? 'pick' : ''}" data-slot="${i}">${ICON.usbc}<div class="lb">USB-C ${i === 0 ? '· 電源輸入' : ''}<br>${esc(u.dp_output)} · ${esc(cid.replace('NVDA8000:', '控制器 '))}</div><div class="st">${st}</div><span class="tg">${calibrated ? '已校準' : '推測'}${c && c.location ? ' · 韌體 ' + (PANEL_ZH[c.location.panel] || c.location.panel) : ''}</span></div>`);
+    if (!st) st = cid ? '<span class="sub1">空</span>' : '<span class="sub1">未校準</span>';
+    const tag = isPower ? '手動標記 · 供電狀態核心偵測不到' : cal ? `已校準（${cal.source === 'plug' ? '插入法' : '手動'}）` : '未校準';
+    const sub2 = cid ? `${esc(cid.replace('NVDA8000:', '控制器 '))} · USB-C-${cid.slice(-1)}${c && c.location ? ' · 韌體 ' + (PANEL_ZH[c.location.panel] || c.location.panel) : ''}` : (isPower ? '控制器：電源線不帶資料，無法得知' : '控制器：待校準');
+    slots.push(`<div class="slot ${on || isPower ? 'on' : ''} ${flash ? 'flash' : ''} ${hw.calibSlot === i ? 'pick' : ''}" data-slot="${i}">${isPower ? ICON.plug : ICON.usbc}<div class="lb">USB-C 孔 ${i + 1}${isPower ? ' · 電源輸入' : ''}<br>${sub2}</div><div class="st">${st}</div><span class="tg">${tag}</span></div>`);
   }
   const h = j.hdmi; slots.push(`<div class="slot ${h && h.connected ? 'on' : ''}">${ICON.hdmi}<div class="lb">HDMI 2.1a<br>HDMI-0</div><div class="st">${h ? (h.connected ? `<b>螢幕 ${esc(h.mode || '')}</b>` : '<span class="sub1">空</span>') : '<span class="sub1">xrandr 不可用</span>'}</div></div>`);
-  const e = j.eth10g; slots.push(`<div class="slot ${e && e.carrier === '1' ? 'on' : ''}">${ICON.rj45}<div class="lb">10GbE LAN<br>${e ? esc(e.iface) : '—'}</div><div class="st">${e ? (e.carrier === '1' ? `<b>已連線 ${e.speed && e.speed > 0 ? (e.speed >= 1000 ? e.speed/1000 + ' Gb/s' : e.speed + ' Mb/s') : ''}</b>` : '<span class="sub1">未插線</span>') : '<span class="sub1">未偵測到</span>'}</div></div>`);
+  const e = j.eth10g; slots.push(`<div class="slot ${e && e.carrier === '1' ? 'on' : ''}">${ICON.rj45}<div class="lb">10GbE LAN<br>${e ? esc(e.iface) : '—'}</div><div class="st">${e ? (e.carrier === '1' ? `<b>已連線 ${e.speed && e.speed > 0 ? spd(+e.speed) : ''}</b>` : '<span class="sub1">未插線</span>') : '<span class="sub1">未偵測到</span>'}</div></div>`);
   const x = j.connectx7; slots.push(`<div class="slot ${x.ifaces.length ? 'on' : ''}">${ICON.qsfp}<div class="lb">QSFP · ConnectX-7</div><div class="st">${x.ifaces.length ? `<b>${esc(x.ifaces.join(', '))}</b>` : x.pci_present ? '<span class="sub1">有裝置，無介面</span>' : '<span class="sub1">lspci 未見 ConnectX-7</span>'}</div><span class="tg">mlx5 驅動${x.driver_loaded ? '已載入' : '未載入'}</span></div>`);
   slots.push(`<div class="slot">${ICON.klock}<div class="lb">Kensington</div><div class="st"><span class="sub1">—</span></div></div>`);
-  $('#rear').innerHTML = `<div class="chassis"><div class="vents"></div><div class="slots">${slots.join('')}</div></div>`;
-  $('#rear').querySelectorAll('.slot[data-slot]').forEach(el => el.onclick = () => { if (hw.calibMode) { hw.calibSlot = +el.dataset.slot; pollRear(); } });
-  $('#usbPortsSub').textContent = (hw.calibMode ? (hw.calibSlot == null ? '校準中：先點一個 USB-C 孔，再把裝置插進那個洞。' : `校準中：請把裝置插進「USB-C ${hw.calibSlot}」那個框對應的洞，偵測到新裝置就綁定。`) :
-    `版面順序（左→右）依 ServeTheHome 評測：USB-C ×4（最左為電源輸入）、HDMI、10GbE、QSFP。USB-C 編號取自 NVIDIA 驅動的 DP 輸出名（USB-C-0..3）與 USB 控制器編號，對應實體位置為推測；${Object.keys(calib).length ? `已校準 ${Object.keys(calib).length} 孔。` : '按「校準孔位」用插入法確認。'}${j.displays_available ? '' : ' xrandr 不可用，螢幕狀態未知。'}`);
+  // 還沒對應到任何孔、但接著東西的控制器，不能藏起來
+  // 只算四個外露孔的控制器（00–03）；04 與 8001:00 韌體標「後方」，是內部（藍牙模組）
+  const orphan = j.controllers.filter(c => /^NVDA8000:0[0-3]$/.test(c.controller) && !assigned.has(c.controller) && (c.devices.length || (dispByCtrl(c.controller) || {}).connected));
+  const orphanHtml = orphan.length ? `<div class="sub1" style="margin-top:10px">尚未對應到孔位、但有接東西的控制器：${orphan.map(c => `${esc(c.controller.replace('NVDA8000:', '控制器 '))}（${c.devices.map(d => esc(d.name)).join('、') || '螢幕'}）`).join('；')}。用「校準孔位」對上去。</div>` : '';
+  $('#rear').innerHTML = `<div class="chassis"><div class="vents"></div><div class="slots">${slots.join('')}</div></div>${orphanHtml}`;
+  $('#rear').querySelectorAll('.slot[data-slot]').forEach(el => el.onclick = () => { if (hw.calibMode && +el.dataset.slot !== 0) { hw.calibSlot = +el.dataset.slot; pollRear(); } });
+  const n = Object.keys(calib).filter(k => k !== '0').length;
+  $('#usbPortsSub').textContent = hw.calibMode ? (hw.calibSlot == null ? '校準中：先點一個 USB-C 孔（孔 1 是電源，不用校準），再把裝置插進那個洞。' : `校準中：請把裝置插進「USB-C 孔 ${hw.calibSlot + 1}」，偵測到新裝置就綁定。`) :
+    `版面順序（左→右）依 ASUS 規格圖與 ServeTheHome 評測：USB-C ×4（孔 1 為電源輸入）、HDMI、10GbE、QSFP。孔位對應存在伺服器端，所有瀏覽器共用；已校準 ${n} / 3 個資料孔。${j.displays_available ? '' : ' xrandr 不可用，螢幕狀態未知。'}`;
 }
 async function pollPorts() { return pollRear(); }
 $('#btnCalib').onclick = () => { hw.calibMode = !hw.calibMode; hw.calibSlot = null; $('#btnCalib').textContent = hw.calibMode ? '結束校準' : '校準孔位'; pollRear(); };
-$('#btnCalibReset').onclick = () => { saveCalib({}); hw.calibSlot = null; pollRear(); };
+$('#btnCalibReset').onclick = async () => { if (!confirm('清除所有孔位對應（含電源孔標記）？')) return; await api('/api/hardware/usbc-map', {reset: true}); hw.calibSlot = null; pollRear(); };
 function stopHw() { if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } if (hw.portTimer) { clearInterval(hw.portTimer); hw.portTimer = null; } if (hw.llmTimer) { clearInterval(hw.llmTimer); hw.llmTimer = null; } if (hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; } }
 function renderHwStatic() {
   const j = hw.static, S = j.system, C = j.cpu, G = j.gpu, D = j.dmi || {available:false};
