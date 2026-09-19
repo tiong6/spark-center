@@ -985,8 +985,11 @@ def _usb_tree():
         else:
             product = _read(os.path.join(d, "product"))
         manufacturer = _read(os.path.join(d, "manufacturer"))
+        mp = _read(os.path.join(d, "bMaxPower"))  # 例如 "500mA"：裝置在描述子宣告的最大耗電，不是量測
+        max_ma = int(re.sub(r"\D", "", mp)) if mp and re.sub(r"\D", "", mp) else None
         devs[n] = {
             "path": n, "vid": vid, "pid": pid,
+            "max_ma": max_ma, "max_w": round(max_ma * 5 / 1000, 2) if max_ma else None,
             "name": product or products.get((vid, pid)) or f"未知裝置 {vid}:{pid}",
             "manufacturer": manufacturer or vendors.get(vid),
             "name_from_ids": not product and (vid, pid) in products,
@@ -1052,8 +1055,11 @@ def usb_ports():
                 dn = os.path.basename(dev)
                 # 只列直接插在這個孔上的裝置（下面的 hub 子裝置數另外算）
                 kids = [k for k in os.listdir(base) if k.startswith(dn + ".") and ":" not in k]
+                mp = _read(os.path.join(dev, "bMaxPower"))
+                max_ma = int(re.sub(r"\D", "", mp)) if mp and re.sub(r"\D", "", mp) else None
                 c["devices"].append({
                     "path": dn, "name": _read(os.path.join(dev, "product")) or f"{_read(os.path.join(dev, 'idVendor'))}:{_read(os.path.join(dev, 'idProduct'))}",
+                    "max_ma": max_ma, "max_w": round(max_ma * 5 / 1000, 2) if max_ma else None,
                     "manufacturer": _read(os.path.join(dev, "manufacturer")),
                     "speed": _read(os.path.join(dev, "speed")),
                     "children": len(kids),
@@ -1438,18 +1444,38 @@ def llm_status():
 
 
 _LLM_BENCH = {"lock": threading.Lock(), "state": {"status": "idle"}}
+LLM_HIST_FILE = os.path.join(HERE, "data", "llm-bench.json")
 
 
-def llm_bench_start(model):
+def llm_hist_load():
+    try:
+        with open(LLM_HIST_FILE) as f:
+            d = json.load(f)
+            return d if isinstance(d, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def llm_hist_append(rec):
+    h = llm_hist_load(); h.append(rec); h = h[-200:]
+    os.makedirs(os.path.dirname(LLM_HIST_FILE), exist_ok=True)
+    tmp = LLM_HIST_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(h, f, ensure_ascii=False)
+    os.replace(tmp, LLM_HIST_FILE)
+
+
+def llm_bench_start(model, num_predict=128):
     with _LLM_BENCH["lock"]:
         if _LLM_BENCH["state"].get("status") == "running":
             return False
-        _LLM_BENCH["state"] = {"status": "running", "model": model, "started": datetime.now().isoformat(timespec="seconds")}
-    threading.Thread(target=_llm_bench_run, args=(model,), daemon=True).start()
+        _LLM_BENCH["state"] = {"status": "running", "model": model, "num_predict": num_predict, "phase": "載入／暖機",
+                               "started": datetime.now().isoformat(timespec="seconds")}
+    threading.Thread(target=_llm_bench_run, args=(model, num_predict), daemon=True).start()
     return True
 
 
-def _llm_bench_run(model):
+def _llm_bench_run(model, num_predict=128):
     """Ollama decode/prefill 基準：先暖機 1 token（把載入時間隔開），再量 128 token。
     數字直接取自 Ollama 回應的 eval_count/eval_duration，不是估的。"""
     base = LLM_TARGETS[0]["url"]
@@ -1459,17 +1485,28 @@ def _llm_bench_run(model):
                                                     "options": {"num_predict": 1, "temperature": 0}}, timeout=600)
         if warm is None:
             raise RuntimeError("暖機請求失敗（模型載入失敗或逾時）")
+        with _LLM_BENCH["lock"]:
+            _LLM_BENCH["state"]["phase"] = f"生成 {num_predict} token 中"
         r = _http_json(base + "/api/generate", {"model": model, "prompt": prompt, "stream": False,
-                                                 "options": {"num_predict": 128, "temperature": 0}}, timeout=600)
+                                                 "options": {"num_predict": num_predict, "temperature": 0}}, timeout=900)
         if r is None:
             raise RuntimeError("量測請求失敗")
         ec, ed = r.get("eval_count") or 0, r.get("eval_duration") or 0
         pc, pd = r.get("prompt_eval_count") or 0, r.get("prompt_eval_duration") or 0
+        # 模型資訊（大小／量化／參數量）從 /api/ps 抓，寫進歷史方便比較
+        info = {}
+        for m in (_http_json(base + "/api/ps") or {}).get("models", []):
+            if m.get("name") == model:
+                det = m.get("details") or {}
+                info = {"size": m.get("size"), "size_vram": m.get("size_vram"), "quant": det.get("quantization_level"),
+                        "params": det.get("parameter_size"), "context": m.get("context_length")}
         res = {"status": "done", "model": model, "finished": datetime.now().isoformat(timespec="seconds"),
                "decode_tps": round(ec / ed * 1e9, 1) if ed else None, "decode_tokens": ec,
                "prefill_tps": round(pc / pd * 1e9, 1) if pd else None, "prompt_tokens": pc,
                "load_ms": round((warm.get("load_duration") or 0) / 1e6), "total_ms": round((r.get("total_duration") or 0) / 1e6),
-               "note": "單一請求、temperature 0、128 token；prefill 若 prompt 被快取會偏高。"}
+               "num_predict": num_predict, **info,
+               "note": f"單一請求、temperature 0、{num_predict} token；prefill 若 prompt 被快取會偏高。"}
+        llm_hist_append(res)
     except Exception as e:
         res = {"status": "error", "model": model, "error": str(e), "finished": datetime.now().isoformat(timespec="seconds")}
     with _LLM_BENCH["lock"]:
@@ -1554,7 +1591,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 with _LLM_BENCH["lock"]:
                     bench = dict(_LLM_BENCH["state"])
-                self._json({"ok": True, "servers": llm_status(), "bench": bench})
+                self._json({"ok": True, "servers": llm_status(), "bench": bench, "history": llm_hist_load()[::-1][:30]})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/apps":
@@ -1614,7 +1651,10 @@ class Handler(BaseHTTPRequestHandler):
             model = data.get("model")
             if not model or not isinstance(model, str):
                 return self._json({"ok": False, "error": "缺 model"}, 400)
-            if not llm_bench_start(model):
+            npred = data.get("num_predict", 128)
+            if npred not in (64, 128, 256, 512):
+                return self._json({"ok": False, "error": "num_predict 需為 64/128/256/512"}, 400)
+            if not llm_bench_start(model, npred):
                 return self._json({"ok": False, "error": "已有量測在進行中"}, 409)
             return self._json({"ok": True})
         if path == "/api/refresh":

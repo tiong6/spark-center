@@ -492,14 +492,22 @@ async function pollLlm() {
     if (s.bench && s.installed.length) {
       const b = j.bench || {}, running = b.status === 'running';
       const opts = s.installed.slice().sort((a, b2) => (a.size||0) - (b2.size||0)).map(m => `<option value="${esc(m.name)}" ${hw.llmBenchModel === m.name ? 'selected' : ''}>${esc(m.name)} (${GB(m.size)})</option>`).join('');
-      html += `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px"><span class="sub1">量測 decode / prefill tok/s：</span><select id="llmModel" ${running ? 'disabled' : ''} style="background:#0f1110;color:var(--text);border:1px solid #3a3f3c;border-radius:6px;padding:6px 10px;font:inherit;font-size:13px">${opts}</select><button id="llmBenchBtn" class="small" ${running ? 'disabled' : ''}>${running ? `量測中 ${esc(b.model)}…` : '開始量測'}</button><span class="sub1">會真的載入模型並生成 128 個 token，大模型要等載入。</span></div>`;
+      const selStyle = 'background:#0f1110;color:var(--text);border:1px solid #3a3f3c;border-radius:6px;padding:6px 10px;font:inherit;font-size:13px';
+      html += `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px"><span class="sub1">量測：</span><select id="llmModel" ${running ? 'disabled' : ''} style="${selStyle}">${opts}</select><select id="llmN" ${running ? 'disabled' : ''} style="${selStyle}">${[64,128,256,512].map(n => `<option value="${n}" ${(hw.llmN||128)===n?'selected':''}>${n} token</option>`).join('')}</select><button id="llmBenchBtn" class="small" ${running ? 'disabled' : ''}>${running ? `量測中…` : '開始量測'}</button>${running ? `<span class="sub1">${esc(b.model)} · ${esc(b.phase || '')}</span>` : '<span class="sub1">會真的載入模型，大模型要等載入；temperature 0。</span>'}</div>`;
       if (b.status === 'done') html += `<div class="stat" style="margin-top:10px"><div><b>${b.decode_tps ?? '—'}</b><span>decode tok/s</span></div><div><b>${b.prefill_tps ?? '—'}</b><span>prefill tok/s</span></div><div><b>${b.load_ms != null ? (b.load_ms/1000).toFixed(1) + ' s' : '—'}</b><span>載入</span></div><div><b>${b.total_ms != null ? (b.total_ms/1000).toFixed(1) + ' s' : '—'}</b><span>總時間</span></div></div><div class="sub1" style="margin-top:6px">${esc(b.model)} · ${esc(b.finished)} · ${esc(b.note)}</div>`;
       if (b.status === 'error') html += `<div class="panel notice danger" style="margin-top:10px;padding:10px 14px">量測失敗：${esc(b.error)}</div>`;
+      const H = j.history || [];
+      if (H.length) {
+        const best = {}; for (const r of H) if (r.decode_tps && (!best[r.model] || r.decode_tps > best[r.model])) best[r.model] = r.decode_tps;
+        html += `<details style="margin-top:12px" ${H.length <= 6 ? 'open' : ''}><summary>量測歷史 ${H.length} 筆（存在伺服器端）</summary><table><thead><tr><th>模型</th><th style="width:110px">參數 / 量化</th><th style="width:70px">大小</th><th style="width:80px">decode</th><th style="width:80px">prefill</th><th style="width:60px">載入</th><th style="width:60px">token</th><th style="width:150px">時間</th></tr></thead><tbody>` +
+          H.map(r => `<tr><td class="mono">${esc(r.model)}${best[r.model] === r.decode_tps ? '<span class="tag ok">最佳</span>' : ''}</td><td class="sub1">${[r.params, r.quant].filter(Boolean).map(esc).join(' / ') || '—'}</td><td class="sub1">${r.size ? GB(r.size) : '—'}</td><td class="mono">${r.decode_tps ?? '—'}</td><td class="mono">${r.prefill_tps ?? '—'}</td><td class="sub1">${r.load_ms != null ? (r.load_ms/1000).toFixed(1)+' s' : '—'}</td><td class="sub1">${r.num_predict ?? '—'}</td><td class="sub1">${esc((r.finished||'').replace('T',' '))}</td></tr>`).join('') + `</tbody></table><div class="sub1" style="margin-top:6px">decode 是純生成速度；prefill 是讀 prompt 的速度，prompt 只有約 95 token、又可能被快取，僅供參考。</div></details>`;
+      }
     }
   }
   box.innerHTML = html;
   const sel = $('#llmModel'); if (sel) sel.onchange = () => { hw.llmBenchModel = sel.value; };
-  const btn = $('#llmBenchBtn'); if (btn) btn.onclick = async () => { const model = $('#llmModel').value; hw.llmBenchModel = model; btn.disabled = true; const r = await api('/api/llm/bench', {model}); if (!r.ok) { alert('無法開始：' + r.error); btn.disabled = false; return; } pollLlm(); };
+  const seln = $('#llmN'); if (seln) seln.onchange = () => { hw.llmN = +seln.value; };
+  const btn = $('#llmBenchBtn'); if (btn) btn.onclick = async () => { const model = $('#llmModel').value; hw.llmBenchModel = model; hw.llmN = +($('#llmN').value); btn.disabled = true; const r = await api('/api/llm/bench', {model, num_predict: hw.llmN}); if (!r.ok) { alert('無法開始：' + r.error); btn.disabled = false; return; } pollLlm(); };
 }
 async function showHardware() {      // 硬體分頁：靜態清單＋抓一次動態欄位（開機時間、負載、感測器）；只有 USB 埠辨識每 2 秒輪詢（純 sysfs，極便宜）
   if (!(await ensureStatic())) return;
@@ -544,7 +552,8 @@ async function pollRear() {
     let st = '';
     if (isPower) st += `<b>電源供應器</b><span class="sub1">240 W PD 輸入</span>`;
     if (disp && disp.connected) st += `<b>螢幕 ${esc(disp.mode || '')}${disp.hz ? ' @ ' + Math.round(disp.hz) + ' Hz' : ''}</b>`;
-    if (c && c.devices.length) st += c.devices.filter(d => d.bus === 'usb3').concat(c.devices.filter(d => d.bus === 'usb2')).slice(0, 1).map(d => `<b>${esc(d.name)}</b>`).join('') + (c.devices.some(d => d.children) ? `<span class="sub1">下接 ${c.devices.reduce((a, d) => a + d.children, 0)} 個裝置</span>` : '');
+    if (c && c.devices.length) { const dd = c.devices.filter(d => d.bus === 'usb3').concat(c.devices.filter(d => d.bus === 'usb2')); const d0 = dd[0]; const mw = Math.max(...c.devices.map(d => d.max_w || 0));
+      st += `<b>${esc(d0.name)}</b>` + (c.devices.some(d => d.children) ? `<span class="sub1">下接 ${c.devices.reduce((a, d) => a + d.children, 0)} 個裝置</span>` : '') + `<span class="sub1">${mw ? `宣告 ${mw} W（${Math.round(mw*200)} mA @ 5 V）` : '自供電，宣告 0 mA'}</span>`; }
     if (!st) st = cid ? '<span class="sub1">空</span>' : '<span class="sub1">未校準</span>';
     const SRC = { plug: '插入法確認', manual: '手動告知', inferred: '插入即確認' };
     // 已確認的孔不再貼標籤；只有推測、未校準才提示
@@ -559,7 +568,7 @@ async function pollRear() {
   // 只算四個外露孔的控制器（00–03）；04 與 8001:00 韌體標「後方」，是內部（藍牙模組）
   const orphan = j.controllers.filter(c => /^NVDA8000:0[0-3]$/.test(c.controller) && !assigned.has(c.controller) && (c.devices.length || (dispByCtrl(c.controller) || {}).connected));
   const orphanHtml = orphan.length ? `<div class="sub1" style="margin-top:10px">尚未對應到孔位、但有接東西的控制器：${orphan.map(c => `${esc(c.controller.replace('NVDA8000:', '控制器 '))}（${c.devices.map(d => esc(d.name)).join('、') || '螢幕'}）`).join('；')}。用「校準孔位」對上去。</div>` : '';
-  const legend = `<div class="lgd"><span><i style="background:#e5484d"></i>電源</span><span><i style="background:#76b900"></i>USB-C 資料</span><span><i style="background:#3583d6"></i>HDMI</span><span><i style="background:#f5a524"></i>10GbE</span><span><i style="background:#a78bfa"></i>QSFP</span><span class="sub1">實心邊框＝有接東西，淡邊框＝空</span></div>`;
+  const legend = `<div class="lgd"><span><i style="background:#e5484d"></i>電源</span><span><i style="background:#76b900"></i>USB-C 資料</span><span><i style="background:#3583d6"></i>HDMI</span><span><i style="background:#f5a524"></i>10GbE</span><span><i style="background:#a78bfa"></i>QSFP</span><span class="sub1">實心邊框＝有接東西，淡邊框＝空。瓦數是裝置在 USB 描述子宣告的上限（bMaxPower × 5 V），不是實測；PD 協商功率核心無 UCSI 驅動看不到。</span></div>`;
   $('#rear').innerHTML = `<div class="chassis"><div class="vents"></div><div class="slots">${slots.join('')}</div></div>${legend}${orphanHtml}`;
   $('#rear').querySelectorAll('.slot[data-slot]').forEach(el => el.onclick = () => { if (hw.calibMode && +el.dataset.slot !== 0) { hw.calibSlot = +el.dataset.slot; pollRear(); } });
   const n = Object.keys(calib).filter(k => k !== '0' && calib[k].source !== 'inferred').length;
@@ -616,11 +625,11 @@ function renderHwStatic() {
     (!B ? '<div class="empty">沒有 bluetoothctl</div>' : !B.available ? `<div class="empty">${esc(B.note)}</div>` :
     (B.devices.length ? `<table><thead><tr><th>裝置</th><th style="width:64px">類型</th><th style="width:78px">狀態</th><th style="width:56px">電量</th></tr></thead><tbody>` +
       B.devices.map(d => `<tr><td><b>${esc(d.name)}</b><div class="sub1 mono" style="font-size:11px">${esc(d.mac)}</div></td><td class="sub1" style="white-space:nowrap" title="${esc(d.icon||'')}">${esc(BT_KIND[d.icon] || d.icon || '—')}</td><td>${d.connected ? '<span class="tag ok">已連線</span>' : '<span class="tag">已配對</span>'}</td><td>${d.battery == null ? '<span class="sub1">—</span>' : d.battery + ' %'}</td></tr>`).join('') + `</tbody></table><div class="sub1" style="margin-top:8px">電量只有裝置透過 BLE 回報時才有，顯示「—」表示該裝置沒回報。</div>` : '<div class="empty">沒有已配對的裝置</div>')) + `</div>`;
-  const sens = `<div class="panel"><div class="panel-h"><h2>感測器</h2></div><div id="hwSensors"><div class="empty">讀取中…</div></div></div>`;
+  const sens = `<div class="panel"><div class="panel-h"><h2>感測器</h2><span class="sub">風扇轉速：hwmon、NVML、ACPI 都沒有露出風扇節點，由韌體自控，無法顯示</span></div><div id="hwSensors"><div class="empty">讀取中…</div></div></div>`;
   const U = j.usb_tree;
   const USB_IC = { roothub: '⌂', hub: '⊞', hid: '⌨', storage: '▤', wireless: '◉', audio: '♪', video: '▣', printer: '⎙', comm: '⇄', billboard: '⊡', vendor: '?', other: '•', image: '▣' };
   const usbNode = d => {
-    const sub = [d.manufacturer, `${d.vid}:${d.pid}`, d.speed_label, d.interfaces.map(i => i.driver).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).map(x => '驅動 ' + x).join(' ') || '無驅動', d.serial ? 'S/N ' + d.serial : '', d.kind === 'hub' || d.kind === 'roothub' ? `${d.ports} 埠` : ''].filter(Boolean).join(' · ');
+    const sub = [d.manufacturer, `${d.vid}:${d.pid}`, d.speed_label, d.max_ma ? `宣告 ${d.max_ma} mA` : (d.max_ma === 0 ? '自供電' : ''), d.interfaces.map(i => i.driver).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).map(x => '驅動 ' + x).join(' ') || '無驅動', d.serial ? 'S/N ' + d.serial : '', d.kind === 'hub' || d.kind === 'roothub' ? `${d.ports} 埠` : ''].filter(Boolean).join(' · ');
     const node = `<div class="node"><span class="ic ${d.kind}">${USB_IC[d.kind] || '•'}</span><div><div class="nm">${esc(d.name)}${d.name_from_ids ? '<span class="tag" title="裝置未回報名稱，取自 usb.ids">usb.ids</span>' : ''}<span class="kind">${esc(d.kind_label)}</span></div><div class="sub1">${esc(sub)}</div></div></div>`;
     if (d.children.length) return `<li><details open><summary>${node}</summary><ul>${d.children.map(usbNode).join('')}</ul></details></li>`;
     return `<li class="leaf">${node}</li>`;
