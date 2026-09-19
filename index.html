@@ -118,6 +118,21 @@
   .legend { grid-column: 1 / -1; display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
   .legend i { display: inline-block; width: 10px; height: 3px; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
   @media (max-width: 560px) { .mcard { grid-template-columns: 1fr; } .mon { grid-template-columns: 1fr; } }
+  /* 小尺寸：三到四欄、儀表縮 62%、折線 70px、隱藏說明列 */
+  .mon.compact { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .mon.compact .mcard { grid-template-columns: 128px 1fr; gap: 8px; padding: 10px 12px 8px; }
+  .mon.compact .mcard h3 { font-size: 13px; margin-bottom: 0; } .mon.compact .mcard h3 span:not(.t):not(.switch) { display: none; }
+  .mon.compact .gauge { width: 128px; height: 92px; overflow: hidden; }
+  .mon.compact .gauge svg { width: 128px; height: 77px; }
+  .mon.compact .gauge .hero { top: 42px; left: 16px; right: 16px; } .mon.compact .gauge .hero b { font-size: 17px; }
+  .mon.compact .gauge .sub { top: 78px; font-size: 10px; }
+  .mon.compact .tile { width: 128px; } .mon.compact .tile b { font-size: 17px; } .mon.compact .tile span { font-size: 10px; }
+  .mon.compact .spark, .mon.compact .spark svg { height: 70px; } .mon.compact .spark .ymax { font-size: 10px; }
+  .mon.compact .legend, .mon.compact .kv, .mon.compact .cores { display: none; }
+  .mon.compact #mon-cpu .switch { display: none; }
+  .montools { display: flex; justify-content: flex-end; gap: 6px; margin: -6px 0 12px; }
+  .montools .switch { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; font-size: 12px; }
+  .montools .switch span { padding: 3px 12px; cursor: pointer; color: var(--muted); } .montools .switch span.on { background: var(--surface2); color: var(--text); }
   .tree ul { list-style: none; margin: 0; padding-left: 22px; border-left: 1px solid var(--line); }
   .tree > ul { padding-left: 0; border-left: none; }
   .tree li { margin: 4px 0; }
@@ -238,6 +253,7 @@
 
   <section id="tab-monitor">
     <div id="gpuAlert" class="panel notice danger hide"></div>
+    <div class="montools"><span class="sub1" style="align-self:center">尺寸</span><span class="switch" id="monSize"><span data-size="large">大</span><span data-size="compact">小</span></span></div>
     <div id="mon" class="mon"><div class="panel"><div class="empty">讀取中…</div></div></div>
     <div id="monNote" class="sub1" style="margin:-6px 0 18px"></div>
   </section>
@@ -713,6 +729,15 @@ function renderHwStatic() {
     (PR.usb.length ? `<div class="sub1" style="margin-top:6px">USB 印表機：${PR.usb.map(u => esc((u.manufacturer ? u.manufacturer + ' ' : '') + u.name)).join('、')}</div>` : `<div class="sub1">USB 沒有接印表機。</div>`) + `</div>`;
   $('#hw').innerHTML = sys + cpu + mem + dimm + gpu + disks + nvmeHtml + net + bt + printer + sens + usb + pci;
 }
+/* ---- 監控尺寸切換（大／小），記在瀏覽器 ---- */
+function applyMonSize(sz) {
+  $('#mon').classList.toggle('compact', sz === 'compact');
+  $('#monSize').querySelectorAll('span').forEach(x => x.classList.toggle('on', x.dataset.size === sz));
+  try { localStorage.setItem('spark-center.monSize', sz); } catch (e) {}
+}
+$('#monSize').querySelectorAll('span').forEach(x => x.onclick = () => applyMonSize(x.dataset.size));
+(() => { let sz = 'large'; try { sz = localStorage.getItem('spark-center.monSize') || 'large'; } catch (e) {} applyMonSize(sz); })();
+
 /* ---- 即時監控：儀表 + 折線（SVG 手繪，無外部庫）---- */
 const MON_INTERVAL_MS = 2000, MON_MAX_POINTS = 150;   // 2 秒一點 → 5 分鐘
 const C_LINE = '#3583d6', C_TX = '#c98416'; // 兩色已用 validate_palette 在深色底驗證通過
