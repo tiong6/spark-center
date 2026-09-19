@@ -683,7 +683,107 @@ def _lscpu():
     }
 
 
+# ---------- NVML（偷師 DGX-Spark-Dashboard：用驅動函式庫直接讀，不每次開 nvidia-smi 子程序）----------
+# 用 ctypes 開系統自帶的 libnvidia-ml.so，不需要 pip 套件。init 一次留著（每次 init/shutdown 約 9 ms，讀取本身 0.001 ms）。
+# GB10 統一記憶體：記憶體資訊與功耗上限回 NOT_SUPPORTED（rc 3），和 nvidia-smi 印 N/A 一致，照實回 None。
+import ctypes
+
+_NVML = {"lib": None, "handle": None, "ok": False, "tried": False, "lock": threading.Lock()}
+
+
+class _NvmlUtil(ctypes.Structure):
+    _fields_ = [("gpu", ctypes.c_uint), ("memory", ctypes.c_uint)]
+
+
+def _nvml():
+    with _NVML["lock"]:
+        if _NVML["tried"]:
+            return _NVML if _NVML["ok"] else None
+        _NVML["tried"] = True
+        try:
+            lib = ctypes.CDLL("libnvidia-ml.so.1")
+            if lib.nvmlInit_v2() != 0:
+                return None
+            h = ctypes.c_void_p()
+            if lib.nvmlDeviceGetHandleByIndex_v2(0, ctypes.byref(h)) != 0:
+                return None
+            _NVML.update(lib=lib, handle=h, ok=True)
+            return _NVML
+        except OSError:
+            return None
+
+
+def _nvml_uint(fn, *args):
+    """呼叫回 unsigned int 的 NVML 函式；NOT_SUPPORTED 或任何錯誤回 None。"""
+    n = _nvml()
+    if not n:
+        return None
+    v = ctypes.c_uint()
+    return v.value if getattr(n["lib"], fn)(n["handle"], *args, ctypes.byref(v)) == 0 else None
+
+
+def _nvml_str(fn, on_device=True):
+    n = _nvml()
+    if not n:
+        return None
+    b = ctypes.create_string_buffer(96)
+    rc = getattr(n["lib"], fn)(n["handle"], b, 96) if on_device else getattr(n["lib"], fn)(b, 96)
+    return b.value.decode(errors="replace") if rc == 0 else None
+
+
+def _gpu_static_nvml():
+    n = _nvml()
+    if not n:
+        return None
+    cuda = ctypes.c_int()
+    cuda_v = None
+    if n["lib"].nvmlSystemGetCudaDriverVersion_v2(ctypes.byref(cuda)) == 0:
+        cuda_v = f"{cuda.value // 1000}.{(cuda.value % 1000) // 10}"
+    pl = _nvml_uint("nvmlDeviceGetPowerManagementLimit")
+    # 溫度門檻：1=SLOWDOWN（降頻）、0=SHUTDOWN、3=GPU_MAX。這是驅動給的真值，不是推算。
+    slowdown = _nvml_uint("nvmlDeviceGetTemperatureThreshold", 1)
+    shutdown = _nvml_uint("nvmlDeviceGetTemperatureThreshold", 0)
+    gpu_max = _nvml_uint("nvmlDeviceGetTemperatureThreshold", 3)
+    max_sm = _nvml_uint("nvmlDeviceGetMaxClockInfo", 1)
+    return {
+        "name": _nvml_str("nvmlDeviceGetName"), "driver": _nvml_str("nvmlSystemGetDriverVersion", on_device=False),
+        "vbios": _nvml_str("nvmlDeviceGetVbiosVersion"), "bus": None,
+        "max_sm_mhz": f"{max_sm} MHz" if max_sm else None, "memory_total": None, "cuda": cuda_v,
+        "power_limit_w": pl / 1000 if pl else None,
+        "throttle_temp_c": slowdown, "shutdown_temp_c": shutdown, "gpu_max_temp_c": gpu_max,
+        "throttle_source": "NVML slowdown threshold" if slowdown else None,
+        "unified_memory": True, "source": "NVML",
+    }
+
+
+def _gpu_live_nvml():
+    n = _nvml()
+    if not n:
+        return None
+    u = _NvmlUtil()
+    util = u.gpu if n["lib"].nvmlDeviceGetUtilizationRates(n["handle"], ctypes.byref(u)) == 0 else None
+    temp = _nvml_uint("nvmlDeviceGetTemperature", 0)
+    power = _nvml_uint("nvmlDeviceGetPowerUsage")
+    clk = _nvml_uint("nvmlDeviceGetClockInfo", 1)
+    return {"temp_c": temp, "util_pct": util, "power_w": power / 1000 if power is not None else None,
+            "sm_mhz": clk, "memory_used": None, "source": "NVML"}
+
+
 def _gpu_static():
+    via = _gpu_static_nvml()
+    if via:
+        # PCI bus id 只有 nvidia-smi 好拿，補一次（靜態，快取 60 秒內只跑一次）
+        out = _run(["nvidia-smi", "--query-gpu=pci.bus_id", "--format=csv,noheader"], timeout=10)
+        via["bus"] = out.strip() if out else None
+        return via
+    return _gpu_static_smi()
+
+
+def _gpu_live():
+    return _gpu_live_nvml() or _gpu_live_smi()
+
+
+def _gpu_static_smi():
     out = _run(["nvidia-smi", "--query-gpu=name,driver_version,vbios_version,pci.bus_id,clocks.max.sm,memory.total,power.limit,temperature.gpu.tlimit,temperature.gpu",
                 "--format=csv,noheader"], timeout=10)
     if not out:
@@ -701,19 +801,20 @@ def _gpu_static():
     return {"name": parts[0], "driver": parts[1], "vbios": parts[2], "bus": parts[3],
             "max_sm_mhz": parts[4], "memory_total": mem_total, "cuda": cuda,
             "power_limit_w": watts(parts[6]) if len(parts) > 6 else None,
-            # tlimit 是「距離降頻溫度還有幾度」，加上當下溫度才是降頻點
+            # tlimit 是「距離某個溫度上限還有幾度」，加當下溫度只是估計；NVML 可用時以它的 slowdown 門檻為準
             "throttle_temp_c": (watts(parts[7]) + watts(parts[8])) if len(parts) > 8 and watts(parts[7]) is not None and watts(parts[8]) is not None else None,
+            "throttle_source": "nvidia-smi tlimit 推算", "source": "nvidia-smi",
             "unified_memory": mem_total is None}
 
 
-def _gpu_live():
+def _gpu_live_smi():
     out = _run(["nvidia-smi", "--query-gpu=temperature.gpu,utilization.gpu,power.draw,clocks.sm,memory.used",
                 "--format=csv,noheader,nounits"], timeout=10)
     if not out:
         return None
     p = [x.strip() for x in out.strip().splitlines()[0].split(",")]
     num = lambda x: None if x.startswith("[") or x == "" else float(x)
-    return {"temp_c": num(p[0]), "util_pct": num(p[1]), "power_w": num(p[2]), "sm_mhz": num(p[3]), "memory_used": num(p[4])}
+    return {"temp_c": num(p[0]), "util_pct": num(p[1]), "power_w": num(p[2]), "sm_mhz": num(p[3]), "memory_used": num(p[4]), "source": "nvidia-smi"}
 
 
 def _disks():
@@ -770,7 +871,19 @@ def _network():
     return res
 
 
+_SENS_CACHE = {"ts": 0, "data": []}
+
+
 def _sensors():
+    """hwmon 溫度。ACPI 溫度區每次讀約 48 ms，快取 5 秒；其他項目全部加起來不到 1 ms。"""
+    if time.time() - _SENS_CACHE["ts"] < 5:
+        return _SENS_CACHE["data"]
+    res = _sensors_read()
+    _SENS_CACHE.update(ts=time.time(), data=res)
+    return res
+
+
+def _sensors_read():
     res = []
     for h in sorted(glob.glob("/sys/class/hwmon/hwmon*")):
         chip = _read(os.path.join(h, "name"), "?")
@@ -907,6 +1020,53 @@ def _usb_tree():
         return 1 + sum(count(c) for c in node["children"])
     return {"roots": used, "empty_roothubs": len(empty), "total": sum(count(r) for r in roots),
             "ids_file": os.path.exists(USB_IDS)}
+
+
+def usb_ports():
+    """每個 xHCI 控制器一個實體 USB-C 孔（USB2 與 USB3 各一個根集線器）。
+    位置取自韌體 ACPI _PLD（/sys .../physical_location），和 Windows 裝置管理員畫圖用的是同一份資料。
+    韌體對同一側的兩個孔沒有區分順序，所以前端提供「插入即亮」辨識。"""
+    base = "/sys/bus/usb/devices"
+    ctrls = {}
+    for n in os.listdir(base):
+        if not n.startswith("usb"):
+            continue
+        d = os.path.join(base, n)
+        ctrl = os.path.basename(os.path.realpath(os.path.join(d, "..")))
+        speed = _read(os.path.join(d, "speed")) or ""
+        c = ctrls.setdefault(ctrl, {"controller": ctrl, "usb2_bus": None, "usb3_bus": None, "location": None,
+                                    "connect_type": None, "devices": [], "internal": False})
+        key = "usb3_bus" if speed not in ("12", "480", "1.5") else "usb2_bus"
+        c[key] = _read(os.path.join(d, "busnum"))
+        # 埠資訊（root hub 的 port1..）
+        for pdir in glob.glob(os.path.join(d, f"{n.replace('usb', '')}-0:1.0", f"{n}-port*")):
+            loc_dir = os.path.join(pdir, "physical_location")
+            if os.path.isdir(loc_dir) and not c["location"]:
+                c["location"] = {k: _read(os.path.join(loc_dir, k)) for k in ("panel", "vertical_position", "horizontal_position", "dock", "lid")}
+            ct = _read(os.path.join(pdir, "connect_type"))
+            if ct and ct != "unknown":
+                c["connect_type"] = ct
+            devlink = os.path.join(pdir, "device")
+            if os.path.exists(devlink):
+                dev = os.path.realpath(devlink)
+                dn = os.path.basename(dev)
+                # 只列直接插在這個孔上的裝置（下面的 hub 子裝置數另外算）
+                kids = [k for k in os.listdir(base) if k.startswith(dn + ".") and ":" not in k]
+                c["devices"].append({
+                    "path": dn, "name": _read(os.path.join(dev, "product")) or f"{_read(os.path.join(dev, 'idVendor'))}:{_read(os.path.join(dev, 'idProduct'))}",
+                    "manufacturer": _read(os.path.join(dev, "manufacturer")),
+                    "speed": _read(os.path.join(dev, "speed")),
+                    "children": len(kids),
+                    "bus": "usb3" if key == "usb3_bus" else "usb2",
+                })
+    out = []
+    for c in ctrls.values():
+        # 沒有 _PLD、不可熱插拔、卻接著東西 → 內部（例如藍牙模組）
+        c["internal"] = c["location"] is None and bool(c["devices"])
+        c["external"] = c["location"] is not None
+        out.append(c)
+    out.sort(key=lambda c: c["controller"])
+    return out
 
 
 def _list_cmd(cmd):
@@ -1122,6 +1282,113 @@ def hardware_live():
     }
 
 
+# ---------- 本機 LLM 探針（偷師 sparkDash；它沒做 Ollama，這裡補上）----------
+import urllib.request
+import urllib.error
+
+LLM_TARGETS = [
+    {"kind": "ollama", "url": "http://127.0.0.1:11434"},
+    {"kind": "lmstudio", "url": "http://127.0.0.1:1234"},
+    {"kind": "llama.cpp", "url": "http://127.0.0.1:8080"},
+    {"kind": "vllm", "url": "http://127.0.0.1:8000"},
+]
+
+
+def _http_json(url, data=None, timeout=3):
+    req = urllib.request.Request(url, data=json.dumps(data).encode() if data is not None else None,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode())
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
+def llm_status():
+    out = []
+    for t in LLM_TARGETS:
+        base = t["url"]
+        if t["kind"] == "ollama":
+            ver = _http_json(base + "/api/version")
+            if ver is None:
+                continue
+            ps = _http_json(base + "/api/ps") or {}
+            tags = _http_json(base + "/api/tags") or {}
+            out.append({
+                "kind": "Ollama", "url": base, "version": ver.get("version"),
+                "loaded": [{"name": m.get("name"), "size": m.get("size"), "size_vram": m.get("size_vram"),
+                            "context": m.get("context_length"), "expires_at": m.get("expires_at"),
+                            "quant": ((m.get("details") or {}).get("quantization_level")),
+                            "params": ((m.get("details") or {}).get("parameter_size"))} for m in ps.get("models", [])],
+                "installed": [{"name": m.get("name"), "size": m.get("size")} for m in tags.get("models", [])],
+                "bench": True,
+                "note": "Ollama 不提供 Prometheus 指標，tok/s 只能靠實際跑一段生成量測（下方按鈕）。",
+            })
+        elif t["kind"] == "lmstudio":
+            models = _http_json(base + "/v1/models")
+            if models is None:
+                continue
+            out.append({"kind": "LM Studio", "url": base, "version": None,
+                        "loaded": [{"name": m.get("id")} for m in models.get("data", [])], "installed": [], "bench": False,
+                        "note": "LM Studio 的 /v1/models 只列可用模型，不給效能指標。"})
+        elif t["kind"] == "llama.cpp":
+            props = _http_json(base + "/props")
+            if props is None:
+                continue
+            slots = _http_json(base + "/slots") or []
+            out.append({"kind": "llama.cpp", "url": base, "version": (props.get("build_info") or None),
+                        "loaded": [{"name": (props.get("default_generation_settings") or {}).get("model") or props.get("model_path")}],
+                        "installed": [], "bench": False, "slots": slots if isinstance(slots, list) else [],
+                        "note": "來源 /props 與 /slots。"})
+        elif t["kind"] == "vllm":
+            models = _http_json(base + "/v1/models")
+            if models is None:
+                continue
+            out.append({"kind": "vLLM", "url": base, "version": None,
+                        "loaded": [{"name": m.get("id")} for m in models.get("data", [])], "installed": [], "bench": False,
+                        "note": "vLLM 的 Prometheus /metrics 尚未解析，這裡只列模型。"})
+    return out
+
+
+_LLM_BENCH = {"lock": threading.Lock(), "state": {"status": "idle"}}
+
+
+def llm_bench_start(model):
+    with _LLM_BENCH["lock"]:
+        if _LLM_BENCH["state"].get("status") == "running":
+            return False
+        _LLM_BENCH["state"] = {"status": "running", "model": model, "started": datetime.now().isoformat(timespec="seconds")}
+    threading.Thread(target=_llm_bench_run, args=(model,), daemon=True).start()
+    return True
+
+
+def _llm_bench_run(model):
+    """Ollama decode/prefill 基準：先暖機 1 token（把載入時間隔開），再量 128 token。
+    數字直接取自 Ollama 回應的 eval_count/eval_duration，不是估的。"""
+    base = LLM_TARGETS[0]["url"]
+    prompt = "Explain, in plain prose without lists, why the sky appears blue during the day and red at sunset. " * 4
+    try:
+        warm = _http_json(base + "/api/generate", {"model": model, "prompt": "hi", "stream": False,
+                                                    "options": {"num_predict": 1, "temperature": 0}}, timeout=600)
+        if warm is None:
+            raise RuntimeError("暖機請求失敗（模型載入失敗或逾時）")
+        r = _http_json(base + "/api/generate", {"model": model, "prompt": prompt, "stream": False,
+                                                 "options": {"num_predict": 128, "temperature": 0}}, timeout=600)
+        if r is None:
+            raise RuntimeError("量測請求失敗")
+        ec, ed = r.get("eval_count") or 0, r.get("eval_duration") or 0
+        pc, pd = r.get("prompt_eval_count") or 0, r.get("prompt_eval_duration") or 0
+        res = {"status": "done", "model": model, "finished": datetime.now().isoformat(timespec="seconds"),
+               "decode_tps": round(ec / ed * 1e9, 1) if ed else None, "decode_tokens": ec,
+               "prefill_tps": round(pc / pd * 1e9, 1) if pd else None, "prompt_tokens": pc,
+               "load_ms": round((warm.get("load_duration") or 0) / 1e6), "total_ms": round((r.get("total_duration") or 0) / 1e6),
+               "note": "單一請求、temperature 0、128 token；prefill 若 prompt 被快取會偏高。"}
+    except Exception as e:
+        res = {"status": "error", "model": model, "error": str(e), "finished": datetime.now().isoformat(timespec="seconds")}
+    with _LLM_BENCH["lock"]:
+        _LLM_BENCH["state"] = res
+
+
 # ---------- HTTP ----------
 
 class Handler(BaseHTTPRequestHandler):
@@ -1181,9 +1448,21 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, **hardware_static()})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/hardware/usbports":
+            try:
+                self._json({"ok": True, "ports": usb_ports(), "ts": time.time()})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/hardware/live":
             try:
                 self._json({"ok": True, **hardware_live()})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/llm":
+            try:
+                with _LLM_BENCH["lock"]:
+                    bench = dict(_LLM_BENCH["state"])
+                self._json({"ok": True, "servers": llm_status(), "bench": bench})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/apps":
@@ -1221,6 +1500,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(sim, 400)
             if not JOB.start("install", names):
                 return self._json({"ok": False, "error": "已有工作在進行中"}, 409)
+            return self._json({"ok": True})
+        if path == "/api/llm/bench":
+            model = data.get("model")
+            if not model or not isinstance(model, str):
+                return self._json({"ok": False, "error": "缺 model"}, 400)
+            if not llm_bench_start(model):
+                return self._json({"ok": False, "error": "已有量測在進行中"}, 409)
             return self._json({"ok": True})
         if path == "/api/refresh":
             if not JOB.start("refresh"):

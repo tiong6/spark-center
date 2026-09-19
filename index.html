@@ -127,6 +127,19 @@
   .tree summary .node::before { content: '▸'; color: var(--muted); width: 10px; flex: none; margin-top: 2px; }
   .tree details[open] > summary .node::before { content: '▾'; }
   .tree .leaf .node::before { content: ''; width: 10px; flex: none; }
+  .rear { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px; }
+  .rear .side { border: 1px dashed var(--line); border-radius: 12px; padding: 12px; }
+  .rear .side h4 { margin: 0 0 8px; font-size: 12px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: .04em; }
+  .ports { display: flex; gap: 10px; flex-wrap: wrap; }
+  .port { flex: 1; min-width: 150px; border: 2px solid #3a3f3c; border-radius: 10px; padding: 10px 12px; background: #0f1110; transition: border-color .3s, box-shadow .3s; }
+  .port.busy { border-color: var(--accent); }
+  .port.new { border-color: var(--warn); box-shadow: 0 0 0 4px rgba(245,165,36,.25); }
+  .port .jack { width: 44px; height: 14px; border-radius: 7px; border: 2px solid #6a706c; margin: 0 auto 8px; background: #1a1c1b; }
+  .port.busy .jack { border-color: var(--accent); background: #2b3a12; }
+  .port .pn { text-align: center; font-size: 12px; color: var(--muted); }
+  .port .pd { font-size: 13px; margin-top: 6px; text-align: center; }
+  .port .pd b { display: block; }
+  .rear .internal { grid-column: 1 / -1; }
   pre.raw { background: #0f1110; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 12px; max-height: 260px; overflow: auto; margin: 10px 0 0; white-space: pre-wrap; color: #c9cfc9; }
   @media (max-width: 720px) { main { padding: 28px 16px 60px; } h1 { font-size: 24px; } .col-opt { display: none; } }
 </style>
@@ -198,10 +211,12 @@
   <section id="tab-monitor" class="hide">
     <div id="mon" class="mon"><div class="panel"><div class="empty">讀取中…</div></div></div>
     <div id="monNote" class="sub1" style="margin:-6px 0 18px"></div>
+    <div id="llm" class="panel"><div class="panel-h"><h2>本機 LLM</h2><span class="sub">偵測中…</span></div></div>
   </section>
 
   <section id="tab-hardware" class="hide">
     <div id="hwNote" class="sub1" style="margin:-8px 0 14px"></div>
+    <div class="panel" id="usbPortsPanel"><div class="panel-h"><h2>USB-C 連接埠</h2><span class="sub" id="usbPortsSub">讀取中…</span></div><div id="usbPorts"></div></div>
     <div id="hw" class="grid"><div class="panel"><div class="empty">讀取中…</div></div></div>
   </section>
 
@@ -433,12 +448,68 @@ async function ensureStatic() {
 async function startMon() {          // 監控分頁：持續輪詢
   if (!(await ensureStatic())) return;
   stopHw(); pollHw(); hw.timer = setInterval(pollHw, MON_INTERVAL_MS);
+  pollLlm(); hw.llmTimer = setInterval(pollLlm, 10000);
 }
-async function showHardware() {      // 硬體分頁：靜態清單＋抓一次動態欄位（開機時間、負載、感測器），不輪詢
+/* ---- 本機 LLM（Ollama / LM Studio / llama.cpp / vLLM）---- */
+hw.llmBenchModel = null;
+async function pollLlm() {
+  const j = await api('/api/llm');
+  const box = $('#llm'); if (!box) return;
+  if (!j.ok) { box.innerHTML = `<div class="panel-h"><h2>本機 LLM</h2></div><div class="empty">讀取失敗：${esc(j.error)}</div>`; return; }
+  if (j.bench && j.bench.status === 'running') { hw.llmBenchRunning = true; if (!hw.llmFast) { hw.llmFast = setInterval(pollLlm, 2000); } }
+  else if (hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; }
+  if (!j.servers.length) { box.innerHTML = `<div class="panel-h"><h2>本機 LLM</h2><span class="sub">探測 127.0.0.1 的 11434 / 1234 / 8080 / 8000</span></div><div class="empty">沒有偵測到 Ollama、LM Studio、llama.cpp 或 vLLM 在監聽。</div>`; return; }
+  let html = `<div class="panel-h"><h2>本機 LLM</h2><span class="sub">${j.servers.map(s => `${esc(s.kind)}${s.version ? ' ' + esc(s.version) : ''} @ ${esc(s.url.replace('http://127.0.0.1',''))}`).join(' · ')}</span></div>`;
+  for (const s of j.servers) {
+    html += `<div style="margin-top:12px"><b>${esc(s.kind)}</b> <span class="sub1">${esc(s.note)}</span></div>`;
+    if (s.loaded.length) {
+      html += `<table><thead><tr><th>已載入模型</th><th style="width:110px">參數 / 量化</th><th style="width:110px">佔用</th><th style="width:100px">上下文</th><th style="width:150px">保留到</th></tr></thead><tbody>` +
+        s.loaded.map(m => `<tr><td class="mono">${esc(m.name)}</td><td class="sub1">${[m.params, m.quant].filter(Boolean).map(esc).join(' / ') || '—'}</td><td>${m.size_vram != null ? GB(m.size_vram) : m.size != null ? GB(m.size) : '—'}</td><td class="sub1">${m.context ? m.context.toLocaleString() : '—'}</td><td class="sub1">${m.expires_at ? new Date(m.expires_at).toLocaleTimeString() : '—'}</td></tr>`).join('') + `</tbody></table>`;
+    } else {
+      html += `<div class="sub1" style="margin-top:6px">目前沒有模型在記憶體裡${s.installed.length ? `，已安裝 ${s.installed.length} 個` : ''}。</div>`;
+    }
+    if (s.bench && s.installed.length) {
+      const b = j.bench || {}, running = b.status === 'running';
+      const opts = s.installed.slice().sort((a, b2) => (a.size||0) - (b2.size||0)).map(m => `<option value="${esc(m.name)}" ${hw.llmBenchModel === m.name ? 'selected' : ''}>${esc(m.name)} (${GB(m.size)})</option>`).join('');
+      html += `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px"><span class="sub1">量測 decode / prefill tok/s：</span><select id="llmModel" ${running ? 'disabled' : ''} style="background:#0f1110;color:var(--text);border:1px solid #3a3f3c;border-radius:6px;padding:6px 10px;font:inherit;font-size:13px">${opts}</select><button id="llmBenchBtn" class="small" ${running ? 'disabled' : ''}>${running ? `量測中 ${esc(b.model)}…` : '開始量測'}</button><span class="sub1">會真的載入模型並生成 128 個 token，大模型要等載入。</span></div>`;
+      if (b.status === 'done') html += `<div class="stat" style="margin-top:10px"><div><b>${b.decode_tps ?? '—'}</b><span>decode tok/s</span></div><div><b>${b.prefill_tps ?? '—'}</b><span>prefill tok/s</span></div><div><b>${b.load_ms != null ? (b.load_ms/1000).toFixed(1) + ' s' : '—'}</b><span>載入</span></div><div><b>${b.total_ms != null ? (b.total_ms/1000).toFixed(1) + ' s' : '—'}</b><span>總時間</span></div></div><div class="sub1" style="margin-top:6px">${esc(b.model)} · ${esc(b.finished)} · ${esc(b.note)}</div>`;
+      if (b.status === 'error') html += `<div class="panel notice danger" style="margin-top:10px;padding:10px 14px">量測失敗：${esc(b.error)}</div>`;
+    }
+  }
+  box.innerHTML = html;
+  const sel = $('#llmModel'); if (sel) sel.onchange = () => { hw.llmBenchModel = sel.value; };
+  const btn = $('#llmBenchBtn'); if (btn) btn.onclick = async () => { const model = $('#llmModel').value; hw.llmBenchModel = model; btn.disabled = true; const r = await api('/api/llm/bench', {model}); if (!r.ok) { alert('無法開始：' + r.error); btn.disabled = false; return; } pollLlm(); };
+}
+async function showHardware() {      // 硬體分頁：靜態清單＋抓一次動態欄位（開機時間、負載、感測器）；只有 USB 埠辨識每 2 秒輪詢（純 sysfs，極便宜）
   if (!(await ensureStatic())) return;
   renderHwStatic(); pollHw(true);
+  pollPorts(); hw.portTimer = setInterval(pollPorts, 2000);
 }
-function stopHw() { if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } }
+/* ---- USB-C 埠示意圖：位置來自韌體 ACPI _PLD；插入時該框亮橘 6 秒 ---- */
+hw.portPrev = null; hw.portFlash = {};
+const PANEL_ZH = { left: '左側', right: '右側', back: '後方', front: '前方', top: '上方', bottom: '下方', unknown: '未知' };
+async function pollPorts() {
+  const j = await api('/api/hardware/usbports');
+  if (!j.ok) { $('#usbPorts').innerHTML = `<div class="empty">讀取失敗：${esc(j.error)}</div>`; return; }
+  const ext = j.ports.filter(p => p.external), internal = j.ports.filter(p => !p.external);
+  const now = Date.now();
+  for (const p of ext) { const key = p.controller, sig = p.devices.map(d => d.path).join(','); if (hw.portPrev && hw.portPrev[key] !== undefined && hw.portPrev[key] !== sig && sig) hw.portFlash[key] = now; }
+  hw.portPrev = Object.fromEntries(ext.map(p => [p.controller, p.devices.map(d => d.path).join(',')]));
+  const groups = {};
+  for (const p of ext) (groups[p.location.panel] ||= []).push(p);
+  const portBox = p => { const busy = p.devices.length > 0, flash = hw.portFlash[p.controller] && now - hw.portFlash[p.controller] < 6000;
+    const dev = busy ? p.devices.map(d => `<b>${esc(d.name)}</b><span class="sub1">${esc(d.manufacturer || '')}${d.speed ? ' · ' + (d.speed >= 5000 ? d.speed/1000 + ' Gb/s' : d.speed + ' Mb/s') : ''}${d.children ? ` · 下接 ${d.children} 個` : ''} · ${d.bus === 'usb3' ? 'USB3 半' : 'USB2 半'}</span>`).join('') + (p.devices.length > 1 ? '<span class="sub1">同一條線的 USB2 與 USB3 兩半，各自枚舉</span>' : '') : '<span class="sub1">空</span>';
+    return `<div class="port ${busy ? 'busy' : ''} ${flash ? 'new' : ''}"><div class="jack"></div><div class="pn">${esc(p.controller.replace('NVDA8000:', '控制器 '))} · USB2 bus ${esc(p.usb2_bus)} / USB3 bus ${esc(p.usb3_bus)}</div><div class="pd">${dev}</div></div>`; };
+  let html = `<div class="rear">`;
+  for (const panel of ['left', 'right', 'back', 'front', 'top', 'bottom']) { if (!groups[panel]) continue;
+    const note = panel === 'back' ? '<div class="sub1" style="margin-top:8px">韌體標「後方」，但這台四個 USB-C 已由左右兩組佔滿；這組其一接的是內建無線模組（藍牙），推測為主機板內部的控制器，不是外露的孔。</div>' : '';
+    html += `<div class="side"><h4>${PANEL_ZH[panel] || panel}（韌體標示）· ${groups[panel].length} 孔</h4><div class="ports">${groups[panel].map(portBox).join('')}</div>${note}</div>`; }
+  if (internal.length) html += `<div class="side internal"><h4>內部（無實體位置、不可熱插拔）</h4><div class="ports">${internal.map(p => `<div class="port ${p.devices.length ? 'busy' : ''}"><div class="jack" style="opacity:.4"></div><div class="pn">${esc(p.controller)}</div><div class="pd">${p.devices.length ? p.devices.map(d => `<b>${esc(d.name)}</b><span class="sub1">${esc(d.manufacturer || '')}</span>`).join('') : '<span class="sub1">空</span>'}</div></div>`).join('')}</div></div>`;
+  html += `</div>`;
+  $('#usbPorts').innerHTML = html;
+  $('#usbPortsSub').textContent = `${ext.length} 個外接孔 · 位置來自韌體 ACPI _PLD（與 Windows 裝置管理員同源）。韌體對同一側的兩孔沒標順序：要確認哪個框是哪個洞，插入裝置後對應的框會亮橘 6 秒（每 2 秒偵測）。`;
+}
+function stopHw() { if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } if (hw.portTimer) { clearInterval(hw.portTimer); hw.portTimer = null; } if (hw.llmTimer) { clearInterval(hw.llmTimer); hw.llmTimer = null; } if (hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; } }
 function renderHwStatic() {
   const j = hw.static, S = j.system, C = j.cpu, G = j.gpu, D = j.dmi || {available:false};
   $('#hwNote').textContent = `資料來源：/sys DMI、lscpu、nvidia-smi、lsblk、ip、bluetoothctl、lsusb、lspci、hwmon` + (D.available ? '，序號與記憶體模組來自 dmidecode（sudoers 僅放行此指令）' : '') + `。靜態資料快取 60 秒；這頁的開機時間、負載、感測器是進入分頁時抓一次，即時曲線在「監控」分頁。` + (D.available ? '' : ' ' + (D.note || ''));
@@ -589,11 +660,12 @@ function renderMon(j, rerender) {
   if (j.gpu && S.gpu) {
     const g = j.gpu;
     if (g.util_pct != null) pushHist('gpu', t, g.util_pct);
-    cards.push(monCard('gpu', 'GPU 使用率', S.gpu.name, gaugeLeft(g.util_pct, fmtPct(g.util_pct), 'nvidia-smi utilization.gpu'), [{color: C_LINE, data: hw.hist.gpu || []}], 100, fmtPct));
+    cards.push(monCard('gpu', 'GPU 使用率', `${S.gpu.name} · 來源 ${g.source || S.gpu.source || '—'}`, gaugeLeft(g.util_pct, fmtPct(g.util_pct), g.source === 'NVML' ? 'NVML utilization.gpu' : 'nvidia-smi utilization.gpu'), [{color: C_LINE, data: hw.hist.gpu || []}], 100, fmtPct));
     hovers.push(['gpu', [{color: C_LINE, data: hw.hist.gpu || []}], fmtPct]);
     if (g.temp_c != null) pushHist('temp', t, g.temp_c);
     const tmax = S.gpu.throttle_temp_c || 100;
-    cards.push(monCard('temp', 'GPU 溫度', S.gpu.throttle_temp_c ? `降頻點約 ${S.gpu.throttle_temp_c} °C（刻度上限，由 tlimit 推算）` : '刻度上限 100 °C（未取得降頻點）', gaugeLeft(g.temp_c == null ? null : g.temp_c / tmax * 100, g.temp_c == null ? '—' : g.temp_c + ' °C', S.gpu.throttle_temp_c ? `距降頻 ${(S.gpu.throttle_temp_c - g.temp_c).toFixed(0)} °C` : ''), [{color: C_LINE, data: hw.hist.temp || []}], tmax, v => Math.round(v) + ' °C'));
+    const tsrc = S.gpu.throttle_source === 'NVML slowdown threshold' ? `降頻門檻 ${S.gpu.throttle_temp_c} °C（NVML 驅動真值，刻度上限）${S.gpu.shutdown_temp_c ? ` · 關機 ${S.gpu.shutdown_temp_c} °C` : ''}` : S.gpu.throttle_temp_c ? `降頻點約 ${S.gpu.throttle_temp_c} °C（刻度上限，由 tlimit 推算）` : '刻度上限 100 °C（未取得降頻點）';
+    cards.push(monCard('temp', 'GPU 溫度', tsrc, gaugeLeft(g.temp_c == null ? null : g.temp_c / tmax * 100, g.temp_c == null ? '—' : g.temp_c + ' °C', S.gpu.throttle_temp_c ? `距降頻 ${(S.gpu.throttle_temp_c - g.temp_c).toFixed(0)} °C` : ''), [{color: C_LINE, data: hw.hist.temp || []}], tmax, v => Math.round(v) + ' °C'));
     hovers.push(['temp', [{color: C_LINE, data: hw.hist.temp || []}], v => v.toFixed(0) + ' °C']);
     if (g.power_w != null) pushHist('power', t, g.power_w);
     const ph = hw.hist.power || [], pmax = S.gpu.power_limit_w || Math.max(1, ...ph.map(d => d[1])) * 1.15;
