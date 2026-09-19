@@ -1,5 +1,26 @@
 # Spark Center
 
+**A local dashboard for NVIDIA GB10 boxes (DGX Spark, ASUS Ascent GX10, Dell/HP/Gigabyte/Acer variants) that does what the stock DGX Dashboard doesn't.**
+
+The stock DGX Dashboard has one "Update" button that blindly upgrades every apt package (Chrome, ChatGPT, everything) and then force-reboots. Spark Center replaces that and adds the things people keep asking for on the NVIDIA forums:
+
+- **Updates** — pick packages, see the dependency simulation before installing, no forced reboot. Firmware panel reads fwupd directly so a "success" that didn't actually flash (the USB-C PD controller loop) shows up as a version mismatch.
+- **Apps** — every desktop app across apt / snap / flatpak with versions; flatpak and snap updates are one click.
+- **Monitor** — DGX-style gauges + sparklines: unified memory, CPU (per-core), GPU via NVML (no nvidia-smi subprocess), GPU temp/power, disk, per-interface network, Wi-Fi quality (signal, MCS, retry rate, Bluetooth-coexistence warning), NVMe temp. Detects the "GPU stuck at 611 MHz / 13 W" PD-controller failure and tells you the cold-drain fix.
+- **Models (LLM)** — Ollama management (load/unload/pull/delete), single and concurrent tok/s benchmarks with history, and a duplicate finder across Ollama / LM Studio / Open WebUI's container volume.
+- **Disk** — what is eating space (models, Docker, snap, caches) with whitelisted cleanup actions; desktop notification at 90%.
+- **Hardware** — Windows-style inventory: rear-panel diagram with per-port USB-C mapping (calibrate by plugging in), DMI serial/memory modules, NVMe SMART health, USB device tree, Bluetooth, printers, PCI link speeds.
+
+Zero external dependencies: Python 3 stdlib + python-apt/aptdaemon/GLib (all preinstalled on DGX OS), ctypes to libnvidia-ml, vanilla HTML/SVG. Binds to 127.0.0.1 only. Never reboots on its own. Anything it can't read shows "—" with the reason instead of a made-up value.
+
+**UI language is Traditional Chinese for now.** An English UI is planned (string table + switch); PRs welcome.
+
+Install (no root): `./install.sh` — then open http://127.0.0.1:11001 or launch "Spark Center" from the app menu.
+Optional root-only bits (DMI serial, memory modules, NVMe SMART) need two narrow sudoers rules, documented below.
+
+---
+
+
 原名 Spark Center。從「可勾選的更新頁」長成 GX10 的更新／應用程式／監控／磁碟／硬體中心，故改名。
 
 DGX Dashboard 的 Update 按鈕會一次升級全部套件（含 Chrome、ChatGPT 等第三方），而且寫死更新完必重開機。
@@ -74,11 +95,7 @@ flatpak 本機沒有 appstream 時只能給遠端 commit 的提交訊息，不�
 `app/spark-center.desktop` 會出現在應用程式選單（Spark Center），點開是 Chrome app 模式的獨立視窗（無網址列、獨立 profile、有自己的圖示與工作列項目）。
 DGX Dashboard 的啟動器其實只是 xdg-open 開瀏覽器分頁。安裝：
 
-```
-cp app/spark-center.desktop ~/.local/share/applications/   # Exec 路徑含空格，已加引號
-for s in 256 128 64 48; do cp app/spark-center-$s.png ~/.local/share/icons/hicolor/${s}x${s}/apps/spark-center.png; done
-update-desktop-database ~/.local/share/applications
-```
+`./install.sh` 會一併安裝捷徑與圖示。
 
 ## 韌體（fwupd）
 
@@ -89,11 +106,9 @@ update-desktop-database ~/.local/share/applications
 ## 安裝
 
 ```
-mkdir -p ~/.config/systemd/user
-ln -sf "$PWD/spark-center.service" ~/.config/systemd/user/spark-center.service
-systemctl --user daemon-reload
-systemctl --user enable --now spark-center
+./install.sh
 ```
+會依 repo 位置生成 systemd user 單元與桌面捷徑（模板是 `spark-center.service.in`、`app/spark-center.desktop.in`），啟用服務。
 
 開 http://localhost:11001
 

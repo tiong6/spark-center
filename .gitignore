@@ -1,2 +1,4 @@
 data/usbc-map.json
 data/llm-bench.json
+__pycache__/
+*.pyc

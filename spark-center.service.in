@@ -4,7 +4,7 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 "/home/tungyu6/Documents/Projects/Asus Ascend GX10/spark-center/server.py"
+ExecStart=/usr/bin/python3 "@ROOT@/server.py"
 Restart=on-failure
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
