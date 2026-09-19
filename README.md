@@ -27,6 +27,15 @@ DGX Dashboard 的 Update 按鈕會一次升級全部套件（含 Chrome、ChatGP
   加家目錄第一層與 >1 GB 大檔。清理動作只做白名單：apt clean（aptdaemon，免密碼）、apt autoremove（aptdaemon，跳密碼）、
   docker image/builder prune（只清 dangling）、npm cache clean、清空垃圾桶。Docker 卷、journal、LM Studio、Steam 只列不動。
   背景每 10 分鐘檢查，≥90% 時每 6 小時 notify-send 一次。
+- **硬體** 有「NVMe 健康」面板：壽命已用 %、備用區塊、總寫入／讀取、通電時數、不安全關機、媒體錯誤、過溫累計、控制器警告位元。
+  SMART 要 root；只放行寫死參數的一條指令：
+
+  ```
+  echo "$USER ALL=(root) NOPASSWD: /usr/sbin/nvme smart-log /dev/nvme0n1 --output-format=json" | sudo tee /etc/sudoers.d/spark-center-nvme
+  sudo chmod 440 /etc/sudoers.d/spark-center-nvme
+  sudo visudo -c
+  ```
+  沒放行時只顯示免 root 的型號／韌體／序號並說明。監控分頁另有 NVMe 溫度曲線（hwmon，免 root）。
 - **硬體** 頂部是「後面板」示意圖：USB-C ×4（最左為電源輸入）、HDMI、10GbE、QSFP（ConnectX-7）、Kensington，順序依 ServeTheHome 評測。
   每個 USB-C 孔同時顯示 DP Alt Mode 輸出（xrandr 的 USB-C-0..3）與 USB 裝置（xHCI 控制器 NVDA8000:00..03）。
   編號對應實體位置是推測；「校準孔位」：點一個孔、把裝置插進那個洞，偵測到新裝置就綁定，存在瀏覽器 localStorage。

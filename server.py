@@ -1312,6 +1312,53 @@ def _bluetooth():
     return {"available": True, "controller": ctl, "rfkill_blocked": blocked, "devices": devices}
 
 
+def _nvme_health():
+    """NVMe 健康：免 root 的型號／韌體／序號從 /sys 讀；SMART 要 sudoers 放行
+    `nvme smart-log /dev/nvme0n1 --output-format=json`（參數寫死）。沒放行就回 available=False 並說明。"""
+    base = "/sys/class/nvme/nvme0"
+    if not os.path.isdir(base):
+        return None
+    info = {"model": (_read(base + "/model") or "").strip(), "firmware": (_read(base + "/firmware_rev") or "").strip(),
+            "serial": (_read(base + "/serial") or "").strip(), "state": _read(base + "/state")}
+    try:
+        r = subprocess.run(["sudo", "-n", "/usr/sbin/nvme", "smart-log", "/dev/nvme0n1", "--output-format=json"],
+                           capture_output=True, text=True, timeout=10, env=_ENV_C)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {**info, "available": False, "note": f"nvme 執行失敗：{e}"}
+    if r.returncode != 0:
+        err = (r.stderr or "").strip().splitlines()
+        err = err[-1] if err else f"rc={r.returncode}"
+        if "password" in err.lower() or "sudo" in err.lower():
+            return {**info, "available": False, "note": "SMART 需要 root：請在 sudoers 放行 nvme smart-log（見 README），這裡只顯示免 root 的欄位"}
+        return {**info, "available": False, "note": f"nvme smart-log 失敗：{err}"}
+    try:
+        j = json.loads(r.stdout)
+    except ValueError:
+        return {**info, "available": False, "note": "nvme 輸出不是 JSON"}
+    g = lambda k: j.get(k)
+    # data_units 單位是 512 bytes × 1000
+    du_bytes = lambda v: v * 512 * 1000 if isinstance(v, (int, float)) else None
+    temp_k = g("temperature")
+    crit = g("critical_warning") or 0
+    warn_bits = []
+    if isinstance(crit, int):
+        for bit, label in ((0, "備用空間低於門檻"), (1, "溫度超出門檻"), (2, "媒體可靠度下降"), (3, "已轉唯讀"), (4, "揮發性備援記憶體失效")):
+            if crit & (1 << bit):
+                warn_bits.append(label)
+    return {
+        **info, "available": True,
+        "critical_warning": crit, "warnings": warn_bits,
+        "temp_c": round(temp_k - 273.15, 1) if isinstance(temp_k, (int, float)) and temp_k > 200 else temp_k,
+        "percent_used": g("percent_used"), "avail_spare": g("avail_spare"), "spare_thresh": g("spare_thresh"),
+        "data_written": du_bytes(g("data_units_written")), "data_read": du_bytes(g("data_units_read")),
+        "host_writes": g("host_write_commands"), "host_reads": g("host_read_commands"),
+        "power_on_hours": g("power_on_hours"), "power_cycles": g("power_cycles"),
+        "unsafe_shutdowns": g("unsafe_shutdowns"), "media_errors": g("media_errors"), "num_err_log_entries": g("num_err_log_entries"),
+        "warning_temp_time": g("warning_temp_time"), "critical_comp_time": g("critical_comp_time"),
+        "source": "nvme smart-log（sudoers 僅放行此指令）",
+    }
+
+
 _HW_CACHE = {"ts": 0, "data": None}
 
 
@@ -1330,6 +1377,7 @@ def hardware_static():
             "dgx_dashboard": _dpkg_version("dgx-dashboard"),
         },
         "dmi": _dmi(),
+        "nvme": _nvme_health(),
         "cpu": _lscpu(),
         "cpu_cores": _cpu_topology(),
         "memory": {"total": mem.get("MemTotal"), "swap_total": mem.get("SwapTotal")},

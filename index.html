@@ -682,6 +682,14 @@ function renderHwStatic() {
     <dt>SM 時脈上限</dt><dd>${dash(G.max_sm_mhz)}</dd></dl>
     <div class="stat"><div><b id="gpuTemp">—</b><span>溫度</span></div><div><b id="gpuUtil">—</b><span>使用率</span></div><div><b id="gpuPower">—</b><span>功耗</span></div><div><b id="gpuClk">—</b><span>SM 時脈</span></div></div>
     <div id="gpuMeter"></div></div>` : `<div class="panel"><h2>GPU</h2><div class="empty">nvidia-smi 不可用</div></div>`;
+  const N = j.nvme;
+  const nvmeHtml = !N ? '' : `<div class="panel"><div class="panel-h"><h2>NVMe 健康</h2><span class="sub">${esc(N.model)} · 韌體 ${esc(N.firmware)}${N.available ? ' · ' + esc(N.source) : ''}</span></div>` +
+    (N.available ? `${N.warnings.length ? `<div class="panel notice danger" style="margin-top:10px;padding:10px 14px"><b>控制器警告：</b>${N.warnings.map(esc).join('、')}</div>` : `<div class="sub1" style="margin-top:8px"><span class="tag ok">無警告</span> critical_warning = 0</div>`}
+      <div class="stat" style="margin-top:12px"><div><b>${N.percent_used ?? '—'} %</b><span>壽命已用（廠商估）</span></div><div><b>${N.avail_spare ?? '—'} %</b><span>可用備用區塊（門檻 ${N.spare_thresh ?? '—'} %）</span></div><div><b>${N.temp_c ?? '—'} °C</b><span>溫度</span></div><div><b>${N.power_on_hours != null ? (N.power_on_hours / 24).toFixed(0) + ' 天' : '—'}</b><span>通電 ${N.power_on_hours ?? '—'} 小時</span></div></div>
+      ${meter(N.percent_used || 0, 70, 90)}
+      <dl class="kv"><dt>總寫入</dt><dd>${GB(N.data_written)}${N.data_written ? `<span class="sub1">（${(N.data_written / 1e12).toFixed(2)} TB）</span>` : ''}</dd><dt>總讀取</dt><dd>${GB(N.data_read)}</dd><dt>開關機次數</dt><dd>${dash(N.power_cycles)}</dd><dt>不安全關機</dt><dd>${dash(N.unsafe_shutdowns)}${N.unsafe_shutdowns ? '<span class="sub1"> 次（斷電或強制關機）</span>' : ''}</dd><dt>媒體錯誤</dt><dd>${dash(N.media_errors)}</dd><dt>錯誤日誌筆數</dt><dd>${dash(N.num_err_log_entries)}</dd><dt>過溫累計</dt><dd>${dash(N.warning_temp_time)} 分（警告）／${dash(N.critical_comp_time)} 分（臨界）</dd><dt>序號</dt><dd class="mono">${esc(N.serial)}</dd></dl>
+      <div class="sub1" style="margin-top:8px">壽命百分比是廠商依寫入量估的，可能超過 100% 仍能用；媒體錯誤與備用區塊才是壞徵兆。</div>`
+    : `<dl class="kv"><dt>序號</dt><dd class="mono">${esc(N.serial)}</dd><dt>狀態</dt><dd>${dash(N.state)}</dd></dl><div class="sub1" style="margin-top:8px">${esc(N.note)}</div>`) + `</div>`;
   const disks = `<div class="panel"><div class="panel-h"><h2>儲存</h2></div>` + (j.disks ? j.disks.map(d => `
     <dl class="kv"><dt>${esc(d.name)}</dt><dd>${dash(d.model)}<div class="sub1">${GB(d.size)} · ${d.transport ? esc(d.transport.toUpperCase()) : '—'} · ${d.rotational ? 'HDD' : 'SSD'}</div></dd></dl>
     ${d.partitions.filter(p => p.usage).map(p => { const u = p.usage, pct = Math.round((u.total - u.free) / u.total * 100); return `
@@ -705,7 +713,7 @@ function renderHwStatic() {
   const usb = `<div class="panel" style="grid-column: 1 / -1"><div class="panel-h"><h2>USB 裝置</h2><span class="sub">${U ? `${U.total} 個節點（含 ${U.empty_roothubs} 個沒接東西的根集線器，已收起）· 來源 /sys/bus/usb${U.ids_file ? '＋usb.ids' : ''}` : '—'}</span></div>` +
     (U ? (U.roots.length ? `<div class="tree"><ul>${U.roots.map(usbNode).join('')}</ul></div>` : '<div class="empty">沒有接任何 USB 裝置</div>') : (j.usb ? `<pre class="raw">${esc(j.usb.join('\n'))}</pre>` : '<div class="empty">/sys/bus/usb 不可讀</div>')) + `</div>`;
   const pci = `<div class="panel"><div class="panel-h"><h2>PCI</h2><span class="sub">${j.pci ? j.pci.length + ' 個裝置' : '—'}</span></div>${j.pci ? `<pre class="raw">${esc(j.pci.join('\n'))}</pre>` : '<div class="empty">lspci 不可用</div>'}</div>`;
-  $('#hw').innerHTML = sys + cpu + mem + dimm + gpu + disks + net + bt + sens + usb + pci;
+  $('#hw').innerHTML = sys + cpu + mem + dimm + gpu + disks + nvmeHtml + net + bt + sens + usb + pci;
 }
 /* ---- 即時監控：儀表 + 折線（SVG 手繪，無外部庫）---- */
 const MON_INTERVAL_MS = 2000, MON_MAX_POINTS = 150;   // 2 秒一點 → 5 分鐘
@@ -809,6 +817,11 @@ function renderMon(j, rerender) {
     cards.push(monCard('power', 'GPU 功耗', S.gpu.power_limit_w ? `上限 ${S.gpu.power_limit_w} W` : 'nvidia-smi 未提供功耗上限，不畫儀表；折線刻度為區間最大值', S.gpu.power_limit_w ? gaugeLeft(g.power_w / S.gpu.power_limit_w * 100, g.power_w.toFixed(1) + ' W', `上限 ${S.gpu.power_limit_w} W`) : tileLeft(g.power_w == null ? '—' : g.power_w.toFixed(1) + ' W', '目前功耗'), [{color: C_LINE, data: ph}], pmax, v => v.toFixed(1) + ' W'));
     hovers.push(['power', [{color: C_LINE, data: ph}], v => v.toFixed(1) + ' W']);
   }
+  // NVMe 溫度（hwmon nvme Composite，免 root）
+  const nv = (j.sensors || []).find(x => x.chip === 'nvme' && /composite/i.test(x.label));
+  if (nv) { pushHist('nvtemp', t, nv.temp_c);
+    cards.push(monCard('nvtemp', 'NVMe 溫度', 'hwmon nvme Composite · 刻度上限 85 °C（一般 NVMe 的降速門檻，非本機讀值）', gaugeLeft(nv.temp_c / 85 * 100, nv.temp_c.toFixed(0) + ' °C', 'SSD 控制器複合溫度'), [{color: C_LINE, data: hw.hist.nvtemp || []}], 85, v => Math.round(v) + ' °C'));
+    hovers.push(['nvtemp', [{color: C_LINE, data: hw.hist.nvtemp || []}], v => v.toFixed(1) + ' °C']); }
   // 磁碟
   if (j.disk_root) { const d = j.disk_root, dused = d.total - d.free, dpct = dused / d.total * 100;
     const efi = (S.disks || []).flatMap(x => x.partitions).find(p => p.mountpoints.includes('/boot/efi'));
