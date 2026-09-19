@@ -202,7 +202,7 @@ class Job:
 
     def reset(self):
         self.state = {
-            "kind": None,          # "install" | "refresh"
+            "kind": None,          # "install" | "refresh" | "flatpak" | "snap"
             "status": "idle",      # idle | running | done | error
             "packages": [],
             "progress": 0,
@@ -238,7 +238,43 @@ class Job:
         threading.Thread(target=self._run, args=(kind, packages or []), daemon=True).start()
         return True
 
+    def _run_subprocess(self, cmd, packages):
+        """flatpak / snap 更新：直接跑 CLI，逐行把輸出寫進 log。授權由 polkit 處理
+        （flatpak app-update 對 active session 免密碼；snap refresh 會跳密碼視窗）。"""
+        self._log("$ " + " ".join(cmd))
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=_ENV_C, bufsize=1)
+            with self.lock:
+                self.state["progress"] = None
+                self.state["status_text"] = "執行中"
+            for line in proc.stdout:
+                line = line.rstrip("\r\n")
+                if line.strip():
+                    self._log(line)
+                    with self.lock:
+                        self.state["details"] = line.strip()[:120]
+            rc = proc.wait(timeout=1800)
+            with self.lock:
+                self.state["exit"] = f"rc={rc}"
+                self.state["status"] = "done" if rc == 0 else "error"
+                if rc != 0:
+                    self.state["error"] = f"指令結束碼 {rc}，見詳細記錄"
+                self.state["status_text"] = "已完成" if rc == 0 else "失敗"
+                self.state["finished"] = datetime.now().isoformat(timespec="seconds")
+        except Exception as e:
+            with self.lock:
+                self.state["status"] = "error"
+                self.state["error"] = str(e)
+                self.state["finished"] = datetime.now().isoformat(timespec="seconds")
+            self._log("EXCEPTION " + str(e))
+        finally:
+            _APPS_CACHE["ts"] = 0  # 讓應用程式清單重新掃描
+
     def _run(self, kind, packages):
+        if kind == "flatpak":
+            return self._run_subprocess(["flatpak", "update", "-y", "--noninteractive"] + packages, packages)
+        if kind == "snap":
+            return self._run_subprocess(["snap", "refresh"] + packages, packages)
         loop = GLib.MainLoop()
         try:
             client = aptdaemon.client.AptClient()
@@ -1656,6 +1692,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error": "num_predict 需為 64/128/256/512"}, 400)
             if not llm_bench_start(model, npred):
                 return self._json({"ok": False, "error": "已有量測在進行中"}, 409)
+            return self._json({"ok": True})
+        if path == "/api/apps/update":
+            source = data.get("source"); ids = [i for i in data.get("ids", []) if isinstance(i, str) and re.fullmatch(r"[A-Za-z0-9._+-]+", i)]
+            if source not in ("flatpak", "snap") or not ids:
+                return self._json({"ok": False, "error": "source 需為 flatpak/snap 且 ids 非空"}, 400)
+            if not JOB.start(source, ids):
+                return self._json({"ok": False, "error": "已有工作在進行中"}, 409)
             return self._json({"ok": True})
         if path == "/api/refresh":
             if not JOB.start("refresh"):

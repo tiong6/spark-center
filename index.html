@@ -183,15 +183,16 @@
     </nav>
   </div>
 
+  <div id="jobcard" class="panel notice hide">
+    <div id="jobtitle" style="font-weight:700"></div>
+    <div id="jobstatus" class="muted" style="margin:4px 0 8px"></div>
+    <progress id="jobprog" max="100" value="0"></progress>
+    <details style="margin-top:8px"><summary>詳細記錄</summary><pre class="log" id="joblog"></pre></details>
+    <div id="jobactions" style="margin-top:10px; display:flex; gap:10px"></div>
+  </div>
+
   <section id="tab-updates">
     <div id="reboot" class="panel notice warn hide"></div>
-    <div id="jobcard" class="panel notice hide">
-      <div id="jobtitle" style="font-weight:700"></div>
-      <div id="jobstatus" class="muted" style="margin:4px 0 8px"></div>
-      <progress id="jobprog" max="100" value="0"></progress>
-      <details style="margin-top:8px"><summary>詳細記錄</summary><pre class="log" id="joblog"></pre></details>
-      <div id="jobactions" style="margin-top:10px; display:flex; gap:10px"></div>
-    </div>
     <div class="panel">
       <div class="panel-h">
         <h2>可用更新</h2>
@@ -388,6 +389,7 @@ async function pollJob() {
     $('#jobactions').innerHTML = `<button id="jobClose">關閉</button>`;
     $('#jobClose').onclick = () => $('#jobcard').classList.add('hide');
     state.apps = null; await load();
+    if (!$('#tab-apps').classList.contains('hide')) loadApps(true);
   }
 }
 
@@ -407,7 +409,7 @@ function renderApps() {
   if (!s.flatpak.ok) notes.push('flatpak 指令失敗，flatpak 應用未列出。');
   const uncheck = [...new Set(j.items.filter(a => a.source !== 'apt' && a.checked_updates === false).map(a => a.source))];
   if (uncheck.length) notes.push(`${uncheck.join('、')} 無法向商店查新版（逾時或離線），該來源的狀態顯示「未能查詢」。`);
-  notes.push('只列有桌面啟動項（.desktop）的應用程式，命令列工具與函式庫不在此。apt 應用的「有新版」與更新分頁同源。');
+  notes.push('只列有桌面啟動項（.desktop）的應用程式，命令列工具與函式庫不在此。apt 應用請到「更新」分頁勾選安裝；flatpak／snap 的新版可在此列直接按「更新」。');
   $('#appsNote').textContent = notes.join(' ');
   const q = state.q.trim().toLowerCase();
   const rows = j.items.filter(a => (state.src === 'all' || (state.src === 'upd' ? !!a.candidate : a.source === state.src)) &&
@@ -423,11 +425,19 @@ function renderApps() {
       <td class="mono">${esc(a.version)}</td>
       <td class="col-opt sub1">${esc(a.origin)}</td>
       <td>${status}</td>
-      <td>${a.candidate ? `<button class="small" data-cl="${a.source}" data-id="${esc(a.id)}" data-inst="${esc(a.version)}">說明</button>` : ''}</td></tr>`;
+      <td style="white-space:nowrap">${a.candidate ? `<button class="small" data-cl="${a.source}" data-id="${esc(a.id)}" data-inst="${esc(a.version)}">說明</button>${a.source !== 'apt' ? ` <button class="small primary" data-upd="${a.source}" data-id="${esc(a.id)}">更新</button>` : ''}` : ''}</td></tr>`;
   }
   $('#apps').innerHTML = html + `</tbody></table>`;
   $('#apps').querySelectorAll('button[data-cl]').forEach(b => b.onclick = () => toggleChangelog(b, b.dataset.cl, b.dataset.id, b.dataset.inst));
+  $('#apps').querySelectorAll('button[data-upd]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    const r = await api('/api/apps/update', {source: b.dataset.upd, ids: [b.dataset.id]});
+    if (!r.ok) { alert('無法開始：' + r.error); b.disabled = false; return; }
+    startPolling(`${b.dataset.upd} 更新：${b.dataset.id}` + (b.dataset.upd === 'snap' ? '（桌面會跳 polkit 密碼視窗）' : ''));
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  });
 }
+$('#appsNote') && $('#appsNote').addEventListener('click', () => {});
 $('#srcChips').querySelectorAll('.chip').forEach(c => c.onclick = () => { state.src = c.dataset.src; $('#srcChips').querySelectorAll('.chip').forEach(x => x.classList.toggle('active', x === c)); if (state.apps) renderApps(); });
 $('#appSearch').oninput = e => { state.q = e.target.value; if (state.apps) renderApps(); };
 $('#btnAppsReload').onclick = () => loadApps(true);
