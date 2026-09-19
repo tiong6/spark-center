@@ -179,7 +179,7 @@
       <a data-tab="apps">應用程式<span id="dotApps" class="dot hide"></span></a>
       <a data-tab="history">歷史</a>
       <a data-tab="monitor">監控<span id="dotMon" class="dot hide" style="background:var(--danger)"></span></a>
-      <a data-tab="llm">LLM</a>
+      <a data-tab="llm">模型</a>
       <a data-tab="disk">磁碟<span id="dotDisk" class="dot hide" style="background:var(--danger)"></span></a>
       <a data-tab="hardware">硬體</a>
     </nav>
@@ -283,7 +283,7 @@
 <script>
 const $ = s => document.querySelector(s);
 const state = { items: [], selected: new Set(), job: null, polling: null, apps: null, src: 'all', q: '' };
-const TITLES = { updates: '更新', apps: '應用程式', history: '歷史', monitor: '監控', llm: 'LLM', disk: '磁碟', hardware: '硬體' };
+const TITLES = { updates: '更新', apps: '應用程式', history: '歷史', monitor: '監控', llm: '模型（LLM）', disk: '磁碟', hardware: '硬體' };
 const fmtBytes = b => b == null ? '—' : b < 1048576 ? (b/1024).toFixed(0)+' KB' : (b/1048576).toFixed(1)+' MB';
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 

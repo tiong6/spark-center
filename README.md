@@ -25,7 +25,7 @@ DGX Dashboard 的 Update 按鈕會一次升級全部套件（含 Chrome、ChatGP
 - **監控** 有「Wi-Fi」卡：訊號儀表（-90 dBm=0%、-30 dBm=100%）與曲線、頻段／頻道／頻寬、上下行速率與 MCS、
   重試率（差分）、beacon 遺失、24h 斷線次數（NetworkManager journal）。2.4 GHz 且有藍牙裝置連著時提示共存問題（同一顆 MT7925）；
   訊號 < -75 dBm 時列出同一路由器其他頻段的訊號供比較。來源 iw／nmcli／bluetoothctl，免 root。
-- **LLM**（獨立分頁）：伺服器與 Ollama 設定（NUM_PARALLEL、MAX_LOADED，改設定需 root 只顯示）；已載入模型（卸載）；
+- **模型（LLM）**（獨立分頁）：伺服器與 Ollama 設定（NUM_PARALLEL、MAX_LOADED，改設定需 root 只顯示）；已載入模型（卸載）；
   已安裝模型（參數／量化／上下文／能力，載入並選保留時間、刪除）；拉取新模型（串流進度）；
   量測：單一請求 decode/prefill tok/s，或 1/2/4/8 併發的總 tok/s（合計 token ÷ 牆鐘），歷史存伺服器端；
   模型倉庫去重：Ollama（主機）、LM Studio、Open WebUI 容器卷三處並排，同家族標出（名稱正規化，啟發式）。
