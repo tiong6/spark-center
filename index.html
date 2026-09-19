@@ -500,7 +500,8 @@ async function showHardware() {      // 硬體分頁：靜態清單＋抓一次�
 }
 /* ---- 後面板示意圖：USB-C 四孔（DP 輸出 + USB 裝置）、HDMI、10GbE、QSFP。
    USB-C-k ↔ 實體孔序為推測（驅動編號），可用「校準孔位」：點一個孔，再插入裝置，該孔就綁定新出現裝置的控制器。校準只存在這個瀏覽器（localStorage）。 ---- */
-hw.rearPrev = null; hw.rearFlash = {}; hw.calibSlot = null;
+hw.rearPrev = null; hw.rearFlash = {}; hw.calibSlot = null; hw.calibMode = false;
+const PANEL_ZH = { left: '左側', right: '右側', back: '後方', front: '前方', top: '上方', bottom: '下方', unknown: '未知' };
 const CALIB_KEY = 'spark-center.usbc-map';
 function loadCalib() { try { return JSON.parse(localStorage.getItem(CALIB_KEY) || '{}'); } catch (e) { return {}; } }
 function saveCalib(m) { try { localStorage.setItem(CALIB_KEY, JSON.stringify(m)); } catch (e) {} }
