@@ -1318,8 +1318,24 @@ def _nvme_health():
     base = "/sys/class/nvme/nvme0"
     if not os.path.isdir(base):
         return None
+    # 製造商：PCI 廠商 ID（1987=Phison）＋ EUI-64 前三組 OUI（64-79-A7=Phison）。兩者都是硬體登記值，不是猜的。
+    OUI = {"6479a7": "Phison", "0025b3": "Samsung", "002538": "Samsung", "8ce38e": "Kioxia/Toshiba", "e4d25c": "Kioxia",
+           "000cca": "HGST/WD", "001b44": "SanDisk", "5cd2e4": "Intel", "000000": None}
+    PCI_VENDOR = {"0x1987": "Phison", "0x144d": "Samsung", "0x1e0f": "Kioxia", "0x15b7": "SanDisk/WD", "0x8086": "Intel",
+                  "0x1c5c": "SK hynix", "0x1cc1": "ADATA", "0x126f": "Silicon Motion", "0x1e49": "YMTC", "0x2646": "Kingston", "0x1344": "Micron"}
+    vid = (_read(base + "/device/vendor") or "").lower()
+    did = (_read(base + "/device/device") or "").lower()
+    wwid = _read("/sys/class/block/nvme0n1/wwid") or ""
+    m = re.match(r"eui\.([0-9a-f]{16})", wwid)
+    oui = m.group(1)[:6] if m else None
+    ctrl = _run(["lspci", "-nn", "-s", os.path.basename(os.path.realpath(base + "/device"))], timeout=5) or ""
+    ctrl_name = re.sub(r"^.*?: ", "", ctrl.strip().splitlines()[0]) if ctrl.strip() else None
     info = {"model": (_read(base + "/model") or "").strip(), "firmware": (_read(base + "/firmware_rev") or "").strip(),
-            "serial": (_read(base + "/serial") or "").strip(), "state": _read(base + "/state")}
+            "serial": (_read(base + "/serial") or "").strip(), "state": _read(base + "/state"),
+            "vendor": PCI_VENDOR.get(vid) or vid, "vendor_pci_id": f"{vid}:{did}", "controller": ctrl_name,
+            "oui": oui, "oui_vendor": OUI.get(oui) if oui else None,
+            "dramless": "DRAM-less" in (ctrl_name or ""), "hmb": os.path.exists(base + "/hmb"),
+            "form_factor_note": "NAND 顆粒廠商從軟體查不到", "vendor_source": "PCI 廠商 ID 與 EUI-64 OUI（硬體登記值）"}
     try:
         r = subprocess.run(["sudo", "-n", "/usr/sbin/nvme", "smart-log", "/dev/nvme0n1", "--output-format=json"],
                            capture_output=True, text=True, timeout=10, env=_ENV_C)
