@@ -178,7 +178,7 @@
       <a data-tab="updates" class="active">更新<span id="dotUpd" class="dot hide"></span></a>
       <a data-tab="apps">應用程式<span id="dotApps" class="dot hide"></span></a>
       <a data-tab="history">歷史</a>
-      <a data-tab="monitor">監控</a>
+      <a data-tab="monitor">監控<span id="dotMon" class="dot hide" style="background:var(--danger)"></span></a>
       <a data-tab="disk">磁碟<span id="dotDisk" class="dot hide" style="background:var(--danger)"></span></a>
       <a data-tab="hardware">硬體</a>
     </nav>
@@ -232,6 +232,7 @@
   </section>
 
   <section id="tab-monitor" class="hide">
+    <div id="gpuAlert" class="panel notice danger hide"></div>
     <div id="mon" class="mon"><div class="panel"><div class="empty">讀取中…</div></div></div>
     <div id="monNote" class="sub1" style="margin:-6px 0 18px"></div>
     <div id="llm" class="panel"><div class="panel-h"><h2>本機 LLM</h2><span class="sub">偵測中…</span></div></div>
@@ -821,7 +822,8 @@ function renderMon(j, rerender) {
   if (j.gpu && S.gpu) {
     const g = j.gpu;
     if (g.util_pct != null) pushHist('gpu', t, g.util_pct);
-    cards.push(monCard('gpu', 'GPU 使用率', `${S.gpu.name} · 來源 ${g.source || S.gpu.source || '—'}`, gaugeLeft(g.util_pct, fmtPct(g.util_pct), g.source === 'NVML' ? 'NVML utilization.gpu' : 'nvidia-smi utilization.gpu'), [{color: C_LINE, data: hw.hist.gpu || []}], 100, fmtPct));
+    const rs = (g.event_reasons || []).filter(r => r !== 'GPU 閒置');
+    cards.push(monCard('gpu', 'GPU 使用率', `${S.gpu.name}${g.pstate ? ' · ' + g.pstate : ''}${rs.length ? ' · 降頻原因：' + rs.join('、') : ''} · 來源 ${g.source || S.gpu.source || '—'}`, gaugeLeft(g.util_pct, fmtPct(g.util_pct), g.source === 'NVML' ? 'NVML utilization.gpu' : 'nvidia-smi utilization.gpu'), [{color: C_LINE, data: hw.hist.gpu || []}], 100, fmtPct));
     hovers.push(['gpu', [{color: C_LINE, data: hw.hist.gpu || []}], fmtPct]);
     if (g.temp_c != null) pushHist('temp', t, g.temp_c);
     const tmax = S.gpu.throttle_temp_c || 100;
@@ -887,11 +889,19 @@ function renderMon(j, rerender) {
   if (!rerender) { hw.prevPrev = hw.prev; hw.prev = j; }
 }
 
+function renderGpuAlert(a) {
+  const el = $('#gpuAlert'); if (!el) return;
+  $('#dotMon').classList.toggle('hide', !a);
+  if (!a) { el.classList.add('hide'); return; }
+  el.classList.remove('hide');
+  el.innerHTML = `<b>GPU 卡在低功耗狀態</b>（自 ${esc((a.since || '').replace('T', ' '))}）<div style="margin-top:6px">${esc(a.message)}</div><div class="sub1" style="margin-top:8px"><b>怎麼解：</b>${esc(a.advice)}</div><div class="sub1" style="margin-top:6px">判定依據：連續 30 秒 GPU 使用率 ≥ 20% 且 SM 時脈 ≤ 800 MHz，或 NVML 硬體降速／功率煞車旗標持續亮著${a.reasons && a.reasons.length ? `（目前旗標：${a.reasons.map(esc).join('、')}）` : ''}。閒置時時脈低是正常的，不會觸發。桌面通知每小時最多一次。</div>`;
+}
 const setTxt = (sel, v) => { const el = $(sel); if (el) el.textContent = v; };
 const setHtml = (sel, v) => { const el = $(sel); if (el) el.innerHTML = v; };
 async function pollHw(staticOnly) {
   const j = await api('/api/hardware/live');
   if (!j.ok || !hw.static) return;
+  renderGpuAlert(j.gpu_alert);
   if (!staticOnly) { try { renderMon(j); } catch (e) { console.error(e); } }
   const m = j.memory, used = m.total - m.available, pct = Math.round(used / m.total * 100);
   setTxt('#hwMemUsed', GB(used) + ` (${pct}%)`);
@@ -918,7 +928,7 @@ async function pollHw(staticOnly) {
   if (j.status === 'running') startPolling(j.kind === 'refresh' ? '重新整理 apt 來源' : '更新中：' + (j.packages||[]).join(', '));
   const t = location.hash.replace('#','');
   showTab(TITLES[t] ? t : 'updates');
-  api('/api/hardware/live').then(r => { if (r.ok && r.disk_root) $('#dotDisk').classList.toggle('hide', (1 - r.disk_root.free / r.disk_root.total) < 0.9); });
+  api('/api/hardware/live').then(r => { if (r.ok) renderGpuAlert(r.gpu_alert); if (r.ok && r.disk_root) $('#dotDisk').classList.toggle('hide', (1 - r.disk_root.free / r.disk_root.total) < 0.9); });
   api('/api/apps').then(r => { if (r.ok) { state.apps = r; $('#dotApps').classList.toggle('hide', !r.items.some(a => a.candidate)); if (!$('#tab-apps').classList.contains('hide')) renderApps(); } });
 })();
 </script>

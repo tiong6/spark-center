@@ -739,6 +739,11 @@ import ctypes
 _NVML = {"lib": None, "handle": None, "ok": False, "tried": False, "lock": threading.Lock()}
 
 
+NVML_EVENT_REASONS = {0x1: "GPU 閒置", 0x2: "應用程式時脈設定", 0x4: "軟體功率上限", 0x8: "硬體降速", 0x10: "Sync Boost",
+                      0x20: "軟體熱降速", 0x40: "硬體熱降速", 0x80: "硬體功率煞車", 0x100: "顯示時脈設定"}
+GPU_STUCK_BAD_REASONS = {"硬體降速", "硬體功率煞車", "硬體熱降速"}
+
+
 class _NvmlUtil(ctypes.Structure):
     _fields_ = [("gpu", ctypes.c_uint), ("memory", ctypes.c_uint)]
 
@@ -813,8 +818,14 @@ def _gpu_live_nvml():
     temp = _nvml_uint("nvmlDeviceGetTemperature", 0)
     power = _nvml_uint("nvmlDeviceGetPowerUsage")
     clk = _nvml_uint("nvmlDeviceGetClockInfo", 1)
+    pstate = _nvml_uint("nvmlDeviceGetPerformanceState")
+    mask = ctypes.c_ulonglong()
+    reasons = None
+    if n["lib"].nvmlDeviceGetCurrentClocksEventReasons(n["handle"], ctypes.byref(mask)) == 0:
+        reasons = [name for bit, name in NVML_EVENT_REASONS.items() if mask.value & bit]
     return {"temp_c": temp, "util_pct": util, "power_w": power / 1000 if power is not None else None,
-            "sm_mhz": clk, "memory_used": None, "source": "NVML"}
+            "sm_mhz": clk, "memory_used": None, "source": "NVML",
+            "pstate": f"P{pstate}" if pstate is not None else None, "event_reasons": reasons, "event_mask": mask.value if reasons is not None else None}
 
 
 def _gpu_static():
@@ -1647,6 +1658,7 @@ def hardware_live():
         "load": [float(x) for x in load] if len(load) == 3 else None,
         "uptime_s": float(up.split()[0]) if up else None,
         "gpu": _gpu_live(),
+        "gpu_alert": gpu_alert(),
         "sensors": _sensors(),
         "cpu": _cpu_jiffies(),
         "cpu_freq": _cpu_freqs(),
@@ -1969,6 +1981,66 @@ def disk_status(force=False):
     return {"scanning": scanning, "data": data, "live": live}
 
 
+# ---------- GPU 低功耗卡死偵測（論壇第 3 大抱怨：PD 控制器韌體卡住 → SM 釘在 611 MHz、功耗十幾瓦）----------
+# 判定：連續 30 秒（6 次取樣）「GPU 使用率 ≥ 20% 但 SM 時脈 ≤ 800 MHz」，或硬體降速／功率煞車旗標持續亮著。
+# 閒置時時脈本來就低，所以一定要配合使用率，避免誤報。
+
+_GPU_WATCH = {"lock": threading.Lock(), "samples": [], "alert": None, "last_notify": 0}
+GPU_STUCK_CLOCK_MHZ = 800
+GPU_STUCK_MIN_UTIL = 20
+GPU_STUCK_SAMPLES = 6
+
+
+def gpu_stuck_evaluate(samples):
+    """純函式，方便測試。samples: 最近的 [{sm_mhz, util_pct, power_w, event_reasons}]。回 alert dict 或 None。"""
+    recent = [x for x in samples[-GPU_STUCK_SAMPLES:] if x.get("sm_mhz") is not None and x.get("util_pct") is not None]
+    if len(recent) < GPU_STUCK_SAMPLES:
+        return None
+    low_clock = all(x["sm_mhz"] <= GPU_STUCK_CLOCK_MHZ and x["util_pct"] >= GPU_STUCK_MIN_UTIL for x in recent)
+    hw_flags = all(set(x.get("event_reasons") or []) & GPU_STUCK_BAD_REASONS for x in recent)
+    if not (low_clock or hw_flags):
+        return None
+    last = recent[-1]
+    return {
+        "kind": "low_clock" if low_clock else "hw_slowdown",
+        "sm_mhz": last["sm_mhz"], "util_pct": last["util_pct"], "power_w": last.get("power_w"),
+        "reasons": sorted(set().union(*[set(x.get("event_reasons") or []) for x in recent])),
+        "message": (f"GPU 有負載（{last['util_pct']}%）但 SM 時脈釘在 {last['sm_mhz']} MHz、功耗 {last.get('power_w') or '—'} W，持續 30 秒以上。"
+                    if low_clock else f"GPU 硬體降速旗標持續亮著：{'、'.join(sorted(set().union(*[set(x.get('event_reasons') or []) for x in recent])))}。"),
+        "advice": "論壇多人確認的根因是電源供應器內 USB-C PD 控制器韌體卡住。解法：拔掉電源供應器與所有 USB-C 裝置，按住電源鍵 30 秒，再等 60 秒讓電容放電，然後接回開機。只重開機沒用，PD 控制器在變壓器裡，要斷電才會重置。",
+    }
+
+
+def _gpu_watch():
+    while True:
+        try:
+            g = _gpu_live()
+            if g:
+                with _GPU_WATCH["lock"]:
+                    _GPU_WATCH["samples"].append({"t": time.time(), **g})
+                    _GPU_WATCH["samples"] = _GPU_WATCH["samples"][-24:]
+                    alert = gpu_stuck_evaluate(_GPU_WATCH["samples"])
+                    if alert and not _GPU_WATCH["alert"]:
+                        alert["since"] = datetime.now().isoformat(timespec="seconds")
+                    elif alert and _GPU_WATCH["alert"]:
+                        alert["since"] = _GPU_WATCH["alert"]["since"]
+                    _GPU_WATCH["alert"] = alert
+                    notify = alert and time.time() - _GPU_WATCH["last_notify"] > 3600
+                    if notify:
+                        _GPU_WATCH["last_notify"] = time.time()
+                if notify:
+                    subprocess.run(["notify-send", "-u", "critical", "-a", "Spark Center", "GPU 卡在低功耗狀態",
+                                    alert["message"] + " 開 http://localhost:%d/#monitor 看處理方式。" % PORT], timeout=10)
+        except Exception:
+            pass
+        time.sleep(5)
+
+
+def gpu_alert():
+    with _GPU_WATCH["lock"]:
+        return _GPU_WATCH["alert"]
+
+
 # ---------- 磁碟快滿通知（背景，每 10 分鐘；≥90% 每 6 小時提醒一次）----------
 
 def _disk_watch():
@@ -2185,6 +2257,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     threading.Thread(target=_disk_watch, daemon=True).start()
+    threading.Thread(target=_gpu_watch, daemon=True).start()
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Spark Center on http://{HOST}:{PORT}", flush=True)
     try:
