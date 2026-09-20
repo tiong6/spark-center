@@ -948,10 +948,7 @@ function renderMon(j, rerender) {
   if (nv) { pushHist('nvtemp', t, nv.temp_c);
     cards.push(monCard('nvtemp', 'NVMe 溫度', 'hwmon nvme Composite · 刻度上限 85 °C（一般 NVMe 的降速門檻，非本機讀值）', gaugeLeft(nv.temp_c / 85 * 100, nv.temp_c.toFixed(0) + ' °C', 'SSD 控制器複合溫度'), [{color: C_LINE, data: hw.hist.nvtemp || []}], 85, v => Math.round(v) + ' °C'));
     hovers.push(['nvtemp', [{color: C_LINE, data: hw.hist.nvtemp || []}], v => v.toFixed(1) + ' °C']); }
-  // 磁碟
-  if (j.disk_root) { const d = j.disk_root, dused = d.total - d.free, dpct = dused / d.total * 100;
-    const efi = (S.disks || []).flatMap(x => x.partitions).find(p => p.mountpoints.includes('/boot/efi'));
-    cards.push(`<div class="mcard" id="mon-disk"><h3>磁碟 /<span>statvfs · 用量幾乎不變，不畫折線</span></h3>${gaugeLeft(dpct, GB(dused), GB(d.total) + ' total')}${kvRight([['已使用', `${GB(dused)}（${Math.round(dpct)}%）`], ['剩餘', GB(d.free)], ['裝置', (S.disks || []).map(x => x.name + ' · ' + x.model).join(', ') || '—'], ['/boot/efi', efi && efi.usage ? `${GB(efi.usage.total - efi.usage.free)} / ${GB(efi.usage.total)}` : '—']])}</div>`); }
+  // 磁碟用量卡已移除：用量幾分鐘內不變，磁碟分頁與硬體分頁都有
   // 網路：每個有 IPv4 且非虛擬的介面，rx/tx 速率
   const ifs = (S.network || []).filter(n => n.kind !== 'virtual' && n.state === 'UP');
   for (const n of ifs) {
