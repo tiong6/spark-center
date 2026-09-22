@@ -1788,6 +1788,65 @@ def _wifi_live():
     }
 
 
+def wifi_channel_analysis(rescan=False):
+    """頻道分析。2.4 GHz 每個頻道間隔 5 MHz、訊號寬 20 MHz，所以相鄰 ±4 格都會重疊，
+    只有 1/6/11 互不重疊；干擾分數 = 重疊範圍內鄰居訊號的加權總和（差越遠權重越低）。
+    5 GHz 的 20 MHz 頻道互不重疊，只算同頻道。主動重掃約 8 秒且會讓連線變鈍，所以只在按鈕觸發時做。"""
+    args = ["nmcli", "-t", "-f", "SSID,BSSID,CHAN,FREQ,SIGNAL,SECURITY,IN-USE", "dev", "wifi", "list"]
+    if rescan:
+        args.append("--rescan")
+        args.append("yes")
+    out = _run(args, timeout=40)
+    if out is None:
+        return {"ok": False, "error": "nmcli 掃描失敗"}
+    aps, mine = [], None
+    for line in out.splitlines():
+        parts = re.split(r"(?<!\\):", line)
+        if len(parts) < 7:
+            continue
+        ssid, bssid, chan, freq, sig, sec, inuse = parts[:7]
+        try:
+            chan, freq, sig = int(chan), int(freq.split()[0]), int(sig)
+        except (ValueError, IndexError):
+            continue
+        ap = {"ssid": ssid or None, "bssid": bssid.replace("\\:", ":"), "chan": chan, "freq": freq,
+              "signal": sig, "security": sec, "in_use": inuse.strip() == "*",
+              "band": "6 GHz" if freq >= 5925 else "5 GHz" if freq >= 4900 else "2.4 GHz"}
+        aps.append(ap)
+        if ap["in_use"]:
+            mine = ap
+    def score(band, cand, spacing):
+        """cand 頻道的干擾分數。2.4 GHz 用 ±4 格線性衰減權重；5/6 GHz 只算同頻道。"""
+        tot, srcs = 0, []
+        for a in aps:
+            if a["band"] != band or a["in_use"]:
+                continue
+            d = abs(a["chan"] - cand)
+            w = max(0.0, 1 - d / 5) if spacing == "overlap" else (1.0 if d == 0 else 0.0)
+            if w > 0:
+                tot += a["signal"] * w
+                srcs.append({"ssid": a["ssid"], "chan": a["chan"], "signal": a["signal"], "weight": round(w, 2)})
+        srcs.sort(key=lambda x: -x["signal"] * x["weight"])
+        return {"chan": cand, "score": round(tot), "sources": srcs[:6]}
+    bands = {}
+    if any(a["band"] == "2.4 GHz" for a in aps):
+        cands = [score("2.4 GHz", c, "overlap") for c in (1, 6, 11)]
+        bands["2.4 GHz"] = {"candidates": sorted(cands, key=lambda x: x["score"]),
+                            "note": "2.4 GHz 只有 1/6/11 互不重疊；相鄰頻道也會互相干擾，分數已把 ±4 格的鄰居加權算進去。"}
+    fives = sorted({a["chan"] for a in aps if a["band"] == "5 GHz"})
+    if fives:
+        common = [36, 40, 44, 48, 149, 153, 157, 161]
+        cands = [score("5 GHz", c, "same") for c in sorted(set(common) | set(fives))]
+        bands["5 GHz"] = {"candidates": sorted(cands, key=lambda x: x["score"])[:8],
+                          "note": "5 GHz 的 20 MHz 頻道互不重疊，只算同頻道；但若路由器用 40/80 MHz，實際會跨到相鄰頻道。"}
+    aps.sort(key=lambda a: (a["band"], a["chan"], -a["signal"]))
+    return {"ok": True, "aps": aps, "bands": bands, "current": mine, "rescanned": bool(rescan),
+            "scanned": datetime.now().isoformat(timespec="seconds"),
+            "caveats": ["掃描是一瞬間的快照，鄰居用量會隨時段變動，建議不同時間各掃一次再決定。",
+                        "訊號是 NetworkManager 給的百分比，不是 dBm，只適合互相比較。",
+                        "本工具只做分析，改頻道要自己進路由器管理頁。"]}
+
+
 _WIFI_SCAN = {"ts": 0, "data": None}
 
 
@@ -2641,6 +2700,11 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/hardware/usbports":
             try:
                 self._json({"ok": True, "ports": usb_ports(), "ts": time.time()})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/hardware/wifi/channels":
+            try:
+                self._json(wifi_channel_analysis(rescan="rescan=1" in (self.path.split("?", 1) + [""])[1]))
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/hardware/wifi":

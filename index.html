@@ -104,6 +104,12 @@
   .mcard h3 .warnbtn { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--warn); color: var(--warn); font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 8px; }
   .mcard h3 .warnbtn.danger { border-color: var(--danger); color: var(--danger); }
   .mcard .warnbox { grid-column: 1 / -1; display: none; } .mcard .warnbox.open { display: block; }
+  .mcard .chanbox { grid-column: 1 / -1; display: none; margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .mcard .chanbox.open, .mon.compact .mcard .chanbox.open { display: block; }
+  .chanbox table { margin-top: 6px; } .chanbox th, .chanbox td { padding: 4px 10px 4px 0; font-size: 12px; }
+  .chanbox tr.best td { color: var(--accent); font-weight: 700; }
+  .chanbox tr.now td { background: var(--surface2); }
+  .bar { display: inline-block; height: 8px; background: var(--warn); border-radius: 2px; vertical-align: middle; }
   .gauge { position: relative; width: 200px; height: 142px; }
   .gauge svg { width: 200px; height: 120px; display: block; }
   .gauge .hero { position: absolute; left: 30px; right: 30px; top: 66px; text-align: center; }
@@ -836,6 +842,39 @@ function applyMonSize(sz) {
 $('#monSize').querySelectorAll('span').forEach(x => x.onclick = () => applyMonSize(x.dataset.size));
 (() => { let sz = 'large'; try { sz = localStorage.getItem('spark-center.monSize') || 'large'; } catch (e) {} applyMonSize(sz); })();
 
+/* ---- Wi-Fi 頻道分析：偶爾用一次的診斷，只在按下時掃描（主動重掃約 8 秒且會讓連線變鈍）---- */
+hw.chanOpen = false; hw.chanData = null; hw.chanLoading = false;
+async function loadChannels(rescan) {
+  hw.chanLoading = true; const box = $('#chanbox'); if (box) box.innerHTML = renderChannels();
+  const j = await api('/api/hardware/wifi/channels' + (rescan ? '?rescan=1' : ''));
+  hw.chanLoading = false; hw.chanData = j;
+  const b2 = $('#chanbox'); if (b2) { b2.innerHTML = renderChannels(); bindChannelBtns(); }
+}
+function bindChannelBtns() {
+  const r = $('#chanRescan'); if (r) r.onclick = () => loadChannels(true);
+}
+function renderChannels() {
+  if (hw.chanLoading) return `<div class="sub1">掃描中…主動重掃約 8 秒，期間連線會變鈍。</div>`;
+  const j = hw.chanData;
+  if (!j) return `<div class="sub1">尚未分析。</div>`;
+  if (!j.ok) return `<div class="sub1">分析失敗：${esc(j.error || '')}</div>`;
+  const cur = j.current;
+  let h = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="sub1">目前：${cur ? `${esc(cur.ssid || '')} · 頻道 ${cur.chan} · ${esc(cur.band)}` : '未連線'} · 掃描於 ${esc(j.scanned.replace('T',' '))}${j.rescanned ? '（主動重掃）' : '（用系統快取）'}</span><button class="small" id="chanRescan">重新掃描</button></div>`;
+  for (const [band, d] of Object.entries(j.bands)) {
+    const best = d.candidates[0];
+    const max = Math.max(1, ...d.candidates.map(c => c.score));
+    h += `<div style="margin-top:10px"><b>${esc(band)}</b> <span class="sub1">分數越低越好${best && cur && cur.band === band ? (best.chan === cur.chan ? '；目前已在最佳頻道' : `；建議改用頻道 ${best.chan}`) : ''}</span>`;
+    h += `<table><thead><tr><th style="width:70px">頻道</th><th style="width:130px">干擾分數</th><th>主要來源</th></tr></thead><tbody>` +
+      d.candidates.map(c => `<tr class="${c === best ? 'best' : ''} ${cur && cur.band === band && c.chan === cur.chan ? 'now' : ''}"><td>ch${c.chan}${cur && cur.band === band && c.chan === cur.chan ? '（目前）' : ''}</td><td>${c.score} <i class="bar" style="width:${Math.round(c.score / max * 60)}px"></i></td><td class="sub1">${c.sources.length ? c.sources.map(x => `${esc(x.ssid || '隱藏')}@ch${x.chan}·${x.signal}%`).join('、') : '無'}</td></tr>`).join('') +
+      `</tbody></table><div class="sub1">${esc(d.note)}</div></div>`;
+  }
+  h += `<details style="margin-top:8px"><summary class="sub1">看到的 ${j.aps.length} 個 AP</summary><table><tbody>` +
+    j.aps.map(a => `<tr><td class="sub1" style="width:70px">ch${a.chan}</td><td class="sub1" style="width:60px">${esc(a.band.replace(' GHz','G'))}</td><td>${esc(a.ssid || '(隱藏)')}${a.in_use ? '<span class="tag ok">目前</span>' : ''}</td><td class="sub1" style="width:60px">${a.signal}%</td><td class="sub1 mono" style="font-size:11px">${esc(a.bssid)}</td></tr>`).join('') +
+    `</tbody></table></details>`;
+  h += `<div class="sub1" style="margin-top:8px">${j.caveats.map(esc).join(' ')}</div>`;
+  return h;
+}
+
 /* ---- 即時監控：儀表 + 折線（SVG 手繪，無外部庫）---- */
 const MON_INTERVAL_MS = 2000, MON_MAX_POINTS = 150;   // 2 秒一點 → 5 分鐘
 const C_LINE = '#3583d6', C_TX = '#c98416'; // 兩色已用 validate_palette 在深色底驗證通過
@@ -960,7 +999,8 @@ function renderMon(j, rerender) {
       <dt>穩定度</dt><dd>beacon 遺失 ${W.beacon_loss ?? '—'} · 24h 斷線 ${ex.events_24h ? ex.events_24h.disconnects : '—'} 次 <span class="sub1">連線 ${W.connected_s != null ? fmtUptime(W.connected_s) : '—'}</span></dd></dl>`;
     const warns = [coex, weak].filter(Boolean);
     const warnBtn = warns.length ? `<span class="warnbtn ${W.signal_dbm < -80 ? 'danger' : ''}" data-warn="wifi" title="有 ${warns.length} 則提醒，點開看">⚠</span>` : '';
-    cards.push(`<div class="mcard" id="mon-wifi"><h3><span class="t">Wi-Fi</span><span>${esc(W.iface)} · 訊號 <b style="color:${grade[1]}">${grade[0]}</b></span>${warnBtn}</h3>${gaugeLeft(q, W.signal_dbm + ' dBm', `平均 ${W.signal_avg_dbm ?? '—'} dBm · 發射 ${W.txpower_dbm ?? '—'} dBm`)}<div><div class="spark" data-k="wifi">${sparkSvg([{color: C_LINE, data: hw.hist.wifi || []}], 100, v => (v * 0.6 - 90).toFixed(0) + ' dBm')}</div>${right}</div>${warns.length ? `<div class="warnbox ${hw.warnOpen && hw.warnOpen.wifi ? 'open' : ''}" data-warnbox="wifi">${warns.join('')}</div>` : ''}</div>`);
+    const chanBtn = `<button class="small" data-chan="1" style="margin-left:8px">頻道分析</button>`;
+    cards.push(`<div class="mcard" id="mon-wifi"><h3><span class="t">Wi-Fi</span><span>${esc(W.iface)} · 訊號 <b style="color:${grade[1]}">${grade[0]}</b></span>${warnBtn}${chanBtn}</h3>${gaugeLeft(q, W.signal_dbm + ' dBm', `平均 ${W.signal_avg_dbm ?? '—'} dBm · 發射 ${W.txpower_dbm ?? '—'} dBm`)}<div><div class="spark" data-k="wifi">${sparkSvg([{color: C_LINE, data: hw.hist.wifi || []}], 100, v => (v * 0.6 - 90).toFixed(0) + ' dBm')}</div>${right}</div>${warns.length ? `<div class="warnbox ${hw.warnOpen && hw.warnOpen.wifi ? 'open' : ''}" data-warnbox="wifi">${warns.join('')}</div>` : ''}<div class="chanbox ${hw.chanOpen ? 'open' : ''}" id="chanbox">${renderChannels()}</div></div>`);
     hovers.push(['wifi', [{color: C_LINE, data: hw.hist.wifi || []}], v => (v * 0.6 - 90).toFixed(0) + ' dBm']);
   } else if (W) {
     cards.push(`<div class="mcard" id="mon-wifi"><h3><span class="t">Wi-Fi</span><span>${esc(W.iface)}</span></h3>${tileLeft('未連線', '')}<div class="sub1">Wi-Fi 沒有連到任何網路。</div></div>`);
@@ -987,6 +1027,8 @@ function renderMon(j, rerender) {
   $('#mon').innerHTML = cards.join('');
   hw.warnOpen = hw.warnOpen || {};
   document.querySelectorAll('.warnbtn[data-warn]').forEach(b => b.onclick = () => { const k = b.dataset.warn; hw.warnOpen[k] = !hw.warnOpen[k]; const box = document.querySelector(`.warnbox[data-warnbox="${k}"]`); if (box) box.classList.toggle('open', hw.warnOpen[k]); });
+  document.querySelectorAll('button[data-chan]').forEach(b => b.onclick = () => { hw.chanOpen = !hw.chanOpen; const box = $('#chanbox'); if (box) box.classList.toggle('open', hw.chanOpen); if (hw.chanOpen && !hw.chanData) loadChannels(false); });
+  bindChannelBtns();
   const cpuH3 = document.querySelector('#mon-cpu h3'); if (cpuH3 && !cpuH3.querySelector('.switch')) cpuH3.insertAdjacentHTML('beforeend', sw);
   document.querySelectorAll('[data-cpuview]').forEach(el => el.onclick = () => { hw.cpuView = el.dataset.cpuview; if (hw.prev) renderMon(hw.prev, true); });
   for (const [k, ser, fmt] of hovers) { const el = document.querySelector(`.spark[data-k="${k}"]`); if (el) bindHover(el, ser, fmt); }
