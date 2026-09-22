@@ -343,7 +343,8 @@ async function toggleChangelog(btn, source, id, installed) {
   const j = await api(`/api/changelog?source=${encodeURIComponent(source)}&id=${encodeURIComponent(id)}&installed=${encodeURIComponent(installed||'')}`);
   btn.disabled = false; btn.textContent = '收合';
   const row = document.createElement('tr'); row.className = 'clrow';
-  row.innerHTML = `<td colspan="${tr.children.length}"><div class="sub1" style="margin-bottom:6px">${esc(j.note || j.error || '')}</div>${j.text ? `<pre class="cl">${esc(j.text)}</pre>` : ''}</td>`;
+  const linkify = t => esc(t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--info)">$1</a>');
+  row.innerHTML = `<td colspan="${tr.children.length}"><div class="sub1" style="margin-bottom:6px">${linkify(j.note || j.error || '')}</div>${j.text ? `<pre class="cl">${linkify(j.text)}</pre>` : ''}</td>`;
   tr.after(row);
 }
 

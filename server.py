@@ -258,7 +258,8 @@ class Job:
                 self.state["exit"] = f"rc={rc}"
                 self.state["status"] = "done" if rc == 0 else "error"
                 if rc != 0:
-                    self.state["error"] = f"指令結束碼 {rc}，見詳細記錄"
+                    hint = {126: "授權被取消或密碼錯誤（pkexec）", 127: "找不到指令"}.get(rc)
+                    self.state["error"] = (hint or f"指令結束碼 {rc}") + "，見詳細記錄"
                 self.state["status_text"] = "已完成" if rc == 0 else "失敗"
                 self.state["finished"] = datetime.now().isoformat(timespec="seconds")
         except Exception as e:
@@ -315,7 +316,10 @@ class Job:
         if kind == "flatpak":
             return self._run_subprocess(["flatpak", "update", "-y", "--noninteractive"] + packages, packages)
         if kind == "snap":
-            return self._run_subprocess(["snap", "refresh"] + packages, packages)
+            # snapd 的 polkit 動作 io.snapcraft.snapd.manage 不被 snap CLI 主動觸發，
+            # 非 root 直接跑會得到 "access denied (try with sudo)"。改用 pkexec 取得 root（桌面跳密碼視窗）。
+            self._log("snap refresh 需要 root，透過 pkexec 取得授權（桌面會跳密碼視窗）")
+            return self._run_subprocess(["pkexec", "/usr/bin/snap", "refresh"] + packages, packages)
         loop = GLib.MainLoop()
         try:
             client = aptdaemon.client.AptClient()
@@ -676,6 +680,56 @@ def changelog_flatpak(app_id, installed_version):
     return {"ok": False, "text": "", "note": "找不到這個 app 的 appstream 資料，也無法查詢遠端"}
 
 
+def changelog_snap(name, installed_version=""):
+    """Snap 商店沒有逐版 changelog，但 `snap info` 給得出發行者、各頻道的版本／發布日期／版次／大小，
+    以及目前安裝的版次。照實說明這不是 changelog。需要連商店，離線會失敗。"""
+    out = _run(["snap", "info", name], timeout=30)
+    if out is None:
+        return {"ok": False, "text": "", "note": f"snap info {name} 失敗（離線、商店不可達或名稱不符）"}
+    g = lambda k: (lambda m: m.group(1).strip() if m else None)(re.search(rf"^{re.escape(k)}:\s*(.+)$", out, re.M))
+    summary, publisher = g("summary"), g("publisher")
+    store_url, tracking, refresh = g("store-url"), g("tracking"), g("refresh-date")
+    rows, in_ch = [], False
+    for line in out.splitlines():
+        if line.startswith("channels:"):
+            in_ch = True
+            continue
+        if line.startswith("installed:") or in_ch:
+            m = re.match(r"^\s*(\S+?):\s+(\S+)\s+(?:(\d{4}-\d{2}-\d{2})\s+)?\((\d+)\)\s+(\S+)", line)
+            if m:
+                rows.append({"channel": m.group(1), "version": m.group(2), "date": m.group(3) or "",
+                             "rev": m.group(4), "size": m.group(5)})
+                continue
+            if in_ch and line.strip() and not line.startswith(" ") and not line.startswith("installed:"):
+                in_ch = False
+    if not rows:
+        return {"ok": False, "text": "", "note": "snap info 沒有回報頻道資訊"}
+    inst = next((r for r in rows if r["channel"] == "installed"), None)
+    lines = []
+    if summary:
+        lines.append(summary)
+    meta = " · ".join(x for x in [f"發行者 {publisher}" if publisher else None,
+                                  f"追蹤 {tracking}" if tracking else None,
+                                  f"上次更新 {refresh}" if refresh else None] if x)
+    if meta:
+        lines.append(meta)
+    lines.append("")
+    import unicodedata
+    dw = lambda t: sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in str(t))
+    pad = lambda t, w: str(t) + " " * max(1, w - dw(t))
+    rpad = lambda t, w: " " * max(1, w - dw(t)) + str(t)
+    lines.append(pad("頻道", 18) + pad("版本", 20) + pad("發布日期", 13) + rpad("版次", 6) + "  " + rpad("大小", 7))
+    for r in rows:
+        name_zh = "已安裝" if r["channel"] == "installed" else r["channel"]
+        mark = "  ← 目前這版" if (inst and r["channel"] != "installed" and r["rev"] == inst["rev"]) else ""
+        lines.append(pad(name_zh, 18) + pad(r["version"], 20) + pad(r["date"] or "—", 13) + rpad(r["rev"], 6) + "  " + rpad(r["size"], 7) + mark)
+    if store_url:
+        lines.append("")
+        lines.append(f"商店頁面：{store_url}")
+    return {"ok": True, "text": "\n".join(lines),
+            "note": "Snap 商店沒有逐版更新說明；以下是 snap info 的頻道與版本資訊，不是 changelog。"}
+
+
 def get_changelog(source, ident, installed_version=""):
     key = (source, ident, installed_version)
     if key in _CHANGELOG_CACHE:
@@ -685,7 +739,7 @@ def get_changelog(source, ident, installed_version=""):
     elif source == "flatpak":
         res = changelog_flatpak(ident, installed_version)
     elif source == "snap":
-        res = {"ok": False, "text": "", "note": f"Snap 商店不提供更新說明。可到 https://snapcraft.io/{ident} 查看發行者頁面。"}
+        res = changelog_snap(ident, installed_version)
     else:
         res = {"ok": False, "text": "", "note": "未知來源"}
     if res["ok"]:
