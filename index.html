@@ -457,6 +457,12 @@ function openModal(t) { $('#mTitle').textContent = t; $('#overlay').classList.ad
 function closeModal() { $('#overlay').classList.remove('open'); }
 $('#mCancel').onclick = closeModal;
 
+function jobTitle(j) {   // 重新整理頁面或服務重啟後接回工作時，標題要對得上實際在做的事
+  const pk = (j.packages || []).join(', ');
+  return ({ refresh: '重新整理 apt 來源', install: 'apt 安裝：' + pk, remove: 'apt 移除：' + pk,
+            aptclean: '清 apt 快取', snap: 'snap 更新：' + pk, flatpak: 'flatpak 更新：' + pk,
+            ollama_pull: 'ollama pull ' + pk, shell: '系統動作：' + pk })[j.kind] || ('工作：' + pk);
+}
 function startPolling(title) {
   const c = $('#jobcard'); c.className = 'panel notice';
   $('#jobtitle').textContent = title; $('#jobactions').innerHTML = '';
@@ -1024,7 +1030,7 @@ async function pollHw(staticOnly) {
 (async () => {
   await load();
   const j = await api('/api/job');
-  if (j.status === 'running') startPolling(j.kind === 'refresh' ? '重新整理 apt 來源' : '更新中：' + (j.packages||[]).join(', '));
+  if (j.status === 'running') startPolling(jobTitle(j));
   const t = location.hash.replace('#','');
   let last = null; try { last = localStorage.getItem('spark-center.lastTab'); } catch (e) {}
   showTab(TITLES[t] ? t : (TITLES[last] ? last : DEFAULT_TAB));   // 網址有指定就照網址，否則回到上次分頁，都沒有就監控

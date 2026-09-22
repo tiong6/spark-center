@@ -258,7 +258,8 @@ class Job:
                 self.state["exit"] = f"rc={rc}"
                 self.state["status"] = "done" if rc == 0 else "error"
                 if rc != 0:
-                    hint = {126: "授權被取消或密碼錯誤（pkexec）", 127: "找不到指令"}.get(rc)
+                    hint = {126: "授權被取消或密碼錯誤（pkexec）", 127: "找不到指令",
+                            10: "snapd 已有進行中的變更，等它跑完再試"}.get(rc)
                     self.state["error"] = (hint or f"指令結束碼 {rc}") + "，見詳細記錄"
                 self.state["status_text"] = "已完成" if rc == 0 else "失敗"
                 self.state["finished"] = datetime.now().isoformat(timespec="seconds")
@@ -302,6 +303,69 @@ class Job:
         finally:
             _DISK["ts"] = 0
 
+    def _run_snap(self, names):
+        """snap 更新。三個在真機上踩到的坑：
+        1) snap CLI 不會自己觸發 snapd 的 polkit，非 root 直接回 access denied → 用 pkexec。
+        2) `snap refresh` 的進度是 \r 覆寫的單行，逐行讀會看起來卡住 → 改用 `snap tasks` 讀真進度。
+        3) 工作狀態只存在記憶體，服務一重啟就失去追蹤，而 snapd 那邊還在跑 → 先找進行中的變更並接上。"""
+        cid = snap_change_for(names)
+        proc = None
+        if cid:
+            self._log(f"snapd 已有進行中的變更 {cid}，直接接上監看（不需要再輸入密碼）")
+        else:
+            self._log("snap refresh 需要 root，透過 pkexec 取得授權（桌面會跳密碼視窗）")
+            cmd = ["pkexec", "/usr/bin/snap", "refresh"] + names
+            self._log("$ " + " ".join(cmd))
+            try:
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                        text=True, env=_ENV_C, bufsize=1)
+            except OSError as e:
+                with self.lock:
+                    self.state.update(status="error", error=str(e), finished=datetime.now().isoformat(timespec="seconds"))
+                return
+            def drain():
+                for line in proc.stdout:
+                    t = line.rstrip("\r\n").strip()
+                    if t and not re.fullmatch(r"[\s\u2588\u2591\-\\|/]*", t):
+                        self._log(t)
+            threading.Thread(target=drain, daemon=True).start()
+        try:
+            while True:
+                if cid is None and proc is not None:
+                    cid = snap_change_for(names)
+                if cid:
+                    pr = snap_change_progress(cid)
+                    with self.lock:
+                        self.state["progress"] = pr["percent"]
+                        self.state["status_text"] = pr["doing"] or pr["status"]
+                        self.state["details"] = (f"步驟 {pr['done'] + 1}/{pr['total']}"
+                                                 + (f" · 這步 {pr['task_percent']}%" if pr["task_percent"] is not None else "")
+                                                 + (f"（整體 {pr['task_ratio']}%）" if pr["task_ratio"] is not None else ""))
+                    if pr["status"] in ("Done", "Error", "Undone", "Hold"):
+                        ok = pr["status"] == "Done"
+                        with self.lock:
+                            self.state.update(status="done" if ok else "error", exit=pr["status"],
+                                              error=None if ok else f"snapd 變更 {cid} 結束於 {pr['status']}",
+                                              status_text="已完成" if ok else "失敗",
+                                              finished=datetime.now().isoformat(timespec="seconds"))
+                        self._log(f"snapd 變更 {cid}: {pr['status']}")
+                        return
+                if proc is not None and proc.poll() is not None and cid is None:
+                    rc = proc.returncode
+                    with self.lock:
+                        self.state.update(status="done" if rc == 0 else "error", exit=f"rc={rc}",
+                                          error=None if rc == 0 else ({10: "snapd 已有進行中的變更，等它跑完再試",
+                                                                       126: "授權被取消或密碼錯誤（pkexec）"}.get(rc, f"指令結束碼 {rc}") + "，見詳細記錄"),
+                                          status_text="已完成" if rc == 0 else "失敗",
+                                          finished=datetime.now().isoformat(timespec="seconds"))
+                    return
+                time.sleep(2)
+        except Exception as e:
+            with self.lock:
+                self.state.update(status="error", error=str(e), finished=datetime.now().isoformat(timespec="seconds"))
+        finally:
+            _APPS_CACHE["ts"] = 0
+
     def _run(self, kind, packages):
         if kind == "ollama_pull":
             return self._run_ollama_pull(packages[0])
@@ -316,10 +380,7 @@ class Job:
         if kind == "flatpak":
             return self._run_subprocess(["flatpak", "update", "-y", "--noninteractive"] + packages, packages)
         if kind == "snap":
-            # snapd 的 polkit 動作 io.snapcraft.snapd.manage 不被 snap CLI 主動觸發，
-            # 非 root 直接跑會得到 "access denied (try with sudo)"。改用 pkexec 取得 root（桌面跳密碼視窗）。
-            self._log("snap refresh 需要 root，透過 pkexec 取得授權（桌面會跳密碼視窗）")
-            return self._run_subprocess(["pkexec", "/usr/bin/snap", "refresh"] + packages, packages)
+            return self._run_snap(packages)
         loop = GLib.MainLoop()
         try:
             client = aptdaemon.client.AptClient()
@@ -2348,6 +2409,49 @@ def fwupd_status(force=False):
     return data
 
 
+SNAP_ACTIVE = ("Do", "Doing", "Undo", "Undoing", "Wait", "Abort")
+SNAP_TASK_STATES = SNAP_ACTIVE + ("Done", "Error", "Hold", "Undone")
+
+
+def snap_change_for(names):
+    """找 snapd 裡跟這些 snap 有關、還沒結束的變更 id。唯讀，不需要 root。"""
+    out = _run(["snap", "changes"], timeout=20) or ""
+    for line in out.splitlines():
+        m = re.match(r"^(\d+)\s+(\S+)\s", line)
+        if m and m.group(2) in SNAP_ACTIVE and any(f'"{n}"' in line for n in names):
+            return m.group(1)
+    return None
+
+
+def snap_change_progress(cid):
+    """用 snap tasks 讀真進度：整體狀態、完成數、目前工作與它自己的百分比。"""
+    out = _run(["snap", "tasks", cid], timeout=20) or ""
+    total = done = 0
+    doing = None
+    pct = None
+    for line in out.splitlines():
+        m = re.match(r"^(\S+)\s+(.*)$", line)
+        if not m or m.group(1) not in SNAP_TASK_STATES:
+            continue
+        st = m.group(1)
+        summary = re.split(r"\s{2,}", m.group(2))[-1].strip()
+        total += 1
+        if st == "Done":
+            done += 1
+        elif st in ("Doing", "Undoing") and doing is None:
+            doing = summary
+            p = re.search(r"\((\d+(?:\.\d+)?)%\)", summary)
+            if p:
+                pct = float(p.group(1))
+    head = _run(["snap", "changes"], timeout=20) or ""
+    status = next((l.split()[1] for l in head.splitlines() if l.startswith(cid + " ")), "Doing")
+    overall = round(done / total * 100) if total else None
+    # 進度條優先用「目前這步自己的百分比」：下載佔掉幾乎全部時間，用任務數比例會卡在個位數再突然跳到尾聲
+    return {"status": status, "done": done, "total": total, "doing": doing,
+            "task_percent": round(pct) if pct is not None else None, "task_ratio": overall,
+            "percent": round(pct) if pct is not None else overall}
+
+
 def GB_(b):
     return "—" if b is None else f"{b/1e9:.1f} GB"
 
@@ -2605,6 +2709,17 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     _hw_snapshot_load()   # 有快照就先用，服務重啟後硬體分頁不用等
+    # 服務重啟時 snapd 可能還在跑上一輪更新，接回來才不會讓畫面顯示成「沒事發生」
+    try:
+        out = _run(["snap", "changes"], timeout=20) or ""
+        for line in out.splitlines():
+            m = re.match(r'^(\d+)\s+(\S+)\s+.*?"([^"]+)"', line)
+            if m and m.group(2) in SNAP_ACTIVE:
+                print(f"attach to in-progress snap change {m.group(1)} ({m.group(3)})", flush=True)
+                JOB.start("snap", [m.group(3)])
+                break
+    except Exception as e:
+        print("snap attach skipped:", e, flush=True)
     threading.Thread(target=_disk_watch, daemon=True).start()
     threading.Thread(target=_gpu_watch, daemon=True).start()
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
