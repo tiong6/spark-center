@@ -657,9 +657,10 @@ async function pollLlm() {
   if (b.status === 'error') bh += `<div class="panel notice danger" style="margin-top:10px;padding:10px 14px">量測失敗：${esc(b.error)}</div>`;
   const H = j.history || [];
   if (H.length) { const best = {}; for (const r of H) if (r.decode_tps && (r.concurrency||1) === 1 && (!best[r.model] || r.decode_tps > best[r.model])) best[r.model] = r.decode_tps;
-    bh += `<details style="margin-top:12px" open><summary>歷史 ${H.length} 筆（伺服器端）</summary><table><thead><tr><th>模型</th><th style="width:110px">參數 / 量化</th><th style="width:60px">併發</th><th style="width:90px">decode</th><th style="width:80px">prefill</th><th style="width:60px">token</th><th style="width:150px">時間</th></tr></thead><tbody>` +
+    bh += `<details id="llmHist" style="margin-top:12px" ${hw.llmHistOpen !== false ? 'open' : ''}><summary>歷史 ${H.length} 筆（伺服器端）</summary><table><thead><tr><th>模型</th><th style="width:110px">參數 / 量化</th><th style="width:60px">併發</th><th style="width:90px">decode</th><th style="width:80px">prefill</th><th style="width:60px">token</th><th style="width:150px">時間</th></tr></thead><tbody>` +
       H.map(r => `<tr><td class="mono">${esc(r.model)}${best[r.model] === r.decode_tps ? '<span class="tag ok">最佳</span>' : ''}</td><td class="sub1">${[r.params, r.quant].filter(Boolean).map(esc).join(' / ') || '—'}</td><td class="sub1">${r.concurrency || 1}</td><td class="mono">${r.decode_tps ?? '—'}${r.concurrency > 1 ? '<span class="sub1"> 總</span>' : ''}</td><td class="mono">${r.prefill_tps ?? '—'}</td><td class="sub1">${r.num_predict ?? '—'}</td><td class="sub1">${esc((r.finished||'').replace('T',' '))}</td></tr>`).join('') + `</tbody></table></details>`; }
   $('#llmBench').innerHTML = bh;
+  const hd = $('#llmHist'); if (hd) hd.ontoggle = () => { hw.llmHistOpen = hd.open; };
   const sel = $('#llmModel'); if (sel) sel.onchange = () => { hw.llmBenchModel = sel.value; };
   const seln = $('#llmN'); if (seln) seln.onchange = () => { hw.llmN = +seln.value; };
   const selc = $('#llmC'); if (selc) selc.onchange = () => { hw.llmC = +selc.value; };
@@ -843,7 +844,7 @@ $('#monSize').querySelectorAll('span').forEach(x => x.onclick = () => applyMonSi
 (() => { let sz = 'large'; try { sz = localStorage.getItem('spark-center.monSize') || 'large'; } catch (e) {} applyMonSize(sz); })();
 
 /* ---- Wi-Fi 頻道分析：偶爾用一次的診斷，只在按下時掃描（主動重掃約 8 秒且會讓連線變鈍）---- */
-hw.chanOpen = false; hw.chanData = null; hw.chanLoading = false;
+hw.chanOpen = false; hw.chanData = null; hw.chanLoading = false; hw.chanApsOpen = false;
 async function loadChannels(rescan) {
   hw.chanLoading = true; const box = $('#chanbox'); if (box) box.innerHTML = renderChannels();
   const j = await api('/api/hardware/wifi/channels' + (rescan ? '?rescan=1' : ''));
@@ -852,6 +853,7 @@ async function loadChannels(rescan) {
 }
 function bindChannelBtns() {
   const r = $('#chanRescan'); if (r) r.onclick = () => loadChannels(true);
+  const d = $('#chanAps'); if (d) d.ontoggle = () => { hw.chanApsOpen = d.open; };   // 重繪會重建元素，狀態記在外面
 }
 function renderChannels() {
   if (hw.chanLoading) return `<div class="sub1">掃描中…主動重掃約 8 秒，期間連線會變鈍。</div>`;
@@ -868,7 +870,7 @@ function renderChannels() {
       d.candidates.map(c => `<tr class="${c === best ? 'best' : ''} ${cur && cur.band === band && c.chan === cur.chan ? 'now' : ''}"><td>ch${c.chan}${cur && cur.band === band && c.chan === cur.chan ? '（目前）' : ''}</td><td>${c.score} <i class="bar" style="width:${Math.round(c.score / max * 60)}px"></i></td><td class="sub1">${c.sources.length ? c.sources.map(x => `${esc(x.ssid || '隱藏')}@ch${x.chan}·${x.signal}%`).join('、') : '無'}</td></tr>`).join('') +
       `</tbody></table><div class="sub1">${esc(d.note)}</div></div>`;
   }
-  h += `<details style="margin-top:8px"><summary class="sub1">看到的 ${j.aps.length} 個 AP</summary><table><tbody>` +
+  h += `<details id="chanAps" style="margin-top:8px" ${hw.chanApsOpen ? 'open' : ''}><summary class="sub1">看到的 ${j.aps.length} 個 AP</summary><table><tbody>` +
     j.aps.map(a => `<tr><td class="sub1" style="width:70px">ch${a.chan}</td><td class="sub1" style="width:60px">${esc(a.band.replace(' GHz','G'))}</td><td>${esc(a.ssid || '(隱藏)')}${a.in_use ? '<span class="tag ok">目前</span>' : ''}</td><td class="sub1" style="width:60px">${a.signal}%</td><td class="sub1 mono" style="font-size:11px">${esc(a.bssid)}</td></tr>`).join('') +
     `</tbody></table></details>`;
   h += `<div class="sub1" style="margin-top:8px">${j.caveats.map(esc).join(' ')}</div>`;
