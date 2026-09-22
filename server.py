@@ -303,6 +303,13 @@ class Job:
         finally:
             _DISK["ts"] = 0
 
+    def _snap_rc_hint(self, rc):
+        last = " ".join(self.state.get("log", [])[-3:])
+        if "has running apps" in last:
+            return "該 snap 有程式正在執行，關掉它再更新"
+        return {10: "snapd 已有進行中的變更，等它跑完再試",
+                126: "授權被取消或密碼錯誤（pkexec）", 127: "找不到指令"}.get(rc, f"指令結束碼 {rc}")
+
     def _run_snap(self, names):
         """snap 更新。三個在真機上踩到的坑：
         1) snap CLI 不會自己觸發 snapd 的 polkit，非 root 直接回 access denied → 用 pkexec。
@@ -354,8 +361,7 @@ class Job:
                     rc = proc.returncode
                     with self.lock:
                         self.state.update(status="done" if rc == 0 else "error", exit=f"rc={rc}",
-                                          error=None if rc == 0 else ({10: "snapd 已有進行中的變更，等它跑完再試",
-                                                                       126: "授權被取消或密碼錯誤（pkexec）"}.get(rc, f"指令結束碼 {rc}") + "，見詳細記錄"),
+                                          error=None if rc == 0 else (self._snap_rc_hint(rc) + "，見詳細記錄"),
                                           status_text="已完成" if rc == 0 else "失敗",
                                           finished=datetime.now().isoformat(timespec="seconds"))
                     return
@@ -2413,6 +2419,37 @@ SNAP_ACTIVE = ("Do", "Doing", "Undo", "Undoing", "Wait", "Abort")
 SNAP_TASK_STATES = SNAP_ACTIVE + ("Done", "Error", "Hold", "Undone")
 
 
+def snap_running_apps(name):
+    """哪些程序正在使用這個 snap。snapd 不會更新有程式在跑的 snap，先查出來才不會白要一次密碼。
+    exe 路徑是主要依據，讀不到（別的使用者的程序）再看 cgroup 標記。"""
+    hits = []
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        exe = ""
+        try:
+            exe = os.readlink(f"/proc/{pid}/exe")
+        except OSError:
+            pass
+        hit = exe.startswith(f"/snap/{name}/")
+        if not hit:
+            try:
+                with open(f"/proc/{pid}/cgroup") as f:
+                    hit = f"snap.{name}." in f.read()
+            except OSError:
+                hit = False
+        if hit:
+            cmd = ""
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as f:
+                    cmd = f.read().replace(b"\0", b" ").decode(errors="replace").strip()
+            except OSError:
+                pass
+            hits.append({"pid": int(pid), "exe": exe, "cmd": cmd[:140],
+                         "app": os.path.basename(exe or (cmd.split(" ")[0] if cmd else "?"))})
+    return hits
+
+
 def snap_change_for(names):
     """找 snapd 裡跟這些 snap 有關、還沒結束的變更 id。唯讀，不需要 root。"""
     out = _run(["snap", "changes"], timeout=20) or ""
@@ -2697,6 +2734,15 @@ class Handler(BaseHTTPRequestHandler):
             source = data.get("source"); ids = [i for i in data.get("ids", []) if isinstance(i, str) and re.fullmatch(r"[A-Za-z0-9._+-]+", i)]
             if source not in ("flatpak", "snap") or not ids:
                 return self._json({"ok": False, "error": "source 需為 flatpak/snap 且 ids 非空"}, 400)
+            if source == "snap":
+                busy = {n: snap_running_apps(n) for n in ids}
+                busy = {n: v for n, v in busy.items() if v}
+                if busy:
+                    detail = "；".join(
+                        f"{n}（{'、'.join(sorted({x['app'] for x in v}))}，PID {', '.join(str(x['pid']) for x in v[:4])}）"
+                        for n, v in busy.items())
+                    return self._json({"ok": False, "running": busy,
+                                       "error": f"snapd 不會更新正在執行的 snap：{detail}。請先關閉這些程式再試。"}, 409)
             if not JOB.start(source, ids):
                 return self._json({"ok": False, "error": "已有工作在進行中"}, 409)
             return self._json({"ok": True})
