@@ -89,6 +89,8 @@ flatpak 本機沒有 appstream 時只能給遠端 commit 的提交訊息，不�
 它取代不了 Dashboard 的 Spark OS 韌體 OTA（那段是 NVIDIA 閉源流程）。
 定位：日常軟體更新用這頁；清單裡出現 dgx-release / dgx-spark-ota-update-meta / linux-image-nvidia 這類 Spark OS 本體更新時，再用 Dashboard。
 
+變更紀錄見 [CHANGELOG.md](CHANGELOG.md)。
+
 ## 桌面 App
 
 `app/spark-center.desktop` 會出現在應用程式選單（Spark Center），點開是 Chrome app 模式的獨立視窗（無網址列、獨立 profile、有自己的圖示與工作列項目）。
