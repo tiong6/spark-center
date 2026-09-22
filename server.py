@@ -9,6 +9,8 @@
 """
 import concurrent.futures
 import glob
+import http.client
+import socket
 import gzip
 import json
 import os
@@ -345,7 +347,10 @@ class Job:
                     with self.lock:
                         self.state["progress"] = pr["percent"]
                         self.state["status_text"] = pr["doing"] or pr["status"]
-                        self.state["details"] = (f"步驟 {pr['done'] + 1}/{pr['total']}"
+                        mb = lambda b: f"{b / 1e6:.1f} MB"   # snapd 自己用 10^6，跟著一致
+                        size = (f" · {mb(pr['bytes_done'])} / {mb(pr['bytes_total'])}"
+                                if pr.get("bytes_total") else "")
+                        self.state["details"] = (f"步驟 {pr['done'] + 1}/{pr['total']}" + size
                                                  + (f" · 這步 {pr['task_percent']}%" if pr["task_percent"] is not None else "")
                                                  + (f"（整體 {pr['task_ratio']}%）" if pr["task_ratio"] is not None else ""))
                     if pr["status"] in ("Done", "Error", "Undone", "Hold"):
@@ -2419,6 +2424,27 @@ SNAP_ACTIVE = ("Do", "Doing", "Undo", "Undoing", "Wait", "Abort")
 SNAP_TASK_STATES = SNAP_ACTIVE + ("Done", "Error", "Hold", "Undone")
 
 
+class _SnapdConn(http.client.HTTPConnection):
+    """snapd 的 REST API 走 unix socket。/run/snapd.socket 是 0666，讀取不需要 root。"""
+
+    def connect(self):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(self.timeout)
+        sock.connect("/run/snapd.socket")
+        self.sock = sock
+
+
+def _snapd_get(path, timeout=10):
+    try:
+        c = _SnapdConn("localhost", timeout=timeout)
+        c.request("GET", path, headers={"Host": "localhost", "Accept": "application/json"})
+        body = json.loads(c.getresponse().read().decode())
+        c.close()
+        return body.get("result") if body.get("status-code", 500) < 400 else None
+    except Exception:
+        return None
+
+
 def snap_running_apps(name):
     """哪些程序正在使用這個 snap。snapd 不會更新有程式在跑的 snap，先查出來才不會白要一次密碼。
     exe 路徑是主要依據，讀不到（別的使用者的程序）再看 cgroup 標記。"""
@@ -2452,6 +2478,12 @@ def snap_running_apps(name):
 
 def snap_change_for(names):
     """找 snapd 裡跟這些 snap 有關、還沒結束的變更 id。唯讀，不需要 root。"""
+    r = _snapd_get("/v2/changes?select=in-progress")
+    if isinstance(r, list):
+        for ch in r:
+            if ch.get("status") in SNAP_ACTIVE and any(f'"{n}"' in (ch.get("summary") or "") for n in names):
+                return ch.get("id")
+        return None
     out = _run(["snap", "changes"], timeout=20) or ""
     for line in out.splitlines():
         m = re.match(r"^(\d+)\s+(\S+)\s", line)
@@ -2461,7 +2493,28 @@ def snap_change_for(names):
 
 
 def snap_change_progress(cid):
-    """用 snap tasks 讀真進度：整體狀態、完成數、目前工作與它自己的百分比。"""
+    """讀真進度。優先用 snapd API：下載任務的 progress 是精確的位元組數，能顯示 MB。
+    API 不可用時退回解析 snap tasks 的文字（只拿得到百分比）。"""
+    r = _snapd_get(f"/v2/changes/{cid}")
+    if isinstance(r, dict) and r.get("tasks"):
+        tasks = r["tasks"]
+        total = len(tasks)
+        done = sum(1 for t in tasks if t.get("status") == "Done")
+        cur = next((t for t in tasks if t.get("status") in ("Doing", "Undoing")), None)
+        pct = bytes_done = bytes_total = None
+        doing = cur.get("summary") if cur else None
+        if cur:
+            pr = cur.get("progress") or {}
+            d, t_ = pr.get("done"), pr.get("total")
+            if isinstance(d, int) and isinstance(t_, int) and t_ > 1:
+                pct = d / t_ * 100
+                if t_ > (1 << 20):          # 大於 1 MB 才當位元組看，其餘是任務計數
+                    bytes_done, bytes_total = d, t_
+        overall = round(done / total * 100) if total else None
+        return {"status": r.get("status", "Doing"), "done": done, "total": total, "doing": doing,
+                "task_percent": round(pct) if pct is not None else None, "task_ratio": overall,
+                "bytes_done": bytes_done, "bytes_total": bytes_total,
+                "percent": round(pct) if pct is not None else overall}
     out = _run(["snap", "tasks", cid], timeout=20) or ""
     total = done = 0
     doing = None
@@ -2486,6 +2539,7 @@ def snap_change_progress(cid):
     # 進度條優先用「目前這步自己的百分比」：下載佔掉幾乎全部時間，用任務數比例會卡在個位數再突然跳到尾聲
     return {"status": status, "done": done, "total": total, "doing": doing,
             "task_percent": round(pct) if pct is not None else None, "task_ratio": overall,
+            "bytes_done": None, "bytes_total": None,
             "percent": round(pct) if pct is not None else overall}
 
 
