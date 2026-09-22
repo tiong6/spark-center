@@ -356,9 +356,16 @@ class Job:
                                                  + (f"（整體 {pr['task_ratio']}%）" if pr["task_ratio"] is not None else ""))
                     if pr["status"] in ("Done", "Error", "Undone", "Hold"):
                         ok = pr["status"] == "Done"
+                        reason = (pr.get("err") or "").strip()
+                        if not ok:
+                            for l in pr.get("fail_log") or []:
+                                self._log(l[:300])
+                            blob = (reason + " " + " ".join(pr.get("fail_log") or [])).lower()
+                            if any(k in blob for k in ("unexpected eof", "connection", "timeout", "temporary failure", "i/o timeout")):
+                                reason = (reason or "下載中斷") + "（看起來是網路中斷，再按一次即可重試）"
                         with self.lock:
                             self.state.update(status="done" if ok else "error", exit=pr["status"],
-                                              error=None if ok else f"snapd 變更 {cid} 結束於 {pr['status']}",
+                                              error=None if ok else (reason or f"snapd 變更 {cid} 結束於 {pr['status']}"),
                                               status_text="已完成" if ok else "失敗",
                                               finished=datetime.now().isoformat(timespec="seconds"))
                         self._log(f"snapd 變更 {cid}: {pr['status']}")
@@ -2512,9 +2519,10 @@ def snap_change_progress(cid):
                 if t_ > (1 << 20):          # 大於 1 MB 才當位元組看，其餘是任務計數
                     bytes_done, bytes_total = d, t_
         overall = round(done / total * 100) if total else None
+        fail_log = next(([l for l in (t.get("log") or [])][-3:] for t in tasks if t.get("status") == "Error"), [])
         return {"status": r.get("status", "Doing"), "done": done, "total": total, "doing": doing,
                 "task_percent": round(pct) if pct is not None else None, "task_ratio": overall,
-                "bytes_done": bytes_done, "bytes_total": bytes_total,
+                "bytes_done": bytes_done, "bytes_total": bytes_total, "err": r.get("err"), "fail_log": fail_log,
                 "percent": round(pct) if pct is not None else overall}
     out = _run(["snap", "tasks", cid], timeout=20) or ""
     total = done = 0
@@ -2540,7 +2548,7 @@ def snap_change_progress(cid):
     # 進度條優先用「目前這步自己的百分比」：下載佔掉幾乎全部時間，用任務數比例會卡在個位數再突然跳到尾聲
     return {"status": status, "done": done, "total": total, "doing": doing,
             "task_percent": round(pct) if pct is not None else None, "task_ratio": overall,
-            "bytes_done": None, "bytes_total": None,
+            "bytes_done": None, "bytes_total": None, "err": None, "fail_log": [],
             "percent": round(pct) if pct is not None else overall}
 
 
