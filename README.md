@@ -1,125 +1,106 @@
 # Spark Center
 
-**A local dashboard for NVIDIA GB10 boxes (DGX Spark, ASUS Ascent GX10, Dell/HP/Gigabyte/Acer variants) that does what the stock DGX Dashboard doesn't.**
+**A local control panel for NVIDIA GB10 machines** — DGX Spark, ASUS Ascent GX10, and the Dell / HP / Gigabyte / Acer variants.
+Updates, monitoring, LLM management, disk analysis and a hardware inventory, in one page that binds to `127.0.0.1` and never reboots your machine on its own.
 
-The stock DGX Dashboard has one "Update" button that blindly upgrades every apt package (Chrome, ChatGPT, everything) and then force-reboots. Spark Center replaces that and adds the things people keep asking for on the NVIDIA forums:
-
-- **Updates** — pick packages, see the dependency simulation before installing, no forced reboot. Firmware panel reads fwupd directly so a "success" that didn't actually flash (the USB-C PD controller loop) shows up as a version mismatch.
-- **Apps** — every desktop app across apt / snap / flatpak with versions; flatpak and snap updates are one click.
-- **Monitor** — DGX-style gauges + sparklines: unified memory, CPU (per-core), GPU via NVML (no nvidia-smi subprocess), GPU temp/power, disk, per-interface network, Wi-Fi quality (signal, MCS, retry rate, Bluetooth-coexistence warning), NVMe temp. Detects the "GPU stuck at 611 MHz / 13 W" PD-controller failure and tells you the cold-drain fix.
-- **Models (LLM)** — Ollama management (load/unload/pull/delete), single and concurrent tok/s benchmarks with history, and a duplicate finder across Ollama / LM Studio / Open WebUI's container volume.
-- **Disk** — what is eating space (models, Docker, snap, caches) with whitelisted cleanup actions; desktop notification at 90%.
-- **Hardware** — Windows-style inventory: rear-panel diagram with per-port USB-C mapping (calibrate by plugging in), DMI serial/memory modules, NVMe SMART health, USB device tree, Bluetooth, printers, PCI link speeds.
-
-Zero external dependencies: Python 3 stdlib + python-apt/aptdaemon/GLib (all preinstalled on DGX OS), ctypes to libnvidia-ml, vanilla HTML/SVG. Binds to 127.0.0.1 only. Never reboots on its own. Anything it can't read shows "—" with the reason instead of a made-up value.
-
-**UI language is Traditional Chinese for now.** An English UI is planned (string table + switch); PRs welcome.
-
-Install (no root): `./install.sh` — then open http://127.0.0.1:11001 or launch "Spark Center" from the app menu.
-Optional root-only bits (DMI serial, memory modules, NVMe SMART) need two narrow sudoers rules, documented below.
+> UI is Traditional Chinese. An English UI is planned (string table + switch) — PRs welcome.
+> 介面為繁體中文，英文版規劃中。
 
 ---
 
+## Why
 
+The stock DGX Dashboard gives you one **Update** button. It upgrades *every* apt package it can find — including Chrome, ChatGPT and anything else you added a repo for — and then forces a reboot. It cannot tell you what it is about to install, and when a firmware flash silently fails it still reports success.
 
-DGX Dashboard 的 Update 按鈕會一次升級全部套件（含 Chrome、ChatGPT 等第三方），而且寫死更新完必重開機。
-這個小工具做的是同一件事的可控版本：
+Spark Center replaces that button and adds the things people keep asking for on the NVIDIA forums.
 
-- 列出 apt 可升級套件，按來源分組，自己勾要裝哪些
-- 安裝前用 python-apt 模擬，把「實際會動到的套件」（含相依性帶進來的）先列出來確認
-- 安裝走 aptdaemon D-Bus（和 Dashboard 同一個後端），密碼由 polkit 桌面視窗處理
-- 只讀 `/var/run/reboot-required` 決定要不要提示重開，程式本身絕不重開機
-- 只綁 127.0.0.1:11001，不要改成對外
+## What it does
 
-另外兩個分頁：
+| Tab | What you get |
+|---|---|
+| **Monitor** 監控 | DGX-style gauges and sparklines, sampled every 2 s: unified memory, CPU (overall or per-core with clocks), GPU via NVML, GPU temperature against the real NVML slowdown threshold, GPU power, NVMe temperature, per-interface throughput, and Wi-Fi quality (signal, MCS, retry rate, beacon loss, 24 h disconnects) with a channel analyser. Detects the **"GPU stuck at 611 MHz"** PD-controller failure and shows the cold-drain fix. |
+| **Models** 模型 | Ollama: load / unload with a keep-alive choice, pull with streaming progress, delete. Benchmarks that actually generate tokens — single request or 1/2/4/8 concurrent — with history kept server-side. Finds models duplicated across Ollama, LM Studio and Open WebUI's container volume. |
+| **Updates** 更新 | Pick the packages you want. A dependency simulation runs first and shows everything that will really be touched, including what your selection drags in. No forced reboot; it only reads `/var/run/reboot-required` and tells you. Below it, a **firmware panel** reads fwupd directly, so a flash that reported success but did not change the version shows up as a mismatch. |
+| **Apps** 應用程式 | Every desktop application across apt, snap and flatpak with versions and origins. flatpak and snap updates are one click. snap updates show real byte-level progress read from snapd's API. |
+| **Disk** 磁碟 | What is eating space: models, Docker, snap data, caches, logs, big files. Cleanup actions are a fixed whitelist. Desktop notification at 90 %. |
+| **Hardware** 硬體 | A Windows-style inventory: rear-panel diagram with per-port USB-C mapping you can calibrate by plugging something in, DMI serial and memory modules, NVMe SMART health, USB device tree, Bluetooth, printers, PCI link speeds. |
+| **History** 歷史 | Recent apt transactions with who ran them. |
 
-- **應用程式**：列出所有有桌面啟動項（.desktop）的 app，合併 apt、snap、flatpak 三種來源，顯示版本、來源與是否有新版
-  （snap/flatpak 會向商店查，查不到就標「未能查詢」，不假裝是最新）
-- **歷史**：/var/log/apt/history.log 最近 8 筆，表格＋動作標籤
-- **監控**：DGX Dashboard 風格的即時儀表＋折線（SVG 手繪無外部庫）：系統記憶體、CPU 使用率（/proc/stat 差分，可切「每核」看 20 顆各自的使用率與時脈）、
-  GPU 使用率、GPU 溫度（刻度上限為 tlimit 推算的降頻點）、GPU 功耗（nvidia-smi 無上限就不畫儀表）、磁碟、每個實體介面的上下行流量（/proc/net/dev 差分）。
-  每 2 秒取樣、保留 150 點、只存在頁面內；離開分頁即停止輪詢。每核溫度這台沒有感測器，不顯示。
-- **監控** 頂端有「GPU 卡在低功耗」警告（論壇第 3 大抱怨：PD 控制器韌體卡住 → SM 釘 611 MHz、功耗十幾瓦）。
-  後端每 5 秒取樣（不論頁面開否），連續 30 秒「使用率 ≥ 20% 且 SM ≤ 800 MHz」或 NVML 硬體降速／功率煞車旗標持續亮著才判定；
-  閒置低時脈不觸發。觸發時桌面通知（每小時最多一次），橫幅附冷放電步驟。判定函式有假樣本測試。
-- **監控** 有「Wi-Fi」卡：訊號儀表（-90 dBm=0%、-30 dBm=100%）與曲線、頻段／頻道／頻寬、上下行速率與 MCS、
-  重試率（差分）、beacon 遺失、24h 斷線次數（NetworkManager journal）。2.4 GHz 且有藍牙裝置連著時提示共存問題（同一顆 MT7925）；
-  訊號 < -75 dBm 時列出同一路由器其他頻段的訊號供比較。來源 iw／nmcli／bluetoothctl，免 root。
-  卡上另有「頻道分析」：列出鄰居 AP 與各頻道的干擾分數（2.4 GHz 計入相鄰頻道重疊），標出建議頻道。只在按下時掃描。
-- **模型（LLM）**（獨立分頁）：伺服器與 Ollama 設定（NUM_PARALLEL、MAX_LOADED，改設定需 root 只顯示）；已載入模型（卸載）；
-  已安裝模型（參數／量化／上下文／能力，載入並選保留時間、刪除）；拉取新模型（串流進度）；
-  量測：單一請求 decode/prefill tok/s，或 1/2/4/8 併發的總 tok/s（合計 token ÷ 牆鐘），歷史存伺服器端；
-  模型倉庫去重：Ollama（主機）、LM Studio、Open WebUI 容器卷三處並排，同家族標出（名稱正規化，啟發式）。
-  探測 127.0.0.1 的 Ollama（11434）、LM Studio（1234）、llama.cpp（8080）、vLLM（8000）。
-  GPU 讀取改走 NVML（ctypes 開系統的 libnvidia-ml.so，不需 pip）：四項讀取 0.001 ms，nvidia-smi 子程序要 20 ms；
-  降頻門檻用 NVML 的 slowdown threshold（這台是 86 °C），不再用 tlimit 推算。NVML 不可用時退回 nvidia-smi。
-- **磁碟**：根分割區用量（即時）＋「誰在吃空間」明細（背景掃描、快取 10 分鐘）：Ollama 模型（可逐一刪除，透過 Ollama API）、
-  LM Studio 模型、Docker（映像／容器／卷／build cache）、~/snap、flatpak、snapd、apt 快取、apt autoremove、journal、~/.cache、~/.npm、垃圾桶，
-  加家目錄第一層與 >1 GB 大檔。清理動作只做白名單：apt clean（aptdaemon，免密碼）、apt autoremove（aptdaemon，跳密碼）、
-  docker image/builder prune（只清 dangling）、npm cache clean、清空垃圾桶。Docker 卷、journal、LM Studio、Steam 只列不動。
-  背景每 10 分鐘檢查，≥90% 時每 6 小時 notify-send 一次。
-- **硬體** 有「NVMe 健康」面板：壽命已用 %、備用區塊、總寫入／讀取、通電時數、不安全關機、媒體錯誤、過溫累計、控制器警告位元。
-  SMART 要 root；只放行寫死參數的一條指令：
+## Design rules
 
-  ```
-  echo "$USER ALL=(root) NOPASSWD: /usr/sbin/nvme smart-log /dev/nvme0n1 --output-format=json" | sudo tee /etc/sudoers.d/spark-center-nvme
-  sudo chmod 440 /etc/sudoers.d/spark-center-nvme
-  sudo visudo -c
-  ```
-  沒放行時只顯示免 root 的型號／韌體／序號並說明。監控分頁另有 NVMe 溫度曲線（hwmon，免 root）。
-- **硬體** 頂部是「後面板」示意圖：USB-C ×4（最左為電源輸入）、HDMI、10GbE、QSFP（ConnectX-7）、Kensington，順序依 ServeTheHome 評測。
-  每個 USB-C 孔同時顯示 DP Alt Mode 輸出（xrandr 的 USB-C-0..3）與 USB 裝置（xHCI 控制器 NVDA8000:00..03）。
-  編號對應實體位置是推測；「校準孔位」：點一個孔、把裝置插進那個洞，偵測到新裝置就綁定，存在瀏覽器 localStorage。
-  韌體 ACPI _PLD 給的左/右標示也一併顯示。ConnectX-7 在這台 lspci 看不到，照實標「未見」。
-- **硬體**：類似 Windows 系統資訊／裝置管理員的靜態清單：系統、CPU、記憶體模組、GPU、儲存、網路、藍牙（bluetoothctl）、感測器、
-  USB 樹（/sys/bus/usb 依 hub 層級掛樹，名稱缺的以 usb.ids 補並標示）、PCI。進入分頁抓一次，不輪詢。機型/BIOS（/sys DMI）、CPU（lscpu）、記憶體、GPU（nvidia-smi，含溫度/使用率/功耗每 5 秒更新）、
-  儲存（lsblk＋statvfs 用量）、網路（ip -j）、hwmon 溫度、USB、PCI。主要來源不提權。
-  序號、UUID、記憶體模組明細來自 dmidecode，需要 root；工具用 `sudo -n` 呼叫，沒放行就在畫面上標明不顯示。
-  要放行只開這一個唯讀指令（dmidecode 不會改任何東西）：
+These are deliberate, and they are why the tool exists:
 
-  ```
-  echo "$USER ALL=(root) NOPASSWD: /usr/sbin/dmidecode" | sudo tee /etc/sudoers.d/spark-center-dmidecode
-  sudo chmod 440 /etc/sudoers.d/spark-center-dmidecode
-  sudo visudo -c
-  ```
+- **Never reboot on its own.** It reports whether a reboot is needed and leaves the decision to you.
+- **Never claim what it cannot read.** Anything unavailable shows `—` with the reason. Guesses are labelled as guesses.
+- **Ask for privilege only when needed.** It runs as you, not as root. apt goes through aptdaemon and polkit; snap goes through pkexec. Compare with the stock dashboard, whose helper runs as root permanently.
+- **`127.0.0.1` only.** This page can install packages and delete models. Do not expose it.
+- **No external dependencies.** Python 3 standard library plus what DGX OS already ships (`python3-apt`, `python3-aptdaemon`, `python3-gi`), `ctypes` into `libnvidia-ml.so`, and one hand-written HTML file with inline SVG. No pip, no npm, no CDN.
 
-有新版時可按「說明」看更新內容。各來源能給的不一樣，畫面上會標明：
-apt 走 `apt-get changelog`（Ubuntu 官方套件有，第三方 repo 多半沒有）；
-flatpak 本機沒有 appstream 時只能給遠端 commit 的提交訊息，不是 release notes；snap 商店不提供。
+## Install
 
-它取代不了 Dashboard 的 Spark OS 韌體 OTA（那段是 NVIDIA 閉源流程）。
-定位：日常軟體更新用這頁；清單裡出現 dgx-release / dgx-spark-ota-update-meta / linux-image-nvidia 這類 Spark OS 本體更新時，再用 Dashboard。
-
-變更紀錄見 [CHANGELOG.md](CHANGELOG.md)。
-
-## 桌面 App
-
-`app/spark-center.desktop` 會出現在應用程式選單（Spark Center），點開是 Chrome app 模式的獨立視窗（無網址列、獨立 profile、有自己的圖示與工作列項目）。
-DGX Dashboard 的啟動器其實只是 xdg-open 開瀏覽器分頁。安裝：
-
-`./install.sh` 會一併安裝捷徑與圖示。
-
-## 韌體（fwupd）
-
-更新分頁下方列出 fwupd 看到的每個韌體裝置：現在版本、LVFS 是否有新版、上次更新的歷史結果。
-「歷史說成功但版本不符」= Dashboard 回報成功但其實沒更新（論壇第 1 大抱怨的根因，USB-C PD 控制器韌體）。
-按鈕走 fwupdmgr（polkit 跳密碼），裝完不自動重開機。
-
-## 安裝
-
-```
+```sh
+git clone https://github.com/tiong6/spark-center.git
+cd spark-center
 ./install.sh
 ```
-會依 repo 位置生成 systemd user 單元與桌面捷徑（模板是 `spark-center.service.in`、`app/spark-center.desktop.in`），啟用服務。
 
-開 http://localhost:11001
+`install.sh` generates the systemd user unit and the desktop entry from templates (using wherever you cloned the repo), installs the icon, and starts the service. No root required.
 
-## 相依
+Then open <http://127.0.0.1:11001>, or launch **Spark Center** from the application menu — it opens as a standalone window, not a browser tab.
 
-Ubuntu 24.04 內建：python3-apt、python3-aptdaemon、python3-dbus、python3-gi。沒有 pip 套件。
+```sh
+systemctl --user status spark-center     # 狀態
+journalctl --user -u spark-center -f     # 日誌
+```
+
+## Optional: two read-only sudoers rules
+
+Everything works without root. Two panels need it, and each is a single read-only command with its arguments pinned:
+
+```sh
+# DMI: serial number, UUID, memory module details
+echo "$USER ALL=(root) NOPASSWD: /usr/sbin/dmidecode" | sudo tee /etc/sudoers.d/spark-center-dmidecode
+
+# NVMe SMART: wear level, spare blocks, total writes, media errors
+echo "$USER ALL=(root) NOPASSWD: /usr/sbin/nvme smart-log /dev/nvme0n1 --output-format=json" | sudo tee /etc/sudoers.d/spark-center-nvme
+
+sudo chmod 440 /etc/sudoers.d/spark-center-*
+sudo visudo -c
+```
+
+Without them those panels say so on screen instead of showing blanks.
+
+## What it does not do
+
+- **It does not replace the Spark OS firmware OTA.** That path is NVIDIA's and closed. When `dgx-release`, `dgx-spark-ota-update-meta` or `linux-image-nvidia` appear in the update list, use the stock Dashboard for those.
+- It does not change router settings, kill your applications, or remove Docker volumes. Where something is risky it tells you and stops.
+- It lists only applications that have a desktop entry. Command-line tools and libraries are not in the Apps tab; they are in Updates.
+
+## 一個要知道的取捨
+
+更新分頁讓你自己勾選套件，這是它存在的理由，但也是它唯一比官方 Dashboard 危險的地方：
+**核心與 NVIDIA 簽章模組是兩個獨立的 meta 套件，彼此沒有相依關係。** 只勾核心不勾模組，模擬不會有任何警告，
+重開機後會進到一個沒有簽章 GPU 驅動的核心。升級核心時請連 `linux-modules-nvidia-*-nvidia-hwe-*` 一起勾。
+
+## 需求
+
+Ubuntu 24.04 / DGX OS 7.x on aarch64. 以下都是系統內建，不需要另外安裝：
+`python3-apt`、`python3-aptdaemon`、`python3-dbus`、`python3-gi`、`fwupd`、`nvme-cli`、`bluez`、`iw`、`network-manager`。
 
 ## 檔案
 
-- `server.py` 後端（stdlib http.server + python-apt + aptdaemon.client）
-- `index.html` 前端（單檔，無外部資源）
-- `spark-center.service` systemd user unit
+| 檔案 | 用途 |
+|---|---|
+| `server.py` | 後端，stdlib `http.server`，約 2600 行 |
+| `index.html` | 前端單檔，無外部資源，約 1000 行 |
+| `install.sh` | 產生並安裝 systemd 單元與桌面捷徑 |
+| `spark-center.service.in`、`app/spark-center.desktop.in` | 路徑用 `@ROOT@` 的模板 |
+| `data/` | 執行時資料（孔位校準、量測歷史、硬體快照），已 git 忽略 |
+
+## Changelog
+
+見 [CHANGELOG.md](CHANGELOG.md)。
+
+## License
+
+MIT — 見 [LICENSE](LICENSE)。與 NVIDIA、ASUS 無關，非官方工具。
