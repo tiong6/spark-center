@@ -71,6 +71,9 @@
   input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
   .empty { text-align: center; padding: 36px; color: var(--muted); }
   .clrow td { background: #0f1110; }
+  table.cltab { width: auto; min-width: 460px; margin-top: 4px; border: 1px solid var(--line); }
+  table.cltab th, table.cltab td { padding: 5px 14px 5px 10px; font-size: 12px; }
+  table.cltab tr.me td { background: var(--surface2); font-weight: 600; }
   pre.cl { margin: 0; white-space: pre-wrap; font-size: 12px; color: #c9cfc9; max-height: 320px; overflow: auto; }
   progress { width: 100%; height: 10px; accent-color: var(--accent); }
   pre.log { background: #0a0c0b; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 12px; max-height: 220px; overflow: auto; color: var(--muted); margin: 10px 0 0; white-space: pre-wrap; }
@@ -344,7 +347,17 @@ async function toggleChangelog(btn, source, id, installed) {
   btn.disabled = false; btn.textContent = '收合';
   const row = document.createElement('tr'); row.className = 'clrow';
   const linkify = t => esc(t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--info)">$1</a>');
-  row.innerHTML = `<td colspan="${tr.children.length}"><div class="sub1" style="margin-bottom:6px">${linkify(j.note || j.error || '')}</div>${j.text ? `<pre class="cl">${linkify(j.text)}</pre>` : ''}</td>`;
+  let body = '';
+  if (j.summary) body += `<div style="margin-bottom:4px">${esc(j.summary)}</div>`;
+  if (j.meta) body += `<div class="sub1" style="margin-bottom:8px">${esc(j.meta)}</div>`;
+  if (j.table) {                    // 真表格，不靠空格對齊（等寬字型下 CJK 寬度不保證是英數兩倍）
+    body += `<table class="cltab"><thead><tr>${j.table.columns.map((c, i) => `<th${i >= 3 ? ' style="text-align:right"' : ''}>${esc(c)}</th>`).join('')}</tr></thead><tbody>` +
+      j.table.rows.map(r => `<tr${r.installed ? ' class="me"' : ''}><td>${esc(r.channel)}${r.current ? '<span class="tag ok">目前這版</span>' : ''}</td><td class="mono">${esc(r.version)}</td><td class="sub1">${esc(r.date)}</td><td class="mono" style="text-align:right">${esc(r.rev)}</td><td class="sub1" style="text-align:right">${esc(r.size)}</td></tr>`).join('') + `</tbody></table>`;
+  } else if (j.text) {
+    body += `<pre class="cl">${linkify(j.text)}</pre>`;
+  }
+  if (j.store_url) body += `<div class="sub1" style="margin-top:8px">商店頁面：${linkify(j.store_url)}</div>`;
+  row.innerHTML = `<td colspan="${tr.children.length}"><div class="sub1" style="margin-bottom:6px">${linkify(j.note || j.error || '')}</div>${body}</td>`;
   tr.after(row);
 }
 

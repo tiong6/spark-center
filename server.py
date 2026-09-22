@@ -705,28 +705,20 @@ def changelog_snap(name, installed_version=""):
     if not rows:
         return {"ok": False, "text": "", "note": "snap info 沒有回報頻道資訊"}
     inst = next((r for r in rows if r["channel"] == "installed"), None)
-    lines = []
-    if summary:
-        lines.append(summary)
+    # 回結構化表格，不用空格排版：等寬字型下 CJK 不保證是英數的兩倍寬，靠字元數對齊一定會歪
+    table_rows = []
+    for r in rows:
+        table_rows.append({
+            "channel": "已安裝" if r["channel"] == "installed" else r["channel"],
+            "version": r["version"], "date": r["date"] or "—", "rev": r["rev"], "size": r["size"],
+            "installed": r["channel"] == "installed",
+            "current": bool(inst and r["channel"] != "installed" and r["rev"] == inst["rev"]),
+        })
     meta = " · ".join(x for x in [f"發行者 {publisher}" if publisher else None,
                                   f"追蹤 {tracking}" if tracking else None,
                                   f"上次更新 {refresh}" if refresh else None] if x)
-    if meta:
-        lines.append(meta)
-    lines.append("")
-    import unicodedata
-    dw = lambda t: sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in str(t))
-    pad = lambda t, w: str(t) + " " * max(1, w - dw(t))
-    rpad = lambda t, w: " " * max(1, w - dw(t)) + str(t)
-    lines.append(pad("頻道", 18) + pad("版本", 20) + pad("發布日期", 13) + rpad("版次", 6) + "  " + rpad("大小", 7))
-    for r in rows:
-        name_zh = "已安裝" if r["channel"] == "installed" else r["channel"]
-        mark = "  ← 目前這版" if (inst and r["channel"] != "installed" and r["rev"] == inst["rev"]) else ""
-        lines.append(pad(name_zh, 18) + pad(r["version"], 20) + pad(r["date"] or "—", 13) + rpad(r["rev"], 6) + "  " + rpad(r["size"], 7) + mark)
-    if store_url:
-        lines.append("")
-        lines.append(f"商店頁面：{store_url}")
-    return {"ok": True, "text": "\n".join(lines),
+    return {"ok": True, "text": "", "summary": summary, "meta": meta, "store_url": store_url,
+            "table": {"columns": ["頻道", "版本", "發布日期", "版次", "大小"], "rows": table_rows},
             "note": "Snap 商店沒有逐版更新說明；以下是 snap info 的頻道與版本資訊，不是 changelog。"}
 
 
