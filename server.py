@@ -350,7 +350,8 @@ class Job:
                         mb = lambda b: f"{b / 1e6:.1f} MB"   # snapd 自己用 10^6，跟著一致
                         size = (f" · {mb(pr['bytes_done'])} / {mb(pr['bytes_total'])}"
                                 if pr.get("bytes_total") else "")
-                        self.state["details"] = (f"步驟 {pr['done'] + 1}/{pr['total']}" + size
+                        step = min(pr["done"] + 1, pr["total"]) if pr["total"] else pr["done"]
+                        self.state["details"] = (f"步驟 {step}/{pr['total']}" + size
                                                  + (f" · 這步 {pr['task_percent']}%" if pr["task_percent"] is not None else "")
                                                  + (f"（整體 {pr['task_ratio']}%）" if pr["task_ratio"] is not None else ""))
                     if pr["status"] in ("Done", "Error", "Undone", "Hold"):
