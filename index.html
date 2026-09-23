@@ -240,6 +240,7 @@
           <button id="btnGo" class="primary" disabled>檢查影響並更新 (0)</button>
         </div>
       </div>
+      <div id="dashCompare" class="sub1" style="margin-top:8px"></div>
       <div id="list"></div>
     </div>
     <div class="panel" id="fwPanel"><div class="panel-h"><h2>韌體（fwupd）</h2><span class="sub" id="fwMeta">讀取中…</span><div class="actions"><button id="btnFwRefresh" class="small">向 LVFS 重新查詢</button><button id="btnFwUpdate" class="small primary hide">用 fwupd 更新韌體</button></div></div><div id="fw"></div></div>
@@ -387,7 +388,7 @@ function renderList() {
     for (const it of items) {
       html += `<tr>
         <td><input type="checkbox" data-pkg="${esc(it.name)}" ${state.selected.has(it.name)?'checked':''}></td>
-        <td>${esc(it.name)}${it.security?'<span class="tag sec">security</span>':''}${it.reboot_hint?'<span class="tag reboot" title="依套件名稱推測，非系統判定">通常需重開（推測）</span>':''}</td>
+        <td>${esc(it.name)}${it.security?'<span class="tag sec">security</span>':''}${it.spark_core?'<span class="tag" style="color:#76b900;border-color:#4b6b1e" title="Spark OS／NVIDIA 平台套件：Dashboard 的韌體＋重開機流程對這類才有意義">Spark OS · 建議用 Dashboard</span>':''}${it.reboot_hint?'<span class="tag reboot" title="依套件名稱推測，非系統判定">通常需重開（推測）</span>':''}</td>
         <td class="mono">${esc(it.installed)}<br><span class="to">→ ${esc(it.candidate)}</span></td>
         <td class="col-opt sub1">${esc(it.summary)}</td>
         <td class="sub1">${fmtBytes(it.size)}</td>
@@ -431,6 +432,8 @@ async function load() {
   for (const s of [...state.selected]) if (!names.has(s)) state.selected.delete(s);
   state.items = j.items;
   $('#meta').textContent = `可升級 ${j.items.length} 個 · apt 索引最後更新 ${j.last_refresh ? j.last_refresh.replace('T',' ') : '—'}`;
+  const D = j.dashboard;
+  $('#dashCompare').innerHTML = D ? `對照：<b>DGX Dashboard 的 Update</b> 等同一次做完 升級 ${D.upgrade}${D.install ? ` · 新安裝 ${D.install}` : ''}${D.remove ? ` · <span style="color:var(--danger)">移除 ${D.remove}</span>` : ''}${D.firmware != null ? ` · 韌體 ${D.firmware}` : ''} · <span style="color:var(--warn)">強制重開機</span>，而且不顯示清單。${esc(D.note)}` : '';
   renderReboot(j.reboot); renderList();
 }
 
@@ -442,12 +445,16 @@ $('#btnGo').onclick = async () => {
   const body = $('#mBody');
   if (!sim.ok) { body.innerHTML = `<div class="panel notice danger">無法模擬：${esc(sim.error)}</div>`; $('#mOk').classList.add('hide'); openModal('無法進行'); return; }
   const extra = sim.changes.filter(c => !c.requested), rm = sim.changes.filter(c => c.action === 'remove');
-  let html = `<p>你勾了 <b>${names.length}</b> 個，apt 實際會動到 <b>${sim.changes.length}</b> 個套件。下載約 ${fmtBytes(sim.download_bytes)}，磁碟變化 ${fmtBytes(Math.abs(sim.space_bytes))}${sim.space_bytes<0?'（釋放）':''}。</p>`;
+  let html = '';
+  if (sim.pairing) html += `<div class="panel notice danger"><b>核心與 NVIDIA 驅動要一起升級</b><div style="margin-top:6px">${esc(sim.pairing.message)}</div><div class="sub1" style="margin-top:6px">缺的是：<span class="mono">${sim.pairing.missing.map(esc).join('、')}</span></div><div style="margin-top:8px"><button class="small primary" id="pairAdd">把它們一起勾選並重新檢查</button></div></div>`;
+  html += `<p>你勾了 <b>${names.length}</b> 個，apt 實際會動到 <b>${sim.changes.length}</b> 個套件。下載約 ${fmtBytes(sim.download_bytes)}，磁碟變化 ${fmtBytes(Math.abs(sim.space_bytes))}${sim.space_bytes<0?'（釋放）':''}。</p>`;
   if (rm.length) html += `<div class="panel notice danger">這次會<b>移除</b> ${rm.length} 個套件，請確認你真的要這樣。</div>`;
   if (extra.length) html += `<div class="panel notice warn">有 ${extra.length} 個你沒勾、但因相依性會一起動到的套件（橘色）。</div>`;
   html += `<div class="chg">` + sim.changes.map(c => `<div class="${c.action==='remove'?'rm':(c.requested?'':'extra')}">${c.action.padEnd(9)} ${esc(c.name)} ${esc(c.from)}${c.to?' → '+esc(c.to):''}</div>`).join('') + `</div>`;
   html += `<p class="muted" style="margin-top:12px">按下確認後，桌面會跳出 polkit 密碼視窗（aptdaemon 的正常授權流程）。更新完成後<b>不會</b>自動重開機。</p>`;
   body.innerHTML = html; $('#mOk').classList.remove('hide');
+  const pa = $('#pairAdd');
+  if (pa) pa.onclick = () => { sim.pairing.missing.forEach(n => state.selected.add(n)); closeModal(); renderList(); $('#btnGo').click(); };
   $('#mOk').onclick = async () => {
     closeModal();
     const r = await api('/api/install', {packages: names});

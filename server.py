@@ -66,6 +66,58 @@ def _group_name(orig):
     return name
 
 
+# Spark OS 本體／NVIDIA 平台套件：Dashboard 的「韌體＋重開機」流程對這些才有意義
+SPARK_CORE_RE = re.compile(r"^(dgx-|nvidia-dgx|nvidia-driver|nvidia-kernel|nvidia-fabricmanager|"
+                           r"linux-image-nvidia|linux-headers-nvidia|linux-nvidia|linux-image-\d[\d.]*-nvidia)")
+# 核心與 NVIDIA 簽章模組是兩個獨立 meta 套件，彼此沒有相依：只升其中一個會開出沒有 GPU 驅動的系統
+KERNEL_RE = re.compile(r"^(linux-image-nvidia|linux-nvidia|linux-headers-nvidia|linux-image-\d[\d.]*-nvidia)")
+NVMOD_RE = re.compile(r"^linux-modules-nvidia-")
+
+
+def kernel_pairing_warning(selected, upgradable):
+    """勾了核心沒勾 NVIDIA 模組（或反過來）就警告。這是可勾選設計唯一比 Dashboard 危險的地方。"""
+    sel_k = [n for n in selected if KERNEL_RE.match(n)]
+    sel_m = [n for n in selected if NVMOD_RE.match(n)]
+    av_k = [n for n in upgradable if KERNEL_RE.match(n)]
+    av_m = [n for n in upgradable if NVMOD_RE.match(n)]
+    if sel_k and av_m and not sel_m:
+        return {"kind": "missing_modules", "missing": sorted(av_m),
+                "message": "你勾了核心，但沒有勾對應的 NVIDIA 簽章模組。兩者沒有相依關係，模擬不會提醒你。"
+                           "只升核心的話，重開機後會進到一個沒有簽章 GPU 驅動的系統，退回 DKMS 自簽又會被 Secure Boot 擋掉。"}
+    if sel_m and av_k and not sel_k:
+        return {"kind": "missing_kernel", "missing": sorted(av_k),
+                "message": "你勾了 NVIDIA 簽章模組，但沒有勾對應的核心。模組是對著特定核心版本編譯的，"
+                           "沒有那個核心就用不到。"}
+    return None
+
+
+_DASH_CACHE = {"ts": 0, "data": None}
+
+
+def dashboard_equivalent():
+    """DGX Dashboard 那顆 Update 實際涵蓋什麼。依據：apt 歷史裡它的 aptdaemon 角色是 role-upgrade-system，
+    且歷次都有安裝甚至移除套件——aptdaemon 的 safe_mode=True 會跳過這類升級，所以它用的是完整升級。
+    之後再跑韌體並強制重開機（前端打 /update_reboot）。
+    dist-upgrade 模擬要 1.5 秒以上，而更新分頁每次開頁都會打一次，所以快取起來；套件裝完會一併失效。"""
+    if _DASH_CACHE["data"] and time.time() - _DASH_CACHE["ts"] < 300:
+        return _DASH_CACHE["data"]
+    out = _run(["apt-get", "-s", "dist-upgrade"], timeout=180) or ""
+    ups, news = [], []
+    for m in re.finditer(r"^Inst (\S+)(?: \[([^\]]*)\])?", out, re.M):
+        (ups if m.group(2) else news).append(m.group(1))
+    remv = re.findall(r"^Remv (\S+)", out, re.M)
+    fw = None
+    try:
+        fw = fwupd_status().get("updates")
+    except Exception:
+        pass
+    data = {"upgrade": len(ups), "install": len(news), "remove": len(remv), "firmware": fw,
+            "packages": sorted(set(ups + news)), "removes": sorted(set(remv)),
+            "note": "Dashboard 用 aptdaemon 的完整升級（可安裝／移除套件），裝完跑韌體並強制重開機，過程不顯示清單。"}
+    _DASH_CACHE.update(ts=time.time(), data=data)
+    return data
+
+
 def list_updates():
     cache = apt.Cache()
     items = []
@@ -85,6 +137,7 @@ def list_updates():
             "summary": cand.summary or "",
             "security": "security" in (orig["archive"] or "").lower(),
             "reboot_hint": bool(REBOOT_HINT_RE.match(pkg.name)),
+            "spark_core": bool(SPARK_CORE_RE.match(pkg.name)),
         })
     items.sort(key=lambda x: (x["group"], x["name"]))
     return items
@@ -122,9 +175,11 @@ def simulate(names):
             "requested": p.name in names,
         })
     changes.sort(key=lambda c: (not c["requested"], c["action"], c["name"]))
+    upgradable = [p.name for p in apt.Cache() if p.is_upgradable]
     return {
         "ok": True,
         "changes": changes,
+        "pairing": kernel_pairing_warning(names, upgradable),
         "download_bytes": cache.required_download,
         "space_bytes": cache.required_space,
         "broken": cache.broken_count,
@@ -274,6 +329,7 @@ class Job:
         finally:
             _APPS_CACHE["ts"] = 0  # 讓應用程式清單重新掃描
             _FW["ts"] = 0
+            _DASH_CACHE["ts"] = 0
 
     def _run_ollama_pull(self, model):
         req = urllib.request.Request(OLLAMA + "/api/pull", data=json.dumps({"name": model, "stream": True}).encode(), headers={"Content-Type": "application/json"})
@@ -448,6 +504,9 @@ class Job:
                         self.state["error"] = f"交易結束狀態：{exit_state}"
                     self.state["finished"] = datetime.now().isoformat(timespec="seconds")
                 self._log(f"finished: {exit_state}")
+                _APPS_CACHE["ts"] = 0
+                _FW["ts"] = 0
+                _DASH_CACHE["ts"] = 0
                 loop.quit()
 
             trans.connect("status-changed", on_status)
@@ -2709,6 +2768,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({
                     "ok": True,
                     "items": list_updates(),
+                    "dashboard": dashboard_equivalent(),
                     "reboot": reboot_status(),
                     "last_refresh": last_refresh(),
                     "job_running": JOB.snapshot()["status"] == "running",
