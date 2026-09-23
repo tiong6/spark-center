@@ -681,6 +681,41 @@ def list_apps(force=False):
 _CHANGELOG_CACHE = {}
 
 
+# 第三方 repo 不提供 apt changelog 時，指向廠商自己的發行說明頁（比只說「沒有」有用）
+VENDOR_RELEASE_NOTES = {
+    "google-chrome-stable": "https://chromereleases.googleblog.com/search/label/Stable%20updates",
+    "code": "https://code.visualstudio.com/updates",
+    "brave-browser": "https://brave.com/latest/",
+    "tailscale": "https://tailscale.com/changelog",
+    "chatgpt": "https://help.openai.com/en/articles/10119604-work-with-apps-on-macos-and-windows",
+    "docker-ce": "https://docs.docker.com/engine/release-notes/",
+    "docker-ce-cli": "https://docs.docker.com/engine/release-notes/",
+    "nodejs": "https://github.com/nodejs/node/releases",
+    "gh": "https://github.com/cli/cli/releases",
+}
+
+
+def _apt_vendor_hint(pkg):
+    """沒有 changelog 時給使用者一條去處：廠商發行說明頁，沒有的話退回套件自己宣告的官網與來源網域。"""
+    url = VENDOR_RELEASE_NOTES.get(pkg)
+    home = site = None
+    try:
+        cache = apt.Cache()
+        if pkg in cache and cache[pkg].candidate:
+            v = cache[pkg].candidate
+            home = v.homepage or None
+            site = v.origins[0].site if v.origins else None
+    except Exception:
+        pass
+    if url:
+        return f"改看廠商的發行說明：{url}"
+    if home:
+        return f"這個來源沒有提供 changelog；套件宣告的官網是 {home}"
+    if site:
+        return f"這個來源（{site}）沒有提供 changelog，套件也沒宣告官網"
+    return ""
+
+
 def changelog_apt(pkg, installed_version=""):
     """用 `apt-get changelog`（不需 root）抓候選版本的 changelog，截到已安裝版本為止。
     第三方 repo 多半沒提供，照實回報。python-apt 的 get_changelog 在這台機器上抓不到，所以走子程序。"""
@@ -691,8 +726,8 @@ def changelog_apt(pkg, installed_version=""):
     except OSError as e:
         return {"ok": False, "text": "", "note": f"無法執行 apt-get：{e}"}
     if r.returncode != 0:
-        err = (r.stderr or "").strip().splitlines()
-        return {"ok": False, "text": "", "note": "此來源未提供更新說明（多為第三方 repo）" + (f"：{err[-1]}" if err else "")}
+        hint = _apt_vendor_hint(pkg)
+        return {"ok": False, "text": "", "note": "此來源未提供更新說明（多為第三方 repo）。" + (hint or "")}
     head_re = re.compile(r"^(\S+) \(([^)]+)\)")
     kept, seen_any, truncated = [], False, False
     for line in r.stdout.splitlines():
@@ -706,7 +741,8 @@ def changelog_apt(pkg, installed_version=""):
                 break
         kept.append(line)
     if not seen_any:
-        return {"ok": False, "text": "", "note": "此來源未提供更新說明（多為第三方 repo）"}
+        hint = _apt_vendor_hint(pkg)
+        return {"ok": False, "text": "", "note": "此來源未提供更新說明（多為第三方 repo）。" + (hint or "")}
     text = "\n".join(kept).strip()
     if truncated and not text:
         return {"ok": True, "text": "", "note": "已安裝版本就是最新條目，沒有更新的 changelog"}
