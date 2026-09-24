@@ -493,7 +493,8 @@ $('#btnGo').onclick = async () => {
   openModal('確認變更');
 };
 $('#btnRefresh').onclick = async () => { const r = await api('/api/refresh', {}); if (!r.ok) { alert('無法開始：' + r.error); return; } startPolling('重新整理 apt 來源'); };
-$('#btnAll').onclick = () => { state.items.forEach(i => state.selected.add(i.name)); renderList(); };
+// 全選只選主清單；折疊區的 firmware 子套件要升級就展開用它自己的群組勾選框
+$('#btnAll').onclick = () => { state.items.filter(i => !(i.firmware && i.firmware.passive)).forEach(i => state.selected.add(i.name)); renderList(); };
 $('#btnNone').onclick = () => { state.selected.clear(); renderList(); };
 function openModal(t) { $('#mTitle').textContent = t; $('#overlay').classList.add('open'); }
 function closeModal() { $('#overlay').classList.remove('open'); }
