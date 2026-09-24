@@ -146,6 +146,12 @@
   .mcard .wifikv { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 20px; font-size: 13px; margin-top: 2px; }
   .mcard .wifikv div { display: flex; gap: 8px; min-width: 0; } .mcard .wifikv dt { color: var(--muted); flex: none; width: 52px; } .mcard .wifikv dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mon.compact .mcard .wifikv { display: none; }
+  .mcard h3 .t { cursor: grab; }
+  .mcard.dragging { opacity: .45; }
+  .mcard.dropbefore { box-shadow: -4px 0 0 var(--accent); } .mcard.dropafter { box-shadow: 4px 0 0 var(--accent); }
+  .mcard h3 .hidebtn { margin-left: auto; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line); color: var(--muted); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; cursor: pointer; opacity: 0; transition: opacity .15s; }
+  .mcard:hover h3 .hidebtn { opacity: 1; } .mcard h3 .switch + .hidebtn, .mcard h3 .hidebtn + .switch { margin-left: 8px; }
+  .mcard h3 .switch { margin-left: auto; }
   .montools .info { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line); color: var(--muted); font-size: 12px; cursor: help; margin-left: 8px; align-self: center; }
   .mcard h3 .warnbtn { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--warn); color: var(--warn); font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 8px; }
   .mcard h3 .warnbtn.danger { border-color: var(--danger); color: var(--danger); }
@@ -182,7 +188,7 @@
   /* 小尺寸：三到四欄、儀表縮 62%、折線 70px、隱藏說明列 */
   .mon.compact { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
   .mon.compact .mcard { grid-template-columns: 128px 1fr; gap: 8px; padding: 10px 12px 8px; }
-  .mon.compact .mcard h3 { margin-bottom: 0; flex-wrap: nowrap; } .mon.compact .mcard h3 .t { font-size: 13px; } .mon.compact .mcard h3 span:not(.t):not(.switch):not(.warnbtn) { display: none; }
+  .mon.compact .mcard h3 { margin-bottom: 0; flex-wrap: nowrap; } .mon.compact .mcard h3 .t { font-size: 13px; } .mon.compact .mcard h3 span:not(.t):not(.switch):not(.warnbtn):not(.hidebtn) { display: none; }
   .mon.compact .warnbox.open { display: block; }
   .mon.compact .gauge { width: 128px; height: 92px; overflow: hidden; }
   .mon.compact .gauge svg { width: 128px; height: 77px; }
@@ -316,7 +322,7 @@
 
   <section id="tab-monitor">
     <div id="gpuAlert" class="panel notice danger hide"></div>
-    <div class="montools"><span class="sub1" style="align-self:center" data-i18n="common.size">尺寸</span><span class="switch" id="monSize"><span data-size="large" data-i18n="common.large">大</span><span data-size="compact" data-i18n="common.small">小</span></span><span class="info" id="monNote" title="">ⓘ</span></div>
+    <div class="montools"><span class="sub1" style="align-self:center" data-i18n="common.size">尺寸</span><span class="switch" id="monSize"><span data-size="large" data-i18n="common.large">大</span><span data-size="compact" data-i18n="common.small">小</span></span><button class="small hide" id="monReset" data-i18n="mon.reset_layout">還原版面</button><span class="info" id="monNote" title="">ⓘ</span></div>
     <div id="mon" class="mon"><div class="panel"><div class="empty" data-i18n="updates.loading">讀取中…</div></div></div>
   </section>
 
@@ -862,6 +868,10 @@ const STR = {
     "common.search_names_or_packages": "搜尋名稱或套件",
     "common.size": "尺寸",
     "common.large": "大",
+    "mon.hide_card": "隱藏這張卡",
+    "mon.reset_layout": "還原版面",
+    "mon.hidden_n": "已隱藏 {n} 張",
+    "mon.drag_hint": "拖曳標題可調整順序",
     "common.small": "小",
     "common.servers": "伺服器",
     "common.detecting": "偵測中…",
@@ -1411,6 +1421,10 @@ const STR = {
     "common.search_names_or_packages": "Search names or packages",
     "common.size": "Size",
     "common.large": "Large",
+    "mon.hide_card": "Hide this card",
+    "mon.reset_layout": "Reset layout",
+    "mon.hidden_n": "{n} hidden",
+    "mon.drag_hint": "Drag the title to reorder",
     "common.small": "Small",
     "common.servers": "Servers",
     "common.detecting": "Detecting…",
@@ -2182,6 +2196,11 @@ function gaugeLeft(pct, hero, sub) { return `<div class="gauge">${gaugeSvg(pct)}
 function kvRight(rows) { return `<dl class="kv" style="margin-top:0;grid-template-columns:90px 1fr">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`; }
 function tileLeft(hero, sub) { return `<div class="tile"><b>${esc(hero)}</b><span>${esc(sub)}</span></div>`; }
 
+// 監控版面（順序＋隱藏）：只是這台瀏覽器的偏好，讀不到就當預設，不會影響資料
+function monLayout() {
+  try { const L = JSON.parse(localStorage.getItem('spark-center.monLayout') || '{}'); return {order: Array.isArray(L.order) ? L.order : [], hidden: Array.isArray(L.hidden) ? L.hidden : []}; } catch (e) { return {order: [], hidden: []}; }
+}
+function monLayoutSave(L) { try { localStorage.setItem('spark-center.monLayout', JSON.stringify(L)); } catch (e) {} }
 function renderMon(j, rerender) {
   const S = hw.static, sampleTime = j.epoch, prev = rerender ? hw.prevPrev : hw.prev, cards = [], hovers = [];
   const pushHist = rerender ? () => {} : window.pushHist;
@@ -2272,7 +2291,42 @@ function renderMon(j, rerender) {
     cards.push(monCard('net-' + n.name, t("mon.network", {v0: n.name}), t("mon.chart_scale_follows_the_interval_maximum", {v0: n.kind, v1: n.ipv4.join(', ')}), tileLeft(rx == null ? '…' : '↓ ' + fmtRate(rx), rx == null ? t("mon.waiting_for_second_sample") : '↑ ' + fmtRate(tx)), ser, ymax, fmtRate, `<span><i style="background:${C_LINE}"></i>${t("mon.download_rx")}</span><span><i style="background:${C_TX}"></i>${t("mon.upload_tx")}</span>`));
     hovers.push(['net-' + n.name, ser, fmtRate]);
   }
-  $('#mon').innerHTML = cards.join('');
+  // 版面自訂：順序與隱藏記在這個瀏覽器（localStorage），每次重繪都套用；拖曳中不重繪，免得卡片在手上被換掉
+  if (hw.dragging) { if (!rerender) { hw.prevPrev = hw.prev; hw.prev = j; } return; }
+  const idOf = html => (html.match(/id="mon-([^"]+)"/) || [])[1] || '';
+  const order = monLayout().order, hidden = new Set(monLayout().hidden);
+  const rank = id => { const i = order.indexOf(id); return i < 0 ? 1e9 : i; };
+  const shown = cards.map(h => [idOf(h), h]).filter(([id]) => !hidden.has(id)).sort((a, b) => rank(a[0]) - rank(b[0]) || 0);
+  const allIds = cards.map(idOf);
+  $('#mon').innerHTML = shown.map(([, h]) => h).join('');
+  const nHidden = allIds.filter(id => hidden.has(id)).length;
+  const customized = nHidden > 0 || order.length > 0;
+  $('#monReset').classList.toggle('hide', !customized);
+  $('#monReset').textContent = t("mon.reset_layout") + (nHidden ? `（${t("mon.hidden_n", {n: nHidden})}）` : '');
+  $('#monReset').onclick = () => { monLayoutSave({order: [], hidden: []}); if (hw.prev) renderMon(hw.prev, true); };
+  document.querySelectorAll('#mon .mcard').forEach(card => {
+    const h3 = card.querySelector('h3'); if (!h3) return;
+    if (!h3.querySelector('.hidebtn')) h3.insertAdjacentHTML('beforeend', `<span class="hidebtn" title="${t("mon.hide_card")}">×</span>`);
+    h3.querySelector('.hidebtn').onclick = e => { e.stopPropagation(); const L = monLayout(); L.hidden = [...new Set([...L.hidden, card.id.slice(4)])]; monLayoutSave(L); if (hw.prev) renderMon(hw.prev, true); };
+    const tt = h3.querySelector('.t'); if (tt) tt.title = t("mon.drag_hint");
+    card.draggable = true;
+    card.addEventListener('dragstart', e => {
+      if (!hw.dragArmed) { e.preventDefault(); return; }
+      hw.dragging = card; card.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', card.id); } catch (_) {}
+    });
+    card.addEventListener('dragover', e => {
+      if (!hw.dragging || hw.dragging === card) return;
+      e.preventDefault();
+      const kids = [...card.parentNode.children], from = kids.indexOf(hw.dragging), to = kids.indexOf(card);
+      card.parentNode.insertBefore(hw.dragging, from < to ? card.nextSibling : card);
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging'); hw.dragArmed = false;
+      const L = monLayout(); L.order = [...document.querySelectorAll('#mon .mcard')].map(c => c.id.slice(4)); monLayoutSave(L);
+      hw.dragging = null; if (hw.prev) renderMon(hw.prev, true);
+    });
+    h3.addEventListener('mousedown', e => { hw.dragArmed = !!e.target.closest('.t'); });
+  });
   hw.warnOpen = hw.warnOpen || {};
   document.querySelectorAll('.warnbtn[data-warn]').forEach(b => b.onclick = () => { const k = b.dataset.warn; hw.warnOpen[k] = !hw.warnOpen[k]; const box = document.querySelector(`.warnbox[data-warnbox="${k}"]`); if (box) box.classList.toggle('open', hw.warnOpen[k]); });
   document.querySelectorAll('button[data-chan]').forEach(b => b.onclick = () => { hw.chanOpen = !hw.chanOpen; const box = $('#chanbox'); if (box) box.classList.toggle('open', hw.chanOpen); if (hw.chanOpen && !hw.chanData) loadChannels(false); });
