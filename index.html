@@ -23,6 +23,8 @@
   .topbar .brand { font-weight: 700; letter-spacing: .02em; }
   .topbar .brand small { color: var(--muted); font-weight: 400; margin-left: 10px; font-size: 12px; }
   .topbar .right { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .topbar .dash { display: inline-flex; align-items: center; gap: 6px; color: var(--text); text-decoration: none; margin-right: 14px; padding: 2px 8px 2px 2px; border: 1px solid var(--line); border-radius: 6px; }
+  .topbar .dash:hover { background: var(--surface2); } .topbar .dash img { width: 18px; height: 18px; border-radius: 4px; }
   main { max-width: 1200px; margin: 0 auto; padding: 56px 24px 80px; }
   .titlerow { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 22px; flex-wrap: wrap; }
   h1 { font-size: 30px; margin: 0; font-weight: 700; }
@@ -254,7 +256,7 @@
 <div class="topbar">
   <span class="mark"></span>
   <span class="brand">Spark Center <small>ASUS Ascend GX10</small></span>
-  <span class="right"><span class="switch" id="langSwitch" style="margin-right:12px"><span data-lang="zh-TW">中</span><span data-lang="en">EN</span></span><label title="在 ~/.config/autostart 放一份桌面捷徑，GNOME 登入後幾秒自動開啟這個視窗；取消就把檔案刪掉" data-i18n-title="common.create_a_desktop_shortcut_in_config" style="cursor:pointer"><input type="checkbox" id="autostart" style="vertical-align:middle;margin:0 4px 0 0"><span id="autostartLabel" data-i18n="common.open_at_login">登入時自動開啟</span></label><span data-i18n="common.127_0_0_1_only_no"> · 127.0.0.1 only · 不自動重開機</span></span>
+  <span class="right"><a class="dash hide" id="dashLink" target="_blank" rel="noopener" data-i18n-title="common.open_dgx_dashboard"><img src="/dashboard-icon" alt="" onerror="this.remove()"><span data-i18n="common.dgx_dashboard">DGX Dashboard</span></a><span class="switch" id="langSwitch" style="margin-right:12px"><span data-lang="zh-TW">中</span><span data-lang="en">EN</span></span><label title="在 ~/.config/autostart 放一份桌面捷徑，GNOME 登入後幾秒自動開啟這個視窗；取消就把檔案刪掉" data-i18n-title="common.create_a_desktop_shortcut_in_config" style="cursor:pointer"><input type="checkbox" id="autostart" style="vertical-align:middle;margin:0 4px 0 0"><span id="autostartLabel" data-i18n="common.open_at_login">登入時自動開啟</span></label><span data-i18n="common.127_0_0_1_only_no"> · 127.0.0.1 only · 不自動重開機</span></span>
 </div>
 <main>
   <div class="titlerow">
@@ -868,6 +870,8 @@ const STR = {
     "common.update_available": "有新版",
     "common.search_names_or_packages": "搜尋名稱或套件",
     "common.size": "尺寸",
+    "common.dgx_dashboard": "DGX Dashboard",
+    "common.open_dgx_dashboard": "開啟 NVIDIA 的 DGX Dashboard（另開視窗）；Spark OS 韌體 OTA 仍要在那邊做",
     "common.large": "大",
     "mon.hide_card": "隱藏這張卡",
     "mon.reset_layout": "還原版面",
@@ -1423,6 +1427,8 @@ const STR = {
     "common.update_available": "Update available",
     "common.search_names_or_packages": "Search names or packages",
     "common.size": "Size",
+    "common.dgx_dashboard": "DGX Dashboard",
+    "common.open_dgx_dashboard": "Open NVIDIA's DGX Dashboard (new window); Spark OS firmware OTA still happens there",
     "common.large": "Large",
     "mon.hide_card": "Hide this card",
     "mon.reset_layout": "Reset layout",
@@ -2388,6 +2394,7 @@ $('#autostart').onchange = async () => {
   if (!r.ok) { alert(r.error || t("common.setting_failed")); }
   cb.checked = !!r.enabled;   // 以伺服器回報的實際狀態為準
 };
+api('/api/dashboard').then(r => { const a = $('#dashLink'); if (r.ok && r.installed) { a.href = r.url; a.classList.remove('hide'); } });   // 沒裝 dgx-dashboard 就不顯示
 (async () => {
   loadAutostart();
   await load();

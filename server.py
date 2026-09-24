@@ -757,6 +757,7 @@ def simulate(names):
 
 # ---------- 登入時自動開啟（XDG autostart） ----------
 
+DGX_DASHBOARD_ICON = "/usr/share/icons/hicolor/scalable/apps/nvidia-dgx-dashboard.png"   # dgx-dashboard 套件的圖示
 AUTOSTART_FILE = os.path.expanduser("~/.config/autostart/spark-center.desktop")
 DESKTOP_INSTALLED = os.path.expanduser("~/.local/share/applications/spark-center.desktop")
 
@@ -3521,6 +3522,29 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "entries": apt_history()})
         elif path == "/api/reboot":
             self._json(reboot_status())
+        elif path == "/api/dashboard":
+            # DGX Dashboard 的網址：埠號照 /usr/bin/dgx-dashboard 的邏輯讀 ports.env，讀不到就 11000
+            port = 11000
+            try:
+                for line in open("/opt/nvidia/dgx-dashboard-service/ports.env", encoding="utf-8"):
+                    m = re.match(r"\s*(?:export\s+)?DGX_DASHBOARD_PORT\s*=\s*\"?(\d+)", line)
+                    if m:
+                        port = int(m.group(1))
+            except OSError:
+                pass
+            self._json({"ok": True, "url": f"http://localhost:{port}/", "installed": os.path.exists("/usr/bin/dgx-dashboard"),
+                        "icon": os.path.isfile(DGX_DASHBOARD_ICON)})
+        elif path == "/dashboard-icon":
+            if not os.path.isfile(DGX_DASHBOARD_ICON):
+                self.send_response(404); self.end_headers(); return
+            with open(DGX_DASHBOARD_ICON, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "max-age=86400")
+            self.end_headers()
+            self.wfile.write(body)
         elif path == "/api/autostart":
             self._json(autostart_status())
         elif path == "/api/hardware":
