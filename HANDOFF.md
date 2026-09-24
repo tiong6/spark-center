@@ -5,9 +5,14 @@
 2026-09-24 晚：介面中英雙語已由 Claude 審收通過並 commit／push（`1c960c9` 雙語本體，後一筆修儀表撞名與英文括號）。
 工作樹乾淨。`docs/WORKORDER-i18n.md` 已完成，留著當規格參考（術語表仍適用於之後新增的字串）。
 
+## 前端已拆檔（2026-09-24 深夜）
+
+index.html 只剩骨架；CSS 在 static/css/app.css，JS 在 static/js/ 依分頁 11 支，載入順序見 index.html 底部，不能亂
+（後面的檔案在載入時引用前面的頂層 const）。改完跑 `tools/check.sh`。CSS 有 8 處既有的重複選擇器定義，lint 只警告，改到時併掉。
+
 ## 之後新增字串的規矩
 
-- 前端：字串進 `STR['zh-TW']` 與 `STR['en']` 兩邊都要有，用 `t('key', {vars})` 取；靜態 HTML 用 `data-i18n`。
+- 前端：字串進 static/js/i18n.js 的 `STR['zh-TW']` 與 `STR['en']` 兩邊都要有，用 `t('key', {vars})` 取；靜態 HTML 用 `data-i18n`。
 - 後端：可顯示字串進 `MSG` 兩邊，回應時 `_localized_response` 會翻；內部快取與 `data/` 維持中文。
 - 限定語不能翻軟；找不到對應翻譯就顯示原文，不編。
 

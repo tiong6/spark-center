@@ -3446,6 +3446,23 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.lang = self._request_lang()
         path = self.path.split("?", 1)[0]
+        if path.startswith("/static/"):
+            # 前端拆成 index.html＋static/（CSS 一檔、JS 依分頁），仍由這支服務直接提供，沒有建置步驟。
+            # 只允許 static/ 底下的檔案；no-store 是因為本機服務更新後不該看到舊版。
+            base = os.path.realpath(os.path.join(HERE, "static"))
+            fp = os.path.realpath(os.path.join(HERE, path.lstrip("/")))
+            ctype = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8"}.get(os.path.splitext(fp)[1])
+            if not fp.startswith(base + os.sep) or not ctype or not os.path.isfile(fp):
+                self.send_response(404); self.end_headers(); return
+            with open(fp, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path in ("/", "/index.html"):
             with open(os.path.join(HERE, "index.html"), "rb") as f:
                 body = f.read()

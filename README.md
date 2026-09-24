@@ -46,7 +46,7 @@ These are deliberate, and they are why the tool exists:
 - **Never claim what it cannot read.** Anything unavailable shows `—` with the reason. Guesses are labelled as guesses.
 - **Ask for privilege only when needed.** It runs as you, not as root. apt goes through aptdaemon and polkit; snap goes through pkexec. Compare with the stock dashboard, whose helper runs as root permanently.
 - **`127.0.0.1` only.** This page can install packages and delete models. Do not expose it.
-- **No external dependencies.** Python 3 standard library plus what DGX OS already ships (`python3-apt`, `python3-aptdaemon`, `python3-gi`), `ctypes` into `libnvidia-ml.so`, and one hand-written HTML file with inline SVG. No pip, no npm, no CDN.
+- **No external dependencies.** Python 3 standard library plus what DGX OS already ships (`python3-apt`, `python3-aptdaemon`, `python3-gi`), `ctypes` into `libnvidia-ml.so`, and hand-written HTML, CSS and JavaScript with inline SVG, served straight from the repo. No pip, no npm, no CDN, no build step.
 
 ## Install
 
@@ -105,8 +105,10 @@ Ubuntu 24.04 / DGX OS 7.x on aarch64. 以下都是系統內建，不需要另外
 
 | 檔案 | 用途 |
 |---|---|
-| `server.py` | 後端，stdlib `http.server`，約 3200 行 |
-| `index.html` | 前端單檔，無外部資源，約 1200 行 |
+| `server.py` | 後端，stdlib `http.server`，約 3800 行 |
+| `index.html` | 前端骨架（HTML 標記），約 140 行 |
+| `static/css/app.css`、`static/js/*.js` | 前端樣式與各分頁的程式，由 server.py 直接提供，無建置步驟、無外部資源；`i18n.js` 是中英字串表 |
+| `tools/check.sh` | 改動前的靜態檢查：語法、CSS 重複選擇器、重複 id、字串表對齊 |
 | `install.sh` | 產生並安裝 systemd 單元與桌面捷徑 |
 | `spark-center.service.in`、`app/spark-center.desktop.in` | 路徑用 `@ROOT@` 的模板 |
 | `data/` | 執行時資料（孔位校準、量測歷史、硬體快照），已 git 忽略 |
