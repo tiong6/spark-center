@@ -118,6 +118,51 @@ def dashboard_equivalent():
     return data
 
 
+_MODFW_CACHE = {"ts": 0, "names": set()}
+
+
+def _loaded_module_firmware():
+    """已載入核心模組用 MODULE_FIRMWARE 宣告會請求的 firmware 檔名（modinfo -F firmware）。
+    這是「本機驅動會不會用到某包 firmware」唯一能查證的依據；沒宣告但動態請求的驅動查不到，
+    所以前端把結論標成「依 modinfo」而不是斷言沒用。"""
+    if time.time() - _MODFW_CACHE["ts"] < 600:
+        return _MODFW_CACHE["names"]
+    names = set()
+    try:
+        mods = [l.split()[0] for l in open("/proc/modules")]
+    except OSError:
+        mods = []
+    for m in mods:
+        out = _run(["modinfo", "-F", "firmware", m], timeout=5) or ""
+        names.update(l.strip() for l in out.splitlines() if l.strip())
+    _MODFW_CACHE.update(ts=time.time(), names=names)
+    return names
+
+
+def _firmware_usage(pkg, cache):
+    """linux-firmware-* 子套件：被誰拖進來、本機已載入的模組有幾個檔案會用到。不是子套件回 None。"""
+    if not pkg.name.startswith("linux-firmware-") or not pkg.installed:
+        return None
+    meta = cache["linux-firmware"] if "linux-firmware" in cache else None
+    pulled_by = ""
+    if meta and meta.installed and any(d.name == pkg.name for dep in meta.installed.dependencies for d in dep):
+        pulled_by = "linux-firmware"
+    wanted = _loaded_module_firmware()
+    files = used = 0
+    for f in pkg.installed_files:
+        if not f.startswith("/lib/firmware/") or not os.path.isfile(f):
+            continue
+        files += 1
+        rel = f[len("/lib/firmware/"):]
+        for suf in (".zst", ".xz"):
+            if rel.endswith(suf):
+                rel = rel[:-len(suf)]
+        if rel in wanted:
+            used += 1
+    return {"auto": pkg.is_auto_installed, "pulled_by": pulled_by, "files": files, "used": used,
+            "passive": pkg.is_auto_installed and used == 0 and files > 0}
+
+
 def list_updates():
     cache = apt.Cache()
     items = []
@@ -138,6 +183,7 @@ def list_updates():
             "security": "security" in (orig["archive"] or "").lower(),
             "reboot_hint": bool(REBOOT_HINT_RE.match(pkg.name)),
             "spark_core": bool(SPARK_CORE_RE.match(pkg.name)),
+            "firmware": _firmware_usage(pkg, cache),
         })
     items.sort(key=lambda x: (x["group"], x["name"]))
     return items

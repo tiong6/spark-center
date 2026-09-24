@@ -379,25 +379,35 @@ function renderList() {
   const box = $('#list');
   $('#dotUpd').classList.toggle('hide', state.items.length === 0);
   if (!state.items.length) { box.innerHTML = `<div class="empty">目前沒有可升級的套件。</div>`; updateGo(); return; }
-  const groups = {};
-  for (const it of state.items) (groups[it.group] ||= []).push(it);
-  let html = `<table><thead><tr><th style="width:36px"></th><th style="width:32%">套件</th><th style="width:24%">版本</th><th class="col-opt">說明</th><th style="width:80px">大小</th><th style="width:80px"></th></tr></thead><tbody>`;
-  for (const g of Object.keys(groups).sort()) {
-    const items = groups[g]; const allSel = items.every(i => state.selected.has(i.name));
-    html += `<tr class="grp"><td><input type="checkbox" data-group="${esc(g)}" ${allSel?'checked':''}></td><td colspan="5">${esc(g)} <span class="site">${items.length} 個 · ${esc(items[0].site)}</span></td></tr>`;
-    for (const it of items) {
-      html += `<tr>
+  const THEAD = `<thead><tr><th style="width:36px"></th><th style="width:32%">套件</th><th style="width:24%">版本</th><th class="col-opt">說明</th><th style="width:80px">大小</th><th style="width:80px"></th></tr></thead>`;
+  const row = it => `<tr>
         <td><input type="checkbox" data-pkg="${esc(it.name)}" ${state.selected.has(it.name)?'checked':''}></td>
-        <td>${esc(it.name)}${it.security?'<span class="tag sec">security</span>':''}${it.spark_core?'<span class="tag" style="color:#76b900;border-color:#4b6b1e" title="Spark OS／NVIDIA 平台套件：Dashboard 的韌體＋重開機流程對這類才有意義">Spark OS · 建議用 Dashboard</span>':''}${it.reboot_hint?'<span class="tag reboot" title="依套件名稱推測，非系統判定">通常需重開（推測）</span>':''}</td>
+        <td>${esc(it.name)}${it.security?'<span class="tag sec">security</span>':''}${it.spark_core?'<span class="tag" style="color:#76b900;border-color:#4b6b1e" title="Spark OS／NVIDIA 平台套件：Dashboard 的韌體＋重開機流程對這類才有意義">Spark OS · 建議用 Dashboard</span>':''}${it.reboot_hint?'<span class="tag reboot" title="依套件名稱推測，非系統判定">通常需重開（推測）</span>':''}${it.firmware && it.firmware.passive?`<span class="tag" title="${esc(it.firmware.pulled_by ? `由 ${it.firmware.pulled_by} 總包相依拖入；` : '自動安裝；')}已載入的核心模組沒有一個宣告要用這包的 ${it.firmware.files} 個檔案（依 modinfo -F firmware）">本機無驅動使用</span>`:''}</td>
         <td class="mono">${esc(it.installed)}<br><span class="to">→ ${esc(it.candidate)}</span></td>
         <td class="col-opt sub1">${esc(it.summary)}</td>
         <td class="sub1">${fmtBytes(it.size)}</td>
         <td><button class="small" data-cl="apt" data-id="${esc(it.name)}" data-inst="${esc(it.installed)}">說明</button></td></tr>`;
-    }
+  // 被 linux-firmware 總包拖入、本機已載入模組都用不到的 firmware 子套件：收進折疊區，不占視線（仍可勾選）
+  const passive = state.items.filter(it => it.firmware && it.firmware.passive);
+  const groups = {};
+  for (const it of state.items) if (!passive.includes(it)) (groups[it.group] ||= []).push(it);
+  let html = Object.keys(groups).length ? `<table>${THEAD}<tbody>` : '';
+  for (const g of Object.keys(groups).sort()) {
+    const items = groups[g]; const allSel = items.every(i => state.selected.has(i.name));
+    html += `<tr class="grp"><td><input type="checkbox" data-group="${esc(g)}" ${allSel?'checked':''}></td><td colspan="5">${esc(g)} <span class="site">${items.length} 個 · ${esc(items[0].site)}</span></td></tr>`;
+    for (const it of items) html += row(it);
   }
-  box.innerHTML = html + `</tbody></table>`;
+  if (Object.keys(groups).length) html += `</tbody></table>`;
+  if (passive.length) {
+    const allSel = passive.every(i => state.selected.has(i.name));
+    html += `<details id="passiveFw" style="margin-top:12px" ${state.passiveOpen ? 'open' : ''}><summary class="sub1">本機用不到的 firmware 子套件 ${passive.length} 個（由 linux-firmware 總包相依拖入；已載入的核心模組沒有宣告要用它們的檔案，依 modinfo 判定，無法排除驅動動態請求）</summary>` +
+      `<table style="margin-top:6px">${THEAD}<tbody><tr class="grp"><td><input type="checkbox" data-passive="1" ${allSel?'checked':''}></td><td colspan="5">firmware 子套件 <span class="site">${passive.length} 個 · 升級無害，只是本機沒有對應硬體</span></td></tr>${passive.map(row).join('')}</tbody></table></details>`;
+  }
+  box.innerHTML = html;
+  const det = box.querySelector('#passiveFw'); if (det) det.ontoggle = () => { state.passiveOpen = det.open; };
+  box.querySelectorAll('input[data-passive]').forEach(cb => cb.onchange = () => { for (const it of passive) cb.checked ? state.selected.add(it.name) : state.selected.delete(it.name); renderList(); });
   box.querySelectorAll('input[data-pkg]').forEach(cb => cb.onchange = () => { cb.checked ? state.selected.add(cb.dataset.pkg) : state.selected.delete(cb.dataset.pkg); renderList(); });
-  box.querySelectorAll('input[data-group]').forEach(cb => cb.onchange = () => { for (const it of state.items) if (it.group === cb.dataset.group) cb.checked ? state.selected.add(it.name) : state.selected.delete(it.name); renderList(); });
+  box.querySelectorAll('input[data-group]').forEach(cb => cb.onchange = () => { for (const it of state.items) if (it.group === cb.dataset.group && !passive.includes(it)) cb.checked ? state.selected.add(it.name) : state.selected.delete(it.name); renderList(); });
   box.querySelectorAll('button[data-cl]').forEach(b => b.onclick = () => toggleChangelog(b, b.dataset.cl, b.dataset.id, b.dataset.inst));
   updateGo();
 }
