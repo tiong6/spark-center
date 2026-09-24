@@ -999,7 +999,9 @@ def npm_status(force=False):
     if not os.path.isfile(NPM_BIN):
         return {"ok": True, "available": False, "note": msg('npm_missing', LANG_DEFAULT)}
     out = {"ok": True, "available": True, "packages": [], "outdated": None, "error": None,
-           "generated": datetime.now().isoformat(timespec="seconds"), "prefix": None}
+           "generated": datetime.now().isoformat(timespec="seconds"), "prefix": None,
+           "node": (_run(["node", "--version"], timeout=10) or "").strip().lstrip("v") or None,
+           "npm": (_run([NPM_BIN, "--version"], timeout=20) or "").strip() or None}
     try:
         r = subprocess.run([NPM_BIN, "ls", "-g", "--depth=0", "--json"], capture_output=True, text=True, timeout=60, env=_ENV_C)
         deps = json.loads(r.stdout or "{}").get("dependencies") or {}
@@ -1020,7 +1022,7 @@ def npm_status(force=False):
                         r = "https://github.com/" + r   # npm 簡寫 "owner/repo"
                 lic = meta.get("license"); lic = lic if isinstance(lic, str) else (lic or {}).get("type")
                 e.update(description=(meta.get("description") or "")[:140] or None, author=(re.sub(r"\s*[<(].*$", "", a) if a else None),
-                         repo=r, homepage=meta.get("homepage"), license=lic)
+                         repo=r, homepage=meta.get("homepage"), license=lic, engines_node=(meta.get("engines") or {}).get("node"))
             except Exception:
                 pass
     except Exception as e:
