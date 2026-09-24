@@ -15,6 +15,15 @@
 - **來源群組加識別色**：Ubuntu 橘、NVIDIA 綠、Microsoft 藍為固定色，其他第三方來源依名稱從色盤穩定挑色。顏色填在群組列的勾選格，只做辨識，不代表重要程度。
 - 群組底下的套件內縮一階，讓來源與套件的層級看得出來。
 
+### 修正
+
+- **折疊的 firmware 子套件仍點亮更新分頁的綠點、仍被「全選」勾進去**。折疊的用意是不占視線，卻還算成待辦，裝完其他更新後綠點還亮著。綠點、「可升級 N 個」、全選都改成只看主清單；計數寫成「可升級 0 個（另 1 個本機用不到的 firmware 已折疊）」。
+- **apt 下載幾百 MB 時進度長時間停在 1%，看起來像卡住**。aptdaemon 的百分比不照位元組線性走（下載大約只占前半）。接上 `progress-details-changed` 訊號，工作列直接顯示已下載 MB／總 MB／速率／預估剩餘。
+
+### 新增
+
+- **登入時自動開啟**（頂欄勾選框，預設關閉）。勾起來就在 `~/.config/autostart` 放一份桌面捷徑（延遲 3 秒等桌面就緒），取消就刪掉；狀態以檔案是否存在為準，不另存設定。
+
 ## 2026-09-22
 
 *Fixes snap updates (they never worked), adds real download progress with MB, and restores the Hardware tab.*
