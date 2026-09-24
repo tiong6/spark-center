@@ -110,6 +110,8 @@ Ubuntu 24.04 / DGX OS 7.x on aarch64. 以下都是系統內建，不需要另外
 | `install.sh` | 產生並安裝 systemd 單元與桌面捷徑 |
 | `spark-center.service.in`、`app/spark-center.desktop.in` | 路徑用 `@ROOT@` 的模板 |
 | `data/` | 執行時資料（孔位校準、量測歷史、硬體快照），已 git 忽略 |
+| `docs/` | README 截圖，以及已完成的工單（英文化規格與術語表） |
+| `HANDOFF.md`、`CLAUDE.md` | Maintainer's working notes in Chinese: current state and next steps, and the working conventions for the coding agent. Not needed to install or use the tool. 維護者的中文工作筆記，安裝與使用不需要看。 |
 
 ## Changelog
 
