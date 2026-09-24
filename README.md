@@ -14,6 +14,18 @@ The stock DGX Dashboard gives you one **Update** button. It upgrades *every* apt
 
 Spark Center replaces that button and adds the things people keep asking for on the NVIDIA forums.
 
+## Screenshots
+
+English interface captured on an ASUS Ascend GX10 with live system data.
+
+**Monitor** — memory, CPU, GPU, temperatures and network activity.
+
+![Spark Center Monitor tab in English, showing live gauges and activity charts](output/playwright/monitor-en.png)
+
+**Updates** — package updates and firmware status. This machine had no pending updates when captured.
+
+![Spark Center Updates tab in English, showing no pending packages and the fwupd firmware inventory](output/playwright/updates-en.png)
+
 ## What it does
 
 | Tab | What you get |
