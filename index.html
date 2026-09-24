@@ -149,9 +149,8 @@
   .mcard h3 .t { cursor: grab; }
   .mcard.dragging { opacity: .45; }
   .mcard.dropbefore { box-shadow: -4px 0 0 var(--accent); } .mcard.dropafter { box-shadow: 4px 0 0 var(--accent); }
-  .mcard h3 .hidebtn { margin-left: auto; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line); color: var(--muted); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; cursor: pointer; opacity: 0; transition: opacity .15s; }
-  .mcard:hover h3 .hidebtn { opacity: 1; } .mcard h3 .switch + .hidebtn, .mcard h3 .hidebtn + .switch { margin-left: 8px; }
-  .mcard h3 .switch { margin-left: auto; }
+  .mcard h3 .hidebtn { order: 99; margin-left: 8px; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line); color: var(--muted); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; cursor: pointer; opacity: 0; transition: opacity .15s; }
+  .mcard:hover h3 .hidebtn { opacity: 1; }
   .montools .info { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line); color: var(--muted); font-size: 12px; cursor: help; margin-left: 8px; align-self: center; }
   .mcard h3 .warnbtn { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--warn); color: var(--warn); font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 8px; }
   .mcard h3 .warnbtn.danger { border-color: var(--danger); color: var(--danger); }
@@ -2267,10 +2266,10 @@ function renderMon(j, rerender) {
     const warns = [coex, weak].filter(Boolean);
     const warnBtn = warns.length ? `<span class="warnbtn ${W.signal_dbm < -80 ? 'danger' : ''}" data-warn="wifi" title="${t("mon.notices_click_to_view", {v1: warns.length})}">⚠</span>` : '';
     const chanBtn = `<button class="small" data-chan="1" style="margin-left:8px">${t("mon.channel_analysis")}</button>`;
-    cards.push(`<div class="mcard" id="mon-wifi"><h3><span class="t">Wi-Fi</span><span>${t("mon.signal", {v0: esc(W.iface)})}<b style="color:${grade[1]}">${grade[0]}</b></span>${warnBtn}${chanBtn}</h3>${gaugeLeft(q, W.signal_dbm + ' dBm', t("mon.average_dbm_transmit_dbm", {v0: W.signal_avg_dbm ?? '—', v1: W.txpower_dbm ?? '—'}))}<div class="spark" data-k="wifi">${sparkSvg([{color: C_LINE, data: hw.hist.wifi || []}], 100, v => (v * 0.6 - 90).toFixed(0) + ' dBm')}</div>${right}${warns.length ? `<div class="warnbox ${hw.warnOpen && hw.warnOpen.wifi ? 'open' : ''}" data-warnbox="wifi">${warns.join('')}</div>` : ''}<div class="chanbox ${hw.chanOpen ? 'open' : ''}" id="chanbox">${renderChannels()}</div></div>`);
+    cards.push(`<div class="mcard" id="mon-wifi"><h3><span class="t">Wi-Fi</span><span class="sub">${t("mon.signal", {v0: esc(W.iface)})}<b style="color:${grade[1]}">${grade[0]}</b></span>${warnBtn}${chanBtn}</h3>${gaugeLeft(q, W.signal_dbm + ' dBm', t("mon.average_dbm_transmit_dbm", {v0: W.signal_avg_dbm ?? '—', v1: W.txpower_dbm ?? '—'}))}<div class="spark" data-k="wifi">${sparkSvg([{color: C_LINE, data: hw.hist.wifi || []}], 100, v => (v * 0.6 - 90).toFixed(0) + ' dBm')}</div>${right}${warns.length ? `<div class="warnbox ${hw.warnOpen && hw.warnOpen.wifi ? 'open' : ''}" data-warnbox="wifi">${warns.join('')}</div>` : ''}<div class="chanbox ${hw.chanOpen ? 'open' : ''}" id="chanbox">${renderChannels()}</div></div>`);
     hovers.push(['wifi', [{color: C_LINE, data: hw.hist.wifi || []}], v => (v * 0.6 - 90).toFixed(0) + ' dBm']);
   } else if (W) {
-    cards.push(`<div class="mcard" id="mon-wifi"><h3><span class="t">Wi-Fi</span><span>${esc(W.iface)}</span></h3>${tileLeft(t("mon.disconnected"), '')}<div class="sub1">${t("mon.wi_fi_is_not_connected_to")}</div></div>`);
+    cards.push(`<div class="mcard" id="mon-wifi"><h3><span class="t">Wi-Fi</span><span class="sub">${esc(W.iface)}</span></h3>${tileLeft(t("mon.disconnected"), '')}<div class="sub1">${t("mon.wi_fi_is_not_connected_to")}</div></div>`);
   }
   // NVMe 溫度（hwmon nvme Composite，免 root）
   const nv = (j.sensors || []).find(x => x.chip === 'nvme' && /composite/i.test(x.label));
