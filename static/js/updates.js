@@ -219,6 +219,15 @@ function startPolling(title) {
 }
 async function pollJob() {
   const j = await api('/api/job'); state.job = j; updateGo();
+  if (j.status === 'idle' && state.polling) {
+    // 工作狀態只存在服務的記憶體：服務重啟後這裡會一直等一個不存在的工作，看起來像「停住」。要明講，並重讀清單看實際結果。
+    clearInterval(state.polling); state.polling = null;
+    $('#jobcard').className = 'panel notice warn';
+    $('#jobstatus').textContent = t("job.lost");
+    $('#jobactions').innerHTML = `<button id="jobClose">${t("job.close")}</button>`;
+    $('#jobClose').onclick = () => $('#jobcard').classList.add('hide');
+    load(); return;
+  }
   if (j.progress == null) $('#jobprog').removeAttribute('value'); else $('#jobprog').value = j.progress;
   const x = j.status === 'running' && j.xfer && j.xfer.total ? j.xfer : null;
   const xferText = x ? t("job.downloaded_mb", {v0: (x.done/1e6).toFixed(1), v1: (x.total/1e6).toFixed(1)}) + (x.speed ? ` · ${(x.speed/1e6).toFixed(1)} MB/s` : '') + (x.eta > 0 ? t("job.about_remaining", {v0: x.eta >= 60 ? t("job.min_with_value", {value: Math.round(x.eta/60)}) : t("job.sec_with_value", {value: x.eta})}) : '') : '';
