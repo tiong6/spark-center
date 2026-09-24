@@ -1,49 +1,67 @@
 # HANDOFF — 現在的接力棒
 
-> **這是唯一一根棒子。收工時【覆蓋】它，不要另開新檔、不要加日期。**
-> 舊棒在 `git log --follow HANDOFF.md`。
-> 【開工的人】下面的「下一步」和任何待辦，先 `git log`/看程式碼確認還沒做——
-> 快照會過期，「棒子說待辦、其實早出貨」是這個玩法最常見的坑。
+> 唯一接力棒；下一位先看 `git status` 與 `git log`，不要把這份快照當成即時狀態。
 
-**上次收工：2026-09-19** ｜ 工作樹乾淨，main 與 origin/main 同步（11a4ec5）｜ py_compile／JS 語法 OK ｜ gpu_stuck_evaluate 假樣本測試 PASS ｜ 服務 `spark-center` active，7 個主要 API 全 200 ｜ 沒有自動化測試套件，驗證靠 API curl 與瀏覽器 DOM 查詢 ｜ 公開 repo https://github.com/tiong6/spark-center
+2026-09-24：依 `WORKORDER-i18n.md` 實作中英雙語，**待 Claude 審收，未 commit／push**。開始時工作樹乾淨，基準 HEAD 為 `8b4a751c1be34e52ef947e0c5080e25e4c730b95`。本次未啟動子代理。
 
-## 下一步：UI 英文化（使用者說「先不做」，別主動開工；其他候選見下）
+## 審收前先知道的限制
 
-使用者明確說今天先不做英文版。真的要做時：抽字串表＋語言切換，估 2–3 小時，README 英文摘要已寫好。
-若使用者沒指定，可提的候選（依價值）：
-1. **模型倉庫去重的實際動作**：Open WebUI 改連主機 Ollama（OLLAMA_BASE_URL），收回 86 GB 的 open-webui-ollama 卷；LM Studio 與 Ollama 各有一份 gpt-oss-120b。目前工具只列出，不動。
-2. **LLM 併發壓測要有意義**得先把 `OLLAMA_NUM_PARALLEL` 從 1 調高（需 root：`sudo systemctl edit ollama`）。
-3. README 缺截圖（本 session 影像讀取全被 API 拒絕，只能由使用者自己截）。
+工單「只刪 script 後中文 grep 必須為 0」無法與其餘要求同時照字面成立。實測七頁中六頁有 10 行含中文，磁碟頁 11 行：原有 CSS 中文註解、要求新增的「中」切換鈕，以及磁碟真實檔名「全部郵件」「重要郵件」。這些均保留；沒有隱藏或改寫檔名來通過檢查。
 
-## 這一場做了什麼（git log 是真相，這裡只給脈絡）
+移除 script／style／語言切換鈕後，英文頁面文字與 title／placeholder 的中文命中：六頁為空；磁碟只有上述兩個檔名。八個指定英文 API 中七個無中文，`/api/disk` 只有兩個真實 `big_files[].path`。`/api/hardware/rear` 的使用者校準備註保留原文。aptdaemon 系統 locale 文字依工單豁免，不保證英文瀏覽器收到的每一筆外部工作紀錄都無中文。
 
-一天內從零做到開源，45+ commits。git log 讀不出來的「為什麼」：
+中文 DOM 比對採用改動前保存的原檔副本（與基準 HEAD 一致）加相同的 API 回應，不使用 `git stash` 切換正在服務的檔案。七頁正規化後 DOM 字串完全相同；僅移除新增語言切換鈕、`data-i18n*` 屬性和頂欄必要文字包裝。監控停用測試頁的週期計時器，等 Wi-Fi 補充資料後重畫一次，以排除請求先後順序的差異。另有兩種語言各七頁直接連真實服務的驗證，沒有用固定資料取代真實服務驗證。
 
-| 範圍 | 為什麼 |
-|---|---|
-| 整個專案 | DGX Dashboard 的 Update 鈕 = 盲裝全部 apt 套件（含 Chrome/ChatGPT）且寫死更新後必重開機（前端打 `/update_reboot`）。使用者要的是可勾選、不重開。 |
-| NVML 走 ctypes | 偷師 DGX-Spark-Dashboard；不用 pip；GB10 記憶體/功耗上限回 NOT_SUPPORTED 是正常。降頻門檻用 NVML slowdown（86 °C），之前 tlimit 推算的 96 °C 是錯的。 |
-| Wi-Fi 卡＋藍牙共存提示 | 使用者滑鼠斷線根因：Wi-Fi 切 2.4 GHz 時與藍牙同晶片（MT7925）同頻段，下載時藍牙被擠掉。 |
-| 後面板孔位校準 | 韌體 ACPI _PLD 只給左/右，同側兩孔無序；驅動 USB-C-k ↔ 控制器 0k 一致；實體順序（面對機背左→右）= 03(電源)、02(螢幕)、01、00，已用插入法確認並存 data/usbc-map.json。 |
-| fwupd 韌體面板 | 論壇第 1 大抱怨：Dashboard 說韌體成功、fwupd 其實失敗（USB-C PD 控制器 0x507 vs 0x500）。本機三個韌體 8/4 都真的升上去了。 |
-| GPU 卡死偵測 | 論壇第 3 大抱怨（PD 控制器韌體卡住 → SM 釘 611 MHz）；判定需配合使用率避免閒置誤報；解法冷放電。 |
-| 硬體資料改 1h 快取＋快照 | 使用者：硬體不會變，別每次重讀。 |
-| 歷史重寫 | 使用者要求對外不提舊名；已 filter-branch 全歷史＋強制推送，hash 全變。**對話與 commit 訊息別再寫舊名。** |
+## 實作
 
-專案脈絡（記憶檔也有）：`~/.claude/projects/.../memory/` 的 spark-updater-project.md、gx10-hardware-facts.md、spark-center-github.md。
+- `index.html`：`STR` 每種語言 547 個 key；`t()`、靜態 `data-i18n*`、頂欄 `.switch`、`navigator.language` 預設、localStorage 記憶、重載切換與 `html.lang`；每個 API 請求由 `api()` 加上 `lang`。日期／數字格式也指定 `LANG`，避免英文模式仍出現中文上午／下午。英文較長的表頭與 Wi-Fi 欄名有僅限英文的寬度規則。
+- `server.py`：`MSG` 每種語言 211 個 key、`msg()`；Handler 解析 query／Accept-Language，存 `self.lang`。內部快取、背景工作與已存快照保留原來的中文表示，HTTP 回應副本才依字串表和句型翻譯，因此兩種語言不會互相污染，也不需要遷移 `data/`。既有模型歷史的註記亦在回應時翻譯。
+- 英文應用程式清單使用 `.desktop` 原始 `Name`，不使用 `Name[zh_TW]`。套件／模型／產品名、路徑、指令、技術識別名稱與單位保留；未命中字串表的外部資料不臆造翻譯。
+- 不新增 i18n 套件、不拆前端檔案、不改 `CHANGELOG.md` 舊條目，不執行資料遷移。
 
-## ⏸ 使用者明確擱置（別自作主張開工）
+## 已實際執行的驗證
 
-- **UI 英文化**：「先不做英文版了，fable 今天用太多了」。
-- **改 Ollama NUM_PARALLEL／Open WebUI 連線／刪重複模型／清 Docker 卷**：工具只列不動，動要使用者按或自己做。
-- **sudoers 檔名**仍是 spark-updater-*（只是本機檔名，不在 repo），使用者沒要求改。
-- **4 TB SSD 升級**：使用者在考慮 Corsair MP700 Micro 4TB（Amazon US 缺貨、Amazon JP 有貨但不直寄台灣），純硬體採購，工具無事可做。
+`python3 -m py_compile server.py`、抽出 script 的 `node --check`、`git diff --check` 均 exit 0；已執行 `systemctl --user restart spark-center` 並確認 HTTP 可回應。
 
-## 這一場的教訓（只寫會重複發生的）
+真實 Chrome／Playwright，1400×1800，每頁等待 12 秒：
 
-- **大段字串替換後，每個分頁都要點一遍。** LLM 分頁改版時用「LLM 區塊起點 → stopHw」當範圍，把夾在中間的硬體分頁函式一起刪了；語法檢查抓不到「函式不存在」，直到使用者點硬體分頁才炸。修法：替換前先列出範圍內所有頂層定義。
-- **Python heredoc 裡不要混 shell 行**（`grep ... || ...` 寫進 python 腳本 → SyntaxError → 整段沒執行，但後面的 shell 步驟照跑，會誤以為改好了）。
-- **pkill -f 的樣式會比對到自己的 shell**，用 `[1]` 這種字元類別避開。
-- **.desktop 的 Exec 含空格路徑要加引號**：desktop-file-validate 說合法，GIO 卻載不進來。
-- **本 session 影像讀取全被 API 拒**（對話裡有超過 2000px 的圖後所有圖都讀不到）；畫面驗證改用 tesseract OCR 與 DOM 查詢，能做但看不到顏色/排版，要跟使用者講清楚。
-- 使用者的誠實偏好很具體：拿不到顯示「—」並說原因、推測要標「推測」、不喜歡條列式 UI 要面板/表格/儀表、壞消息先講。
+```text
+zh-TW: monitor llm updates apps disk hardware history — errors=0，scrollWidth=1400
+ en:   monitor llm updates apps disk hardware history — errors=0，scrollWidth=1400
+monitor: 兩種語言各 8 張卡片
+中文固定資料 DOM: 七頁 IDENTICAL
+```
+
+八個指定 GET API 兩種語言均 HTTP 200，磁碟已等到 12 個分類的掃描明細出現才驗證。錯誤 POST 的真實輸出：
+
+```text
+en POST /api/simulate: HTTP 400, {"ok": false, "error": "No packages selected"}
+en POST /api/install: HTTP 400, {"ok": false, "error": "Packages not found: spark-i18n-nonexistent-package-8b4a751c"}
+zh-TW POST /api/simulate: HTTP 400, {"ok": false, "error": "沒有選取任何套件"}
+zh-TW POST /api/install: HTTP 400, {"ok": false, "error": "找不到套件：spark-i18n-nonexistent-package-8b4a751c"}
+PASS: 10 interleaved Accept-Language requests; no cache language contamination
+```
+
+另驗證：四組瀏覽器語言／已存偏好組合、實際點「中」會重載並保存 `zh-TW`、所有字串 key／佔位符、原有頂層函式都保留、清理指令／GPU 判定常數／核心配對輸出與原版一致。真實 Chromium snap changelog 的 meta、表頭、註記均為英文。211 個後端句型逐一驗證，另測工作進度、併發量測註記、複數 GPU 降速旗標等組合句。
+
+術語表拆成 30 個詞／片語，均在渲染結果找到。真機目前沒有可升級套件，firmware 折疊、推測、重開機提示與商店查詢失敗使用明確標記的**瀏覽器內測試資料**覆蓋；未安裝套件、載入模型、執行量測或清理磁碟。
+
+完整原始輸出、原版副本、API 基準、14 頁 DOM／PNG 與測試腳本在 `/tmp/spark-i18n-baseline/`，主要結果在 `after/`：
+
+- `browser-validation.txt`、`api-validation.txt`、`glossary-validation.txt`
+- `paired-dom.txt`、`zh-diff-*.txt`（七份差異檔皆空）
+- `en-*.png`、`zh-TW-*.png`、`fixture-branches.txt`、`fixture-apps.txt`
+- `dynamic-time.txt`：中文瀏覽器＋英文介面下，已載入模型的到期時間與監控 hover 時間測試
+
+這些檔案是本機暫存驗證產物，未加入 repo；審收仍請獨立重跑工單。
+
+## 看到但未順手修的既有問題
+
+- 硬體頁同一段說明同時寫「快取 1 小時」與「靜態資料快取 60 秒」；實際 `HW_TTL` 是 3600。
+- 監控說明仍寫「離開硬體分頁就停止取樣」，但 `showTab()` 依是否在 monitor 頁來控制即時取樣。兩種語言均保留原文語意，本次不改邏輯或順手改原文。
+
+本次曾引入 `renderMon()` 時間戳 `t` 與翻譯函式同名的錯誤，實際畫面停在 Loading 時抓到；已把該區時間戳改名 `sampleTime`，重跑後卡片與錯誤檢查通過。不要只靠語法檢查審收。
+
+## 仍擱置的其他工作
+
+模型倉庫去重、調整 Ollama NUM_PARALLEL、改 Open WebUI 連線、刪除模型／Docker 卷與硬體採購不屬本工單，未執行。原先「英文版先不做」已被本次使用者指定工單取代。

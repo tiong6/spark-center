@@ -36,6 +36,503 @@ REBOOT_PKGS = "/var/run/reboot-required.pkgs"
 APT_HISTORY = "/var/log/apt/history.log"
 APT_LISTS = "/var/lib/apt/lists"
 
+
+LANG_DEFAULT = "zh-TW"
+MSG = {
+    "zh-TW": {
+        "unknown_source": "未知來源",
+        "missing_modules": "你勾了核心，但沒有勾對應的 NVIDIA 簽章模組。兩者沒有相依關係，模擬不會提醒你。只升核心的話，重開機後會進到一個沒有簽章 GPU 驅動的系統，退回 DKMS 自簽又會被 Secure Boot 擋掉。",
+        "missing_kernel": "你勾了 NVIDIA 簽章模組，但沒有勾對應的核心。模組是對著特定核心版本編譯的，沒有那個核心就用不到。",
+        "dashboard_note": "Dashboard 用 aptdaemon 的完整升級（可安裝／移除套件），裝完跑韌體並強制重開機，過程不顯示清單。",
+        "running": "執行中",
+        "command_missing": "找不到指令",
+        "auth_cancelled": "授權被取消或密碼錯誤（pkexec）",
+        "snap_busy": "snapd 已有進行中的變更，等它跑完再試",
+        "see_log": "，見詳細記錄",
+        "failed": "失敗",
+        "done": "已完成",
+        "snap_running": "該 snap 有程式正在執行，關掉它再更新",
+        "snap_auth": "snap refresh 需要 root，透過 pkexec 取得授權（桌面會跳密碼視窗）",
+        "download_interrupted": "下載中斷",
+        "network_retry": "（看起來是網路中斷，再按一次即可重試）",
+        "unknown_action": "未知動作",
+        "new_version_no_number": "有新版（版本未提供）",
+        "changelog_timeout": "下載 changelog 逾時（25 秒）",
+        "no_changelog": "此來源未提供更新說明（多為第三方 repo）。",
+        "changelog_current": "已安裝版本就是最新條目，沒有更新的 changelog",
+        "appstream_no_releases": "appstream 裡沒有 release 記錄",
+        "no_description": "（無說明）",
+        "appstream_unavailable": "找不到這個 app 的 appstream 資料，也無法查詢遠端",
+        "snap_no_channels": "snap info 沒有回報頻道資訊",
+        "installed": "已安裝",
+        "size": "大小",
+        "version": "版本",
+        "revision": "版次",
+        "release_date": "發布日期",
+        "channel": "頻道",
+        "snap_changelog_note": "Snap 商店沒有逐版更新說明；以下是 snap info 的頻道與版本資訊，不是 changelog。",
+        "gpu_idle": "GPU 閒置",
+        "app_clocks": "應用程式時脈設定",
+        "hw_slowdown": "硬體降速",
+        "sw_power_cap": "軟體功率上限",
+        "hw_power_brake": "硬體功率煞車",
+        "hw_thermal": "硬體熱降速",
+        "sw_thermal": "軟體熱降速",
+        "display_clocks": "顯示時脈設定",
+        "tlimit_estimate": "nvidia-smi tlimit 推算",
+        "usb_hid": "人機介面",
+        "usb_interface": "依介面",
+        "usb_communication": "通訊",
+        "usb_audio": "音訊",
+        "usb_printer": "印表機",
+        "usb_storage": "大量儲存",
+        "usb_physical": "實體",
+        "usb_image": "影像",
+        "usb_cdc": "CDC 資料",
+        "usb_security": "內容安全",
+        "usb_card": "智慧卡",
+        "usb_hub": "集線器",
+        "usb_health": "個人健康",
+        "usb_video": "視訊",
+        "usb_av": "音訊/視訊",
+        "usb_vendor": "廠商自訂",
+        "usb_application": "應用特定",
+        "usb_wireless": "無線",
+        "usb_composite": "複合",
+        "usb_diagnostic": "診斷",
+        "usb_low": "USB 1.0 低速 1.5 Mb/s",
+        "usb_full": "USB 1.1 全速 12 Mb/s",
+        "usb_high": "USB 2.0 高速 480 Mb/s",
+        "device": "裝置",
+        "usb_root": "USB 根集線器",
+        "hid_device": "人機介面裝置",
+        "mouse": "滑鼠",
+        "keyboard": "鍵盤",
+        "bluetooth": "藍牙",
+        "camera": "視訊/攝影機",
+        "usb_network": "通訊/網路",
+        "rear_layout": "ServeTheHome 評測描述的後面板順序；USB-C 編號對應實體位置為推測，可用插入校準",
+        "phison": "Phison PS5027-E27T 控制器（系統碟）",
+        "network_10g": "10GbE 網路",
+        "realtek": "Realtek RTL8127 10 Gb 乙太網路",
+        "mediatek": "MediaTek MT7925（AzureWave 模組）",
+        "wifi_bt": "Wi-Fi 7 / 藍牙",
+        "gb10_gpu": "NVIDIA GB10 Blackwell 顯示核心",
+        "storage_controller": "儲存控制器",
+        "crypto": "加密",
+        "multimedia": "多媒體",
+        "serial_bus": "序列匯流排",
+        "bridge": "橋接",
+        "network": "網路",
+        "accelerator": "處理加速",
+        "display": "顯示",
+        "dmi_root": "dmidecode 需要 root。要顯示序號與記憶體模組，請在 sudoers 只放行 /usr/sbin/dmidecode 免密碼（見 README）",
+        "bluetooth_unavailable": "bluetoothctl 無法連到 bluetoothd（服務未啟動或無藍牙硬體）",
+        "nand_unavailable": "NAND 顆粒廠商從軟體查不到",
+        "nvme_vendor_source": "PCI 廠商 ID 與 EUI-64 OUI（硬體登記值）",
+        "smart_root": "SMART 需要 root：請在 sudoers 放行 nvme smart-log（見 README），這裡只顯示免 root 的欄位",
+        "nvme_not_json": "nvme 輸出不是 JSON",
+        "spare_low": "備用空間低於門檻",
+        "media_degraded": "媒體可靠度下降",
+        "read_only": "已轉唯讀",
+        "volatile_failed": "揮發性備援記憶體失效",
+        "temp_threshold": "溫度超出門檻",
+        "nvme_source": "nvme smart-log（sudoers 僅放行此指令）",
+        "wifi_scan_failed": "nmcli 掃描失敗",
+        "wifi_24_note": "2.4 GHz 只有 1/6/11 互不重疊；相鄰頻道也會互相干擾，分數已把 ±4 格的鄰居加權算進去。",
+        "wifi_5_note": "5 GHz 的 20 MHz 頻道互不重疊，只算同頻道；但若路由器用 40/80 MHz，實際會跨到相鄰頻道。",
+        "wifi_snapshot": "掃描是一瞬間的快照，鄰居用量會隨時段變動，建議不同時間各掃一次再決定。",
+        "wifi_signal": "訊號是 NetworkManager 給的百分比，不是 dBm，只適合互相比較。",
+        "wifi_analysis_only": "本工具只做分析，改頻道要自己進路由器管理頁。",
+        "ollama_metrics": "Ollama 不提供 Prometheus 指標，tok/s 只能靠實際跑一段生成量測（下方按鈕）。",
+        "lmstudio_metrics": "LM Studio 的 /v1/models 只列可用模型，不給效能指標。",
+        "llamacpp_source": "來源 /props 與 /slots。",
+        "vllm_metrics": "vLLM 的 Prometheus /metrics 尚未解析，這裡只列模型。",
+        "ollama_config": "改設定要 root：sudo systemctl edit ollama，在 [Service] 加 Environment=OLLAMA_NUM_PARALLEL=4 後 restart。本工具不提權，只顯示。",
+        "webui_volume": "Open WebUI 卷",
+        "duplicate_note": "重複判定用名稱正規化（去掉 GGUF、instruct 等字尾）比對，是啟發式；同名不代表同一量化版本，刪之前自己確認。",
+        "warming": "載入／暖機",
+        "warm_failed": "暖機失敗",
+        "requests_queued": "小於併發數，後面的請求在排隊。",
+        "requests_parallel": "足夠同時處理。",
+        "warm_request_failed": "暖機請求失敗（模型載入失敗或逾時）",
+        "bench_failed": "量測請求失敗",
+        "ollama_models": "Ollama 模型",
+        "ollama_disk_note": "系統服務，存在 /usr/share/ollama；同一模型的不同 tag 共用 blob，清單加總會大於實際占用。可在此刪除個別模型",
+        "lmstudio_models": "LM Studio 模型",
+        "lmstudio_disk_note": "~/.lmstudio/models；請在 LM Studio 內刪除，這裡只列出",
+        "snap_data_note": "Steam 遊戲、瀏覽器設定檔等；請在各應用內管理",
+        "snap_data": "snap 應用資料（~/snap）",
+        "flatpak_note": "app＋runtime；未使用的 runtime 可用 flatpak uninstall --unused",
+        "flatpak_system": "flatpak（系統）",
+        "snap_retention": "snapd 預設保留舊版本 2 份",
+        "snap_system": "snap（系統）",
+        "apt_cache": "apt 套件快取",
+        "apt_cache_note": "下載過的 .deb，清掉無害",
+        "apt_autoremove": "apt 可自動移除的套件",
+        "none": "沒有",
+        "journal": "系統日誌 journal",
+        "journal_note": "需 root 才能 vacuum，這裡不動",
+        "app_cache": "各應用快取",
+        "npm_cache": "npm 快取",
+        "trash": "垃圾桶",
+        "gpu_stuck_advice": "論壇多人確認的根因是電源供應器內 USB-C PD 控制器韌體卡住。解法：拔掉電源供應器與所有 USB-C 裝置，按住電源鍵 30 秒，再等 60 秒讓電容放電，然後接回開機。只重開機沒用，PD 控制器在變壓器裡，要斷電才會重置。",
+        "gpu_stuck_title": "GPU 卡在低功耗狀態",
+        "disk_full_title": "根分割區快滿了",
+        "transaction_failed": "交易失敗",
+        "fw_pending": "待處理（等重開機）",
+        "fw_success": "成功",
+        "fw_unknown": "未知",
+        "fw_failed_reboot": "重開後失敗",
+        "fw_reboot": "需要重開機",
+        "fwupd_missing": "沒有 fwupdmgr",
+        "missing_source_id": "缺 source 或 id",
+        "no_pkgs": "沒有選取任何套件",
+        "job_running": "已有工作在進行中",
+        "slot_invalid": "slot 需為 0–3",
+        "controller_invalid": "controller 格式不對",
+        "missing_model": "缺 model",
+        "ollama_no_response": "Ollama 沒回應（模型不存在或載入失敗）",
+        "model_invalid": "模型名稱格式不對",
+        "concurrency_invalid": "缺 model 或 concurrency 需為 1/2/4/8",
+        "num_predict_invalid": "num_predict 需為 64/128/256/512",
+        "bench_running": "已有量測在進行中",
+        "missing_name": "缺 name",
+        "no_removable": "沒有可移除的套件",
+        "source_ids_invalid": "source 需為 flatpak/snap 且 ids 非空",
+        "pkgs_missing": "找不到套件：{p0}",
+        "deps_failed": "相依性無法解析：{p0}",
+        "exit_code": "指令結束碼 {p0}",
+        "snap_attach": "snapd 已有進行中的變更 {p0}，直接接上監看（不需要再輸入密碼）",
+        "snap_step": "步驟 {p0}/{p1}",
+        "snap_step_percent": " · 這步 {p0}%",
+        "snap_overall": "（整體 {p0}%）",
+        "snap_ended": "snapd 變更 {p0} 結束於 {p1}",
+        "snap_status": "snapd 變更 {p0}: {p1}",
+        "config_conflict": "設定檔衝突 {p0}，保留現有版本",
+        "transaction_exit": "交易結束狀態：{p0}",
+        "job_start": "開始 {p0}: {p1}",
+        "new_commit": "新 commit {p0}",
+        "vendor_notes": "改看廠商的發行說明：{p0}",
+        "changelog_home": "這個來源沒有提供 changelog；套件宣告的官網是 {p0}",
+        "changelog_no_home": "這個來源（{p0}）沒有提供 changelog，套件也沒宣告官網",
+        "apt_get_failed": "無法執行 apt-get：{p0}",
+        "appstream_source": "來源：{p0} appstream",
+        "remote_no_notes": "{p0} 未提供 release notes（本機無 appstream 資料）；以下是遠端最新版的提交資訊，不是更新說明",
+        "snap_info_failed": "snap info {p0} 失敗（離線、商店不可達或名稱不符）",
+        "publisher": "發行者 {p0}",
+        "tracking": "追蹤 {p0}",
+        "last_update": "上次更新 {p0}",
+        "usb_root_bus": "USB {p0} 根集線器 · Bus {p1}",
+        "unknown_device": "未知裝置 {p0}:{p1}",
+        "dmidecode_exec_failed": "dmidecode 執行失敗：{p0}",
+        "dmidecode_failed": "dmidecode 失敗：{p0}",
+        "nvme_exec_failed": "nvme 執行失敗：{p0}",
+        "nvme_smart_failed": "nvme smart-log 失敗：{p0}",
+        "bench_concurrent_phase": "{p0} 個請求同時生成 {p1} token",
+        "bench_concurrent_note": "{p0} 併發、每請求 {p1} token；總 tok/s＝合計 token ÷ 牆鐘時間。OLLAMA_NUM_PARALLEL={p2}，",
+        "bench_phase": "生成 {p0} token 中",
+        "bench_note": "單一請求、temperature 0、{p0} token；prefill 若 prompt 被快取會偏高。",
+        "docker_count": "{p0}：{p1} 個，可回收 {p2}",
+        "volume": "卷 {p0}",
+        "volume_links": "被 {p0} 個容器用",
+        "docker_reclaim": "映像可回收約 {p0} GB；卷不自動清（可能是資料）",
+        "autoremove_count": "{p0} 個不再需要的相依套件（含舊核心）",
+        "gpu_stuck_load": "GPU 有負載（{p0}%）但 SM 時脈釘在 {p1} MHz、功耗 {p2} W，持續 30 秒以上。",
+        "gpu_stuck_flags": "GPU 硬體降速旗標持續亮著：{p0}。",
+        "disk_full": "已用 {p0}%，剩 {p1} GB。開 http://localhost:{p2}/#disk 看誰在吃空間。",
+        "autostart_write_failed": "寫入 autostart 失敗：{p0}",
+        "ollama_http": "Ollama 回 {p0}：{p1}",
+        "ollama_connect": "連不到 Ollama：{p0}",
+        "snap_apps_running": "snapd 不會更新正在執行的 snap：{p0}。請先關閉這些程式再試。",
+        "truncated": "\n…（已截斷）",
+        "changelog_source": "來源：apt changelog",
+        "changelog_all": "，全部條目（找不到已安裝版本的分界）",
+        "changelog_since": "，已安裝版本之後的條目",
+        "gpu_help": " 開 http://localhost:%d/#monitor 看處理方式。",
+        "trash_cleared": "已清空垃圾桶"
+    },
+    "en": {
+        "unknown_source": "Unknown source",
+        "missing_modules": "You selected the kernel without the matching NVIDIA signed modules. They have no dependency relationship, so simulation will not warn you. Upgrading only the kernel leaves the system without a signed GPU driver after reboot; falling back to self-signed DKMS modules will also be blocked by Secure Boot.",
+        "missing_kernel": "You selected the NVIDIA signed modules without the matching kernel. These modules are built for a specific kernel version and cannot be used without it.",
+        "dashboard_note": "Dashboard uses aptdaemon's full upgrade (which can install or remove packages), then updates firmware and forces a reboot, without showing the package list.",
+        "running": "Running",
+        "command_missing": "Command not found",
+        "auth_cancelled": "Authorization was cancelled or the password was incorrect (pkexec)",
+        "snap_busy": "snapd already has a change in progress; wait for it to finish and try again",
+        "see_log": "; see the detailed log",
+        "failed": "Failed",
+        "done": "Completed",
+        "snap_running": "This snap has running apps; close them before updating",
+        "snap_auth": "snap refresh requires root; requesting authorization through pkexec (a password dialog will appear on the desktop)",
+        "download_interrupted": "Download interrupted",
+        "network_retry": " (the network connection appears to have been interrupted; click again to retry)",
+        "unknown_action": "Unknown action",
+        "new_version_no_number": "Update available (version not provided)",
+        "changelog_timeout": "Changelog download timed out (25 seconds)",
+        "no_changelog": "This source does not provide release notes (usually a third-party repository).",
+        "changelog_current": "The installed version is the latest entry; there are no newer changelog entries",
+        "appstream_no_releases": "No release records in appstream",
+        "no_description": "(no description)",
+        "appstream_unavailable": "Could not find appstream data for this app or query the remote",
+        "snap_no_channels": "snap info returned no channel information",
+        "installed": "Installed",
+        "size": "Size",
+        "version": "Version",
+        "revision": "Revision",
+        "release_date": "Release date",
+        "channel": "Channel",
+        "snap_changelog_note": "The Snap Store does not provide release notes for each version; the following is channel and version information from snap info, not a changelog.",
+        "gpu_idle": "GPU idle",
+        "app_clocks": "Application clock setting",
+        "hw_slowdown": "Hardware slowdown",
+        "sw_power_cap": "Software power cap",
+        "hw_power_brake": "Hardware power brake",
+        "hw_thermal": "Hardware thermal slowdown",
+        "sw_thermal": "Software thermal slowdown",
+        "display_clocks": "Display clock setting",
+        "tlimit_estimate": "nvidia-smi tlimit (estimated)",
+        "usb_hid": "Human interface",
+        "usb_interface": "Per interface",
+        "usb_communication": "Communications",
+        "usb_audio": "Audio",
+        "usb_printer": "Printer",
+        "usb_storage": "Mass storage",
+        "usb_physical": "Physical",
+        "usb_image": "Imaging",
+        "usb_cdc": "CDC data",
+        "usb_security": "Content security",
+        "usb_card": "Smart card",
+        "usb_hub": "Hub",
+        "usb_health": "Personal healthcare",
+        "usb_video": "Video",
+        "usb_av": "Audio/video",
+        "usb_vendor": "Vendor-specific",
+        "usb_application": "Application-specific",
+        "usb_wireless": "Wireless",
+        "usb_composite": "Composite",
+        "usb_diagnostic": "Diagnostic",
+        "usb_low": "USB 1.0 low speed 1.5 Mb/s",
+        "usb_full": "USB 1.1 full speed 12 Mb/s",
+        "usb_high": "USB 2.0 high speed 480 Mb/s",
+        "device": "Device",
+        "usb_root": "USB root hub",
+        "hid_device": "Human interface device",
+        "mouse": "Mouse",
+        "keyboard": "Keyboard",
+        "bluetooth": "Bluetooth",
+        "camera": "Video/camera",
+        "usb_network": "Communications/network",
+        "rear_layout": "Rear-panel order described in the ServeTheHome review; USB-C numbers mapped to physical positions (estimated), which can be calibrated by plugging in a device",
+        "phison": "Phison PS5027-E27T controller (system drive)",
+        "network_10g": "10GbE network",
+        "realtek": "Realtek RTL8127 10 Gb Ethernet",
+        "mediatek": "MediaTek MT7925 (AzureWave module)",
+        "wifi_bt": "Wi-Fi 7 / Bluetooth",
+        "gb10_gpu": "NVIDIA GB10 Blackwell GPU",
+        "storage_controller": "Storage controller",
+        "crypto": "Encryption",
+        "multimedia": "Multimedia",
+        "serial_bus": "Serial bus",
+        "bridge": "Bridge",
+        "network": "Network",
+        "accelerator": "Processing accelerator",
+        "display": "Display",
+        "dmi_root": "dmidecode requires root. To show serial numbers and memory modules, allow only /usr/sbin/dmidecode without a password in sudoers (see README)",
+        "bluetooth_unavailable": "bluetoothctl could not connect to bluetoothd (the service is not running or there is no Bluetooth hardware)",
+        "nand_unavailable": "The NAND chip manufacturer is unavailable through software",
+        "nvme_vendor_source": "PCI vendor ID and EUI-64 OUI (hardware registration values)",
+        "smart_root": "SMART requires root: allow nvme smart-log in sudoers (see README); only fields available without root are shown here",
+        "nvme_not_json": "nvme output is not JSON",
+        "spare_low": "Available spare is below the threshold",
+        "media_degraded": "Media reliability degraded",
+        "read_only": "Switched to read-only mode",
+        "volatile_failed": "Volatile memory backup failed",
+        "temp_threshold": "Temperature exceeds the threshold",
+        "nvme_source": "nvme smart-log (only this command is allowed in sudoers)",
+        "wifi_scan_failed": "nmcli scan failed",
+        "wifi_24_note": "On 2.4 GHz, only channels 1/6/11 do not overlap. Adjacent channels also interfere; the score includes weighted neighbors within ±4 channels.",
+        "wifi_5_note": "On 5 GHz, 20 MHz channels do not overlap, so only the same channel is counted; a router using 40/80 MHz will actually span adjacent channels.",
+        "wifi_snapshot": "A scan is a snapshot at one instant. Neighboring network usage varies by time of day; scan at different times before deciding.",
+        "wifi_signal": "Signal is the percentage reported by NetworkManager, not dBm; it is only suitable for relative comparisons.",
+        "wifi_analysis_only": "This tool only analyzes channels; change the channel yourself in your router's management page.",
+        "ollama_metrics": "Ollama does not provide Prometheus metrics; tok/s can only be measured by running actual generation (using the button below).",
+        "lmstudio_metrics": "LM Studio's /v1/models only lists available models; it does not provide performance metrics.",
+        "llamacpp_source": "Based on /props and /slots.",
+        "vllm_metrics": "vLLM's Prometheus /metrics is not parsed yet; only models are listed here.",
+        "ollama_config": "Changing settings requires root: run sudo systemctl edit ollama, add Environment=OLLAMA_NUM_PARALLEL=4 under [Service], then restart. This tool only displays settings and does not elevate privileges.",
+        "webui_volume": "Open WebUI volume",
+        "duplicate_note": "Duplicate detection compares normalized names (removing suffixes such as GGUF and instruct) and is heuristic; matching names do not imply the same quantization. Verify before deleting.",
+        "warming": "Loading / warming up",
+        "warm_failed": "Warm-up failed",
+        "requests_queued": "below the concurrency; later requests are queued.",
+        "requests_parallel": "sufficient for simultaneous processing.",
+        "warm_request_failed": "Warm-up request failed (model loading failed or timed out)",
+        "bench_failed": "Benchmark request failed",
+        "ollama_models": "Ollama models",
+        "ollama_disk_note": "System service, stored in /usr/share/ollama; different tags of the same model share blobs, so the sum of the listed sizes exceeds actual disk usage. Individual models can be deleted here",
+        "lmstudio_models": "LM Studio models",
+        "lmstudio_disk_note": "~/.lmstudio/models; delete models in LM Studio. This tool only lists them",
+        "snap_data_note": "Steam games, browser profiles, etc.; manage them in each app",
+        "snap_data": "snap app data (~/snap)",
+        "flatpak_note": "Apps and runtimes; unused runtimes can be removed with flatpak uninstall --unused",
+        "flatpak_system": "flatpak (system)",
+        "snap_retention": "snapd retains 2 old revisions by default",
+        "snap_system": "snap (system)",
+        "apt_cache": "apt package cache",
+        "apt_cache_note": "Downloaded .deb files; safe to clear",
+        "apt_autoremove": "apt packages available for automatic removal",
+        "none": "None",
+        "journal": "System journal",
+        "journal_note": "Vacuuming requires root; this tool does not change it",
+        "app_cache": "App caches",
+        "npm_cache": "npm cache",
+        "trash": "Trash",
+        "gpu_stuck_advice": "Multiple forum users have confirmed that the root cause is stuck firmware in the power supply's USB-C PD controller. Disconnect the power supply and all USB-C devices, hold the power button for 30 seconds, then wait another 60 seconds for the capacitors to discharge before reconnecting and powering on. Rebooting alone does not help: the PD controller is inside the power adapter and requires a power disconnect to reset.",
+        "gpu_stuck_title": "GPU stuck in a low-power state",
+        "disk_full_title": "Root partition is nearly full",
+        "transaction_failed": "Transaction failed",
+        "fw_pending": "Pending (waiting for reboot)",
+        "fw_success": "Success",
+        "fw_unknown": "Unknown",
+        "fw_failed_reboot": "Failed after reboot",
+        "fw_reboot": "Reboot required",
+        "fwupd_missing": "fwupdmgr is unavailable",
+        "missing_source_id": "Missing source or id",
+        "no_pkgs": "No packages selected",
+        "job_running": "A job is already running",
+        "slot_invalid": "slot must be 0–3",
+        "controller_invalid": "Invalid controller format",
+        "missing_model": "Missing model",
+        "ollama_no_response": "Ollama did not respond (model does not exist or loading failed)",
+        "model_invalid": "Invalid model name format",
+        "concurrency_invalid": "Missing model or concurrency must be 1/2/4/8",
+        "num_predict_invalid": "num_predict must be 64/128/256/512",
+        "bench_running": "A benchmark is already running",
+        "missing_name": "Missing name",
+        "no_removable": "No packages available to remove",
+        "source_ids_invalid": "source must be flatpak/snap and ids must not be empty",
+        "pkgs_missing": "Packages not found: {p0}",
+        "deps_failed": "Could not resolve dependencies: {p0}",
+        "exit_code": "Command exit code {p0}",
+        "snap_attach": "snapd change {p0} is already running; monitoring it directly (no password required again)",
+        "snap_step": "Step {p0}/{p1}",
+        "snap_step_percent": " · this step {p0}%",
+        "snap_overall": " (overall {p0}%)",
+        "snap_ended": "snapd change {p0} ended with {p1}",
+        "snap_status": "snapd change {p0}: {p1}",
+        "config_conflict": "Configuration file conflict for {p0}; keeping the current version",
+        "transaction_exit": "Transaction exit status: {p0}",
+        "job_start": "Starting {p0}: {p1}",
+        "new_commit": "New commit {p0}",
+        "vendor_notes": "See the vendor's release notes instead: {p0}",
+        "changelog_home": "This source does not provide a changelog; the package's declared website is {p0}",
+        "changelog_no_home": "This source ({p0}) does not provide a changelog, and the package does not declare a website",
+        "apt_get_failed": "Could not run apt-get: {p0}",
+        "appstream_source": "Source: {p0} appstream",
+        "remote_no_notes": "{p0} does not provide release notes (no local appstream data); the following is commit information for the latest remote version, not release notes",
+        "snap_info_failed": "snap info {p0} failed (offline, store unreachable, or name mismatch)",
+        "publisher": "Publisher {p0}",
+        "tracking": "Tracking {p0}",
+        "last_update": "Last updated {p0}",
+        "usb_root_bus": "USB {p0} root hub · Bus {p1}",
+        "unknown_device": "Unknown device {p0}:{p1}",
+        "dmidecode_exec_failed": "Could not run dmidecode: {p0}",
+        "dmidecode_failed": "dmidecode failed: {p0}",
+        "nvme_exec_failed": "Could not run nvme: {p0}",
+        "nvme_smart_failed": "nvme smart-log failed: {p0}",
+        "bench_concurrent_phase": "{p0} requests generating {p1} tokens concurrently",
+        "bench_concurrent_note": "Concurrency {p0}, {p1} tokens per request; total tok/s = total tokens ÷ wall-clock time. OLLAMA_NUM_PARALLEL={p2}, ",
+        "bench_phase": "Generating {p0} tokens",
+        "bench_note": "Single request, temperature 0, {p0} tokens; prefill may be higher if the prompt is cached.",
+        "docker_count": "{p0}: {p1} items, {p2} reclaimable",
+        "volume": "Volume {p0}",
+        "volume_links": "Used by {p0} containers",
+        "docker_reclaim": "About {p0} GB reclaimable from images; volumes are not cleared automatically (they may contain data)",
+        "autoremove_count": "{p0} dependencies no longer needed (including old kernels)",
+        "gpu_stuck_load": "GPU is under load ({p0}%) but its SM clock is stuck at {p1} MHz, with power at {p2} W, for over 30 seconds.",
+        "gpu_stuck_flags": "GPU hardware slowdown flags remain active: {p0}.",
+        "disk_full": "{p0}% used, {p1} GB remaining. Open http://localhost:{p2}/#disk to see disk usage.",
+        "autostart_write_failed": "Could not write autostart: {p0}",
+        "ollama_http": "Ollama returned {p0}: {p1}",
+        "ollama_connect": "Could not connect to Ollama: {p0}",
+        "snap_apps_running": "snapd will not update running snaps: {p0}. Close these apps and try again.",
+        "truncated": "\n… (truncated)",
+        "changelog_source": "Source: apt changelog",
+        "changelog_all": ", all entries (could not identify the installed-version boundary)",
+        "changelog_since": ", entries after the installed version",
+        "gpu_help": " Open http://localhost:%d/#monitor for instructions.",
+        "trash_cleared": "Trash emptied"
+    }
+}
+
+
+def msg(key, lang, **kw):
+    return MSG.get(lang, MSG[LANG_DEFAULT]).get(key, MSG[LANG_DEFAULT].get(key, key)).format(**kw)
+
+
+# 快取、背景工作及既有快照保留中文原值，只在 HTTP 回應副本翻譯，避免兩個語言互相污染。
+# 規則只涵蓋本工具字串表的完整句型；不改套件、路徑、外部指令輸出或使用者校準備註。
+_MSG_EXACT = {value: key for key, value in MSG[LANG_DEFAULT].items() if "{p" not in value}
+_MSG_PATTERNS = []
+for _key, _template in MSG[LANG_DEFAULT].items():
+    if "{p" in _template:
+        _parts = re.split(r"(\{p\d+\})", _template)
+        _pattern = "".join("(?P<" + part[1:-1] + ">.*?)" if re.fullmatch(r"\{p\d+\}", part) else re.escape(part) for part in _parts)
+        _MSG_PATTERNS.append((_key, re.compile(_pattern, re.S)))
+
+
+def _message_text(value, lang):
+    if lang == LANG_DEFAULT or not re.search("[一-鿿]", value):
+        return value
+    if value in _MSG_EXACT:
+        return msg(_MSG_EXACT[value], lang)
+    for key, pattern in _MSG_PATTERNS:
+        found = pattern.fullmatch(value)
+        if found:
+            return msg(key, lang, **{k: _message_text(v, lang) for k, v in found.groupdict().items()})
+    # 工作記錄的時間戳與組合說明，逐個翻譯已知片段，保留其餘原始資料。
+    stamp = re.match(r"^(\d{2}:\d{2}:\d{2} )(.*)$", value, re.S)
+    if stamp:
+        return stamp[1] + _message_text(stamp[2], lang)
+    for source, key in sorted(_MSG_EXACT.items(), key=lambda item: len(item[0]), reverse=True):
+        if len(source) > 5 and value.startswith(source):
+            return msg(key, lang) + _message_text(value[len(source):], lang)
+        if len(source) > 5 and value.endswith(source):
+            return _message_text(value[:-len(source)], lang) + msg(key, lang)
+    for key, pattern in _MSG_PATTERNS:
+        # 有固定句尾才可在組合文字中找邊界，避免吞掉後面的外部資料。
+        if not re.search(r"\{p\d+\}$", MSG[LANG_DEFAULT][key]):
+            value = pattern.sub(lambda found: msg(key, lang, **{
+                k: _message_text(v, lang) for k, v in found.groupdict().items()}), value)
+    for separator in (" · ", "、"):
+        if separator in value:
+            parts = value.split(separator)
+            translated = [_message_text(part, lang) for part in parts]
+            if translated != parts:
+                return (", " if separator == "、" else separator).join(translated)
+    return value
+
+
+def _localized_response(value, lang, field=None):
+    if lang == LANG_DEFAULT or field in {
+        "calib", "path", "mountpoint", "mountpoints", "ssid", "bssid", "commandline",
+        "command", "packages", "model", "id", "serial", "serial_number",
+    }:
+        return value
+    if isinstance(value, dict):
+        result = {k: _localized_response(v, lang, k) for k, v in value.items()}
+        if "name_zh" in result:
+            result["name_zh"] = ""  # 英文介面使用 .desktop 的原始 Name，不翻譯產品名稱。
+        return result
+    if isinstance(value, list):
+        return [_localized_response(item, lang, field) for item in value]
+    if isinstance(value, str):
+        return _message_text(value, lang)
+    return value
+
+
 # 名稱樣式 → 「通常需要重開」的提示。這是啟發式，前端會標明「推測」。
 REBOOT_HINT_RE = re.compile(
     r"^(linux-image|linux-modules|linux-headers|nvidia-driver|nvidia-kernel|"
@@ -83,7 +580,7 @@ def _group_name(orig):
     site = orig["site"]
     if site in SITE_NAMES:
         return SITE_NAMES[site]
-    name = orig["origin"] or orig["label"] or site or "未知來源"
+    name = orig["origin"] or orig["label"] or site or msg('unknown_source', LANG_DEFAULT)
     if site.endswith("nvidia.com"):
         # NVIDIA 有多個 repo（spark / baseos / cuda），保留路徑辨識
         return f"NVIDIA ({site})"
@@ -106,12 +603,10 @@ def kernel_pairing_warning(selected, upgradable):
     av_m = [n for n in upgradable if NVMOD_RE.match(n)]
     if sel_k and av_m and not sel_m:
         return {"kind": "missing_modules", "missing": sorted(av_m),
-                "message": "你勾了核心，但沒有勾對應的 NVIDIA 簽章模組。兩者沒有相依關係，模擬不會提醒你。"
-                           "只升核心的話，重開機後會進到一個沒有簽章 GPU 驅動的系統，退回 DKMS 自簽又會被 Secure Boot 擋掉。"}
+                "message": msg('missing_modules', LANG_DEFAULT)}
     if sel_m and av_k and not sel_k:
         return {"kind": "missing_kernel", "missing": sorted(av_k),
-                "message": "你勾了 NVIDIA 簽章模組，但沒有勾對應的核心。模組是對著特定核心版本編譯的，"
-                           "沒有那個核心就用不到。"}
+                "message": msg('missing_kernel', LANG_DEFAULT)}
     return None
 
 
@@ -137,7 +632,7 @@ def dashboard_equivalent():
         pass
     data = {"upgrade": len(ups), "install": len(news), "remove": len(remv), "firmware": fw,
             "packages": sorted(set(ups + news)), "removes": sorted(set(remv)),
-            "note": "Dashboard 用 aptdaemon 的完整升級（可安裝／移除套件），裝完跑韌體並強制重開機，過程不顯示清單。"}
+            "note": msg('dashboard_note', LANG_DEFAULT)}
     _DASH_CACHE.update(ts=time.time(), data=data)
     return data
 
@@ -219,13 +714,13 @@ def simulate(names):
     cache = apt.Cache()
     unknown = [n for n in names if n not in cache]
     if unknown:
-        return {"ok": False, "error": f"找不到套件：{', '.join(unknown)}"}
+        return {"ok": False, "error": msg('pkgs_missing', LANG_DEFAULT, p0=', '.join(unknown))}
     try:
         with cache.actiongroup():
             for n in names:
                 cache[n].mark_upgrade()
     except Exception as e:  # 相依性解不開
-        return {"ok": False, "error": f"相依性無法解析：{e}"}
+        return {"ok": False, "error": msg('deps_failed', LANG_DEFAULT, p0=e)}
     changes = []
     for p in cache.get_changes():
         if p.marked_delete:
@@ -413,7 +908,7 @@ class Job:
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=_ENV_C, bufsize=1)
             with self.lock:
                 self.state["progress"] = None
-                self.state["status_text"] = "執行中"
+                self.state["status_text"] = msg('running', LANG_DEFAULT)
             for line in proc.stdout:
                 line = line.rstrip("\r\n")
                 if line.strip():
@@ -425,10 +920,10 @@ class Job:
                 self.state["exit"] = f"rc={rc}"
                 self.state["status"] = "done" if rc == 0 else "error"
                 if rc != 0:
-                    hint = {126: "授權被取消或密碼錯誤（pkexec）", 127: "找不到指令",
-                            10: "snapd 已有進行中的變更，等它跑完再試"}.get(rc)
-                    self.state["error"] = (hint or f"指令結束碼 {rc}") + "，見詳細記錄"
-                self.state["status_text"] = "已完成" if rc == 0 else "失敗"
+                    hint = {126: msg('auth_cancelled', LANG_DEFAULT), 127: msg('command_missing', LANG_DEFAULT),
+                            10: msg('snap_busy', LANG_DEFAULT)}.get(rc)
+                    self.state["error"] = (hint or msg('exit_code', LANG_DEFAULT, p0=rc)) + msg('see_log', LANG_DEFAULT)
+                self.state["status_text"] = msg('done', LANG_DEFAULT) if rc == 0 else msg('failed', LANG_DEFAULT)
                 self.state["finished"] = datetime.now().isoformat(timespec="seconds")
         except Exception as e:
             with self.lock:
@@ -463,7 +958,7 @@ class Job:
                     if j.get("error"):
                         raise RuntimeError(j["error"])
             with self.lock:
-                self.state.update(status="done", exit="ok", status_text="已完成", finished=datetime.now().isoformat(timespec="seconds"))
+                self.state.update(status="done", exit="ok", status_text=msg('done', LANG_DEFAULT), finished=datetime.now().isoformat(timespec="seconds"))
         except Exception as e:
             with self.lock:
                 self.state.update(status="error", error=str(e), finished=datetime.now().isoformat(timespec="seconds"))
@@ -474,9 +969,9 @@ class Job:
     def _snap_rc_hint(self, rc):
         last = " ".join(self.state.get("log", [])[-3:])
         if "has running apps" in last:
-            return "該 snap 有程式正在執行，關掉它再更新"
-        return {10: "snapd 已有進行中的變更，等它跑完再試",
-                126: "授權被取消或密碼錯誤（pkexec）", 127: "找不到指令"}.get(rc, f"指令結束碼 {rc}")
+            return msg('snap_running', LANG_DEFAULT)
+        return {10: msg('snap_busy', LANG_DEFAULT),
+                126: msg('auth_cancelled', LANG_DEFAULT), 127: msg('command_missing', LANG_DEFAULT)}.get(rc, msg('exit_code', LANG_DEFAULT, p0=rc))
 
     def _run_snap(self, names):
         """snap 更新。三個在真機上踩到的坑：
@@ -486,9 +981,9 @@ class Job:
         cid = snap_change_for(names)
         proc = None
         if cid:
-            self._log(f"snapd 已有進行中的變更 {cid}，直接接上監看（不需要再輸入密碼）")
+            self._log(msg('snap_attach', LANG_DEFAULT, p0=cid))
         else:
-            self._log("snap refresh 需要 root，透過 pkexec 取得授權（桌面會跳密碼視窗）")
+            self._log(msg('snap_auth', LANG_DEFAULT))
             cmd = ["pkexec", "/usr/bin/snap", "refresh"] + names
             self._log("$ " + " ".join(cmd))
             try:
@@ -517,9 +1012,9 @@ class Job:
                         size = (f" · {mb(pr['bytes_done'])} / {mb(pr['bytes_total'])}"
                                 if pr.get("bytes_total") else "")
                         step = min(pr["done"] + 1, pr["total"]) if pr["total"] else pr["done"]
-                        self.state["details"] = (f"步驟 {step}/{pr['total']}" + size
-                                                 + (f" · 這步 {pr['task_percent']}%" if pr["task_percent"] is not None else "")
-                                                 + (f"（整體 {pr['task_ratio']}%）" if pr["task_ratio"] is not None else ""))
+                        self.state["details"] = (msg('snap_step', LANG_DEFAULT, p0=step, p1=pr['total']) + size
+                                                 + (msg('snap_step_percent', LANG_DEFAULT, p0=pr['task_percent']) if pr["task_percent"] is not None else "")
+                                                 + (msg('snap_overall', LANG_DEFAULT, p0=pr['task_ratio']) if pr["task_ratio"] is not None else ""))
                     if pr["status"] in ("Done", "Error", "Undone", "Hold"):
                         ok = pr["status"] == "Done"
                         reason = (pr.get("err") or "").strip()
@@ -528,20 +1023,20 @@ class Job:
                                 self._log(l[:300])
                             blob = (reason + " " + " ".join(pr.get("fail_log") or [])).lower()
                             if any(k in blob for k in ("unexpected eof", "connection", "timeout", "temporary failure", "i/o timeout")):
-                                reason = (reason or "下載中斷") + "（看起來是網路中斷，再按一次即可重試）"
+                                reason = (reason or msg('download_interrupted', LANG_DEFAULT)) + msg('network_retry', LANG_DEFAULT)
                         with self.lock:
                             self.state.update(status="done" if ok else "error", exit=pr["status"],
-                                              error=None if ok else (reason or f"snapd 變更 {cid} 結束於 {pr['status']}"),
-                                              status_text="已完成" if ok else "失敗",
+                                              error=None if ok else (reason or msg('snap_ended', LANG_DEFAULT, p0=cid, p1=pr['status'])),
+                                              status_text=msg('done', LANG_DEFAULT) if ok else msg('failed', LANG_DEFAULT),
                                               finished=datetime.now().isoformat(timespec="seconds"))
-                        self._log(f"snapd 變更 {cid}: {pr['status']}")
+                        self._log(msg('snap_status', LANG_DEFAULT, p0=cid, p1=pr['status']))
                         return
                 if proc is not None and proc.poll() is not None and cid is None:
                     rc = proc.returncode
                     with self.lock:
                         self.state.update(status="done" if rc == 0 else "error", exit=f"rc={rc}",
-                                          error=None if rc == 0 else (self._snap_rc_hint(rc) + "，見詳細記錄"),
-                                          status_text="已完成" if rc == 0 else "失敗",
+                                          error=None if rc == 0 else (self._snap_rc_hint(rc) + msg('see_log', LANG_DEFAULT)),
+                                          status_text=msg('done', LANG_DEFAULT) if rc == 0 else msg('failed', LANG_DEFAULT),
                                           finished=datetime.now().isoformat(timespec="seconds"))
                     return
                 time.sleep(2)
@@ -559,7 +1054,7 @@ class Job:
             cmd = DISK_ACTIONS.get(packages[0]) if packages else None
             if not cmd:
                 with self.lock:
-                    self.state.update(status="error", error="未知動作", finished=datetime.now().isoformat(timespec="seconds"))
+                    self.state.update(status="error", error=msg('unknown_action', LANG_DEFAULT), finished=datetime.now().isoformat(timespec="seconds"))
                 return
             return self._run_subprocess(cmd, packages)
         if kind == "flatpak":
@@ -608,7 +1103,7 @@ class Job:
 
             def on_conffile(t, old, new):
                 # 設定檔衝突一律保留現有版本，不互動、不猜。
-                self._log(f"設定檔衝突 {old}，保留現有版本")
+                self._log(msg('config_conflict', LANG_DEFAULT, p0=old))
                 t.resolve_config_file_conflict(old, "keep")
 
             def on_finished(t, exit_state):
@@ -618,7 +1113,7 @@ class Job:
                         "done" if exit_state == aenums.EXIT_SUCCESS else "error"
                     )
                     if self.state["status"] == "error" and not self.state["error"]:
-                        self.state["error"] = f"交易結束狀態：{exit_state}"
+                        self.state["error"] = msg('transaction_exit', LANG_DEFAULT, p0=exit_state)
                     self.state["finished"] = datetime.now().isoformat(timespec="seconds")
                 self._log(f"finished: {exit_state}")
                 _APPS_CACHE["ts"] = 0
@@ -633,7 +1128,7 @@ class Job:
             trans.connect("error", on_error)
             trans.connect("config-file-conflict", on_conffile)
             trans.connect("finished", on_finished)
-            self._log(f"開始 {kind}: {' '.join(packages) if packages else ''}")
+            self._log(msg('job_start', LANG_DEFAULT, p0=kind, p1=' '.join(packages) if packages else ''))
             trans.run()
             loop.run()
         except Exception as e:  # D-Bus 拒絕、polkit 取消等
@@ -871,7 +1366,7 @@ def apps_flatpak(check_updates):
                     ver = parts[1] if len(parts) > 1 and parts[1] else ""
                     commit = parts[2][:12] if len(parts) > 2 else ""
                     # flathub 常不帶版本號，只有 commit；照實標示，不編版本
-                    updates[parts[0]] = ver or (f"新 commit {commit}" if commit else "有新版（版本未提供）")
+                    updates[parts[0]] = ver or (msg('new_commit', LANG_DEFAULT, p0=commit) if commit else msg('new_version_no_number', LANG_DEFAULT))
     out = []
     for line in txt.splitlines():
         parts = line.split("\t")
@@ -966,11 +1461,11 @@ def _apt_vendor_hint(pkg):
     except Exception:
         pass
     if url:
-        return f"改看廠商的發行說明：{url}"
+        return msg('vendor_notes', LANG_DEFAULT, p0=url)
     if home:
-        return f"這個來源沒有提供 changelog；套件宣告的官網是 {home}"
+        return msg('changelog_home', LANG_DEFAULT, p0=home)
     if site:
-        return f"這個來源（{site}）沒有提供 changelog，套件也沒宣告官網"
+        return msg('changelog_no_home', LANG_DEFAULT, p0=site)
     return ""
 
 
@@ -980,12 +1475,12 @@ def changelog_apt(pkg, installed_version=""):
     try:
         r = subprocess.run(["apt-get", "-q", "changelog", pkg], capture_output=True, text=True, timeout=25, env=_ENV_C)
     except subprocess.TimeoutExpired:
-        return {"ok": False, "text": "", "note": "下載 changelog 逾時（25 秒）"}
+        return {"ok": False, "text": "", "note": msg('changelog_timeout', LANG_DEFAULT)}
     except OSError as e:
-        return {"ok": False, "text": "", "note": f"無法執行 apt-get：{e}"}
+        return {"ok": False, "text": "", "note": msg('apt_get_failed', LANG_DEFAULT, p0=e)}
     if r.returncode != 0:
         hint = _apt_vendor_hint(pkg)
-        return {"ok": False, "text": "", "note": "此來源未提供更新說明（多為第三方 repo）。" + (hint or "")}
+        return {"ok": False, "text": "", "note": msg('no_changelog', LANG_DEFAULT) + (hint or "")}
     head_re = re.compile(r"^(\S+) \(([^)]+)\)")
     kept, seen_any, truncated = [], False, False
     for line in r.stdout.splitlines():
@@ -1000,13 +1495,13 @@ def changelog_apt(pkg, installed_version=""):
         kept.append(line)
     if not seen_any:
         hint = _apt_vendor_hint(pkg)
-        return {"ok": False, "text": "", "note": "此來源未提供更新說明（多為第三方 repo）。" + (hint or "")}
+        return {"ok": False, "text": "", "note": msg('no_changelog', LANG_DEFAULT) + (hint or "")}
     text = "\n".join(kept).strip()
     if truncated and not text:
-        return {"ok": True, "text": "", "note": "已安裝版本就是最新條目，沒有更新的 changelog"}
+        return {"ok": True, "text": "", "note": msg('changelog_current', LANG_DEFAULT)}
     if len(text) > 20000:
-        text = text[:20000] + "\n…（已截斷）"
-    note = "來源：apt changelog" + ("，已安裝版本之後的條目" if truncated else "，全部條目（找不到已安裝版本的分界）")
+        text = text[:20000] + msg('truncated', LANG_DEFAULT)
+    note = msg('changelog_source', LANG_DEFAULT) + (msg('changelog_since', LANG_DEFAULT) if truncated else msg('changelog_all', LANG_DEFAULT))
     return {"ok": True, "text": text, "note": note}
 
 
@@ -1024,16 +1519,16 @@ def changelog_flatpak(app_id, installed_version):
                     continue
                 rels = comp.find("releases")
                 if rels is None:
-                    return {"ok": False, "text": "", "note": "appstream 裡沒有 release 記錄"}
+                    return {"ok": False, "text": "", "note": msg('appstream_no_releases', LANG_DEFAULT)}
                 lines = []
                 for r in list(rels)[:8]:
                     v = r.get("version", "?")
                     d = r.get("date", "")[:10]
                     desc = " ".join(t.strip() for t in r.itertext() if t.strip())
-                    lines.append(f"{v}  {d}\n  {desc or '（無說明）'}")
+                    lines.append(f"{v}  {d}\n  {desc or msg('no_description', LANG_DEFAULT)}")
                     if v == installed_version:
                         break
-                return {"ok": True, "text": "\n\n".join(lines), "note": f"來源：{os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(path))))} appstream"}
+                return {"ok": True, "text": "\n\n".join(lines), "note": msg('appstream_source', LANG_DEFAULT, p0=os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(path)))))}
     # 本機沒有 appstream（flatpak 未同步 appstream 時就是這樣）→ 退回 remote-info 的提交訊息
     remote = ""
     data = _APPS_CACHE.get("data") or {}
@@ -1050,8 +1545,8 @@ def changelog_flatpak(app_id, installed_version):
                     info[k] = v.strip()
             body = "\n".join(f"{k}: {info[k]}" for k in ("Version", "Date", "Subject", "Commit") if k in info)
             return {"ok": True, "text": body,
-                    "note": f"{remote} 未提供 release notes（本機無 appstream 資料）；以下是遠端最新版的提交資訊，不是更新說明"}
-    return {"ok": False, "text": "", "note": "找不到這個 app 的 appstream 資料，也無法查詢遠端"}
+                    "note": msg('remote_no_notes', LANG_DEFAULT, p0=remote)}
+    return {"ok": False, "text": "", "note": msg('appstream_unavailable', LANG_DEFAULT)}
 
 
 def changelog_snap(name, installed_version=""):
@@ -1059,7 +1554,7 @@ def changelog_snap(name, installed_version=""):
     以及目前安裝的版次。照實說明這不是 changelog。需要連商店，離線會失敗。"""
     out = _run(["snap", "info", name], timeout=30)
     if out is None:
-        return {"ok": False, "text": "", "note": f"snap info {name} 失敗（離線、商店不可達或名稱不符）"}
+        return {"ok": False, "text": "", "note": msg('snap_info_failed', LANG_DEFAULT, p0=name)}
     g = lambda k: (lambda m: m.group(1).strip() if m else None)(re.search(rf"^{re.escape(k)}:\s*(.+)$", out, re.M))
     summary, publisher = g("summary"), g("publisher")
     store_url, tracking, refresh = g("store-url"), g("tracking"), g("refresh-date")
@@ -1077,23 +1572,23 @@ def changelog_snap(name, installed_version=""):
             if in_ch and line.strip() and not line.startswith(" ") and not line.startswith("installed:"):
                 in_ch = False
     if not rows:
-        return {"ok": False, "text": "", "note": "snap info 沒有回報頻道資訊"}
+        return {"ok": False, "text": "", "note": msg('snap_no_channels', LANG_DEFAULT)}
     inst = next((r for r in rows if r["channel"] == "installed"), None)
     # 回結構化表格，不用空格排版：等寬字型下 CJK 不保證是英數的兩倍寬，靠字元數對齊一定會歪
     table_rows = []
     for r in rows:
         table_rows.append({
-            "channel": "已安裝" if r["channel"] == "installed" else r["channel"],
+            "channel": msg('installed', LANG_DEFAULT) if r["channel"] == "installed" else r["channel"],
             "version": r["version"], "date": r["date"] or "—", "rev": r["rev"], "size": r["size"],
             "installed": r["channel"] == "installed",
             "current": bool(inst and r["channel"] != "installed" and r["rev"] == inst["rev"]),
         })
-    meta = " · ".join(x for x in [f"發行者 {publisher}" if publisher else None,
-                                  f"追蹤 {tracking}" if tracking else None,
-                                  f"上次更新 {refresh}" if refresh else None] if x)
+    meta = " · ".join(x for x in [msg('publisher', LANG_DEFAULT, p0=publisher) if publisher else None,
+                                  msg('tracking', LANG_DEFAULT, p0=tracking) if tracking else None,
+                                  msg('last_update', LANG_DEFAULT, p0=refresh) if refresh else None] if x)
     return {"ok": True, "text": "", "summary": summary, "meta": meta, "store_url": store_url,
-            "table": {"columns": ["頻道", "版本", "發布日期", "版次", "大小"], "rows": table_rows},
-            "note": "Snap 商店沒有逐版更新說明；以下是 snap info 的頻道與版本資訊，不是 changelog。"}
+            "table": {"columns": [msg('channel', LANG_DEFAULT), msg('version', LANG_DEFAULT), msg('release_date', LANG_DEFAULT), msg('revision', LANG_DEFAULT), msg('size', LANG_DEFAULT)], "rows": table_rows},
+            "note": msg('snap_changelog_note', LANG_DEFAULT)}
 
 
 def get_changelog(source, ident, installed_version=""):
@@ -1107,7 +1602,7 @@ def get_changelog(source, ident, installed_version=""):
     elif source == "snap":
         res = changelog_snap(ident, installed_version)
     else:
-        res = {"ok": False, "text": "", "note": "未知來源"}
+        res = {"ok": False, "text": "", "note": msg('unknown_source', LANG_DEFAULT)}
     if res["ok"]:
         _CHANGELOG_CACHE[key] = res
     return res
@@ -1192,9 +1687,9 @@ import ctypes
 _NVML = {"lib": None, "handle": None, "ok": False, "tried": False, "lock": threading.Lock()}
 
 
-NVML_EVENT_REASONS = {0x1: "GPU 閒置", 0x2: "應用程式時脈設定", 0x4: "軟體功率上限", 0x8: "硬體降速", 0x10: "Sync Boost",
-                      0x20: "軟體熱降速", 0x40: "硬體熱降速", 0x80: "硬體功率煞車", 0x100: "顯示時脈設定"}
-GPU_STUCK_BAD_REASONS = {"硬體降速", "硬體功率煞車", "硬體熱降速"}
+NVML_EVENT_REASONS = {0x1: msg('gpu_idle', LANG_DEFAULT), 0x2: msg('app_clocks', LANG_DEFAULT), 0x4: msg('sw_power_cap', LANG_DEFAULT), 0x8: msg('hw_slowdown', LANG_DEFAULT), 0x10: "Sync Boost",
+                      0x20: msg('sw_thermal', LANG_DEFAULT), 0x40: msg('hw_thermal', LANG_DEFAULT), 0x80: msg('hw_power_brake', LANG_DEFAULT), 0x100: msg('display_clocks', LANG_DEFAULT)}
+GPU_STUCK_BAD_REASONS = {msg('hw_slowdown', LANG_DEFAULT), msg('hw_power_brake', LANG_DEFAULT), msg('hw_thermal', LANG_DEFAULT)}
 
 
 class _NvmlUtil(ctypes.Structure):
@@ -1315,7 +1810,7 @@ def _gpu_static_smi():
             "power_limit_w": watts(parts[6]) if len(parts) > 6 else None,
             # tlimit 是「距離某個溫度上限還有幾度」，加當下溫度只是估計；NVML 可用時以它的 slowdown 門檻為準
             "throttle_temp_c": (watts(parts[7]) + watts(parts[8])) if len(parts) > 8 and watts(parts[7]) is not None and watts(parts[8]) is not None else None,
-            "throttle_source": "nvidia-smi tlimit 推算", "source": "nvidia-smi",
+            "throttle_source": msg('tlimit_estimate', LANG_DEFAULT), "source": "nvidia-smi",
             "unified_memory": mem_total is None}
 
 
@@ -1413,13 +1908,13 @@ def _sensors_read():
 USB_IDS = "/usr/share/misc/usb.ids"
 _USB_IDS_CACHE = None
 USB_CLASS = {
-    "00": ("依介面", ""), "01": ("音訊", "audio"), "02": ("通訊", "comm"), "03": ("人機介面", "hid"),
-    "05": ("實體", "other"), "06": ("影像", "image"), "07": ("印表機", "printer"), "08": ("大量儲存", "storage"),
-    "09": ("集線器", "hub"), "0a": ("CDC 資料", "comm"), "0b": ("智慧卡", "other"), "0d": ("內容安全", "other"),
-    "0e": ("視訊", "video"), "0f": ("個人健康", "other"), "10": ("音訊/視訊", "video"), "11": ("Billboard", "billboard"),
-    "dc": ("診斷", "other"), "e0": ("無線", "wireless"), "ef": ("複合", "other"), "fe": ("應用特定", "other"), "ff": ("廠商自訂", "vendor"),
+    "00": (msg('usb_interface', LANG_DEFAULT), ""), "01": (msg('usb_audio', LANG_DEFAULT), "audio"), "02": (msg('usb_communication', LANG_DEFAULT), "comm"), "03": (msg('usb_hid', LANG_DEFAULT), "hid"),
+    "05": (msg('usb_physical', LANG_DEFAULT), "other"), "06": (msg('usb_image', LANG_DEFAULT), "image"), "07": (msg('usb_printer', LANG_DEFAULT), "printer"), "08": (msg('usb_storage', LANG_DEFAULT), "storage"),
+    "09": (msg('usb_hub', LANG_DEFAULT), "hub"), "0a": (msg('usb_cdc', LANG_DEFAULT), "comm"), "0b": (msg('usb_card', LANG_DEFAULT), "other"), "0d": (msg('usb_security', LANG_DEFAULT), "other"),
+    "0e": (msg('usb_video', LANG_DEFAULT), "video"), "0f": (msg('usb_health', LANG_DEFAULT), "other"), "10": (msg('usb_av', LANG_DEFAULT), "video"), "11": ("Billboard", "billboard"),
+    "dc": (msg('usb_diagnostic', LANG_DEFAULT), "other"), "e0": (msg('usb_wireless', LANG_DEFAULT), "wireless"), "ef": (msg('usb_composite', LANG_DEFAULT), "other"), "fe": (msg('usb_application', LANG_DEFAULT), "other"), "ff": (msg('usb_vendor', LANG_DEFAULT), "vendor"),
 }
-USB_SPEED = {"1.5": "USB 1.0 低速 1.5 Mb/s", "12": "USB 1.1 全速 12 Mb/s", "480": "USB 2.0 高速 480 Mb/s",
+USB_SPEED = {"1.5": msg('usb_low', LANG_DEFAULT), "12": msg('usb_full', LANG_DEFAULT), "480": msg('usb_high', LANG_DEFAULT),
              "5000": "USB 3.0 5 Gb/s", "10000": "USB 3.1 10 Gb/s", "20000": "USB 3.2 20 Gb/s"}
 
 
@@ -1471,29 +1966,29 @@ def _usb_tree():
             ifaces.append({"id": i.split(":", 1)[1], "class": cls, "sub": sub, "proto": proto, "driver": drv,
                            "label": USB_CLASS.get(cls, (cls, "other"))[0]})
         # 分類：以介面類別為主，HID 再依 protocol 分鍵盤/滑鼠
-        kind, kind_label = "other", "裝置"
+        kind, kind_label = "other", msg('device', LANG_DEFAULT)
         classes = [x["class"] for x in ifaces]
         dev_class = (_read(os.path.join(d, "bDeviceClass")) or "").lower()
         if n.startswith("usb"):
-            kind, kind_label = "roothub", "USB 根集線器"
+            kind, kind_label = "roothub", msg('usb_root', LANG_DEFAULT)
             product = None  # 下面會用 bus 編號取名，比 "xHCI Host Controller" 好認
         elif "09" in classes or dev_class == "09":
-            kind, kind_label = "hub", "集線器"
+            kind, kind_label = "hub", msg('usb_hub', LANG_DEFAULT)
         elif "03" in classes:
             protos = {x["proto"] for x in ifaces if x["class"] == "03"}
-            kind = "hid"; kind_label = "鍵盤" if "01" in protos else "滑鼠" if "02" in protos else "人機介面裝置"
-        elif "08" in classes: kind, kind_label = "storage", "大量儲存"
-        elif "e0" in classes: kind, kind_label = "wireless", "藍牙" if any(x["driver"] == "btusb" for x in ifaces) else "無線"
-        elif "01" in classes: kind, kind_label = "audio", "音訊"
-        elif "0e" in classes: kind, kind_label = "video", "視訊/攝影機"
-        elif "07" in classes: kind, kind_label = "printer", "印表機"
-        elif "02" in classes or "0a" in classes: kind, kind_label = "comm", "通訊/網路"
-        elif "06" in classes: kind, kind_label = "image", "影像"
+            kind = "hid"; kind_label = msg('keyboard', LANG_DEFAULT) if "01" in protos else msg('mouse', LANG_DEFAULT) if "02" in protos else msg('hid_device', LANG_DEFAULT)
+        elif "08" in classes: kind, kind_label = "storage", msg('usb_storage', LANG_DEFAULT)
+        elif "e0" in classes: kind, kind_label = "wireless", msg('bluetooth', LANG_DEFAULT) if any(x["driver"] == "btusb" for x in ifaces) else msg('usb_wireless', LANG_DEFAULT)
+        elif "01" in classes: kind, kind_label = "audio", msg('usb_audio', LANG_DEFAULT)
+        elif "0e" in classes: kind, kind_label = "video", msg('camera', LANG_DEFAULT)
+        elif "07" in classes: kind, kind_label = "printer", msg('usb_printer', LANG_DEFAULT)
+        elif "02" in classes or "0a" in classes: kind, kind_label = "comm", msg('usb_network', LANG_DEFAULT)
+        elif "06" in classes: kind, kind_label = "image", msg('usb_image', LANG_DEFAULT)
         elif "11" in classes: kind, kind_label = "billboard", "USB-C Billboard"
-        elif "ff" in classes: kind, kind_label = "vendor", "廠商自訂"
+        elif "ff" in classes: kind, kind_label = "vendor", msg('usb_vendor', LANG_DEFAULT)
         speed = _read(os.path.join(d, "speed")) or ""
         if kind == "roothub":
-            product = f"USB {'3.x' if speed not in ('12', '480', '1.5') else '2.0'} 根集線器 · Bus {_read(os.path.join(d, 'busnum'))}"
+            product = msg('usb_root_bus', LANG_DEFAULT, p0='3.x' if speed not in ('12', '480', '1.5') else '2.0', p1=_read(os.path.join(d, 'busnum')))
         else:
             product = _read(os.path.join(d, "product"))
         manufacturer = _read(os.path.join(d, "manufacturer"))
@@ -1502,7 +1997,7 @@ def _usb_tree():
         devs[n] = {
             "path": n, "vid": vid, "pid": pid,
             "max_ma": max_ma, "max_w": round(max_ma * 5 / 1000, 2) if max_ma else None,
-            "name": product or products.get((vid, pid)) or f"未知裝置 {vid}:{pid}",
+            "name": product or products.get((vid, pid)) or msg('unknown_device', LANG_DEFAULT, p0=vid, p1=pid),
             "manufacturer": manufacturer or vendors.get(vid),
             "name_from_ids": not product and (vid, pid) in products,
             "speed": speed, "speed_label": USB_SPEED.get(speed, f"{speed} Mb/s" if speed else "—"),
@@ -1670,7 +2165,7 @@ def rear_panel():
         "eth10g": eth and {"iface": eth[0], **eth[1]},
         "connectx7": {"pci_present": mlx_pci, "ifaces": mlx, "driver_loaded": os.path.isdir("/sys/module/mlx5_core")},
         "controllers": ports, "displays_available": bool(disp),
-        "layout_source": "ServeTheHome 評測描述的後面板順序；USB-C 編號對應實體位置為推測，可用插入校準",
+        "layout_source": msg('rear_layout', LANG_DEFAULT),
     }
 
 
@@ -1679,12 +2174,12 @@ def rear_panel():
 PCI_GEN = {"2.5": 1, "5.0": 2, "8.0": 3, "16.0": 4, "32.0": 5, "64.0": 6}
 PCI_LANE_GBPS = {1: 0.25, 2: 0.5, 3: 0.985, 4: 1.969, 5: 3.938, 6: 7.563}  # 每通道 GB/s（扣編碼後）
 PCI_FRIENDLY = {  # vendor:device → (類型, 友善名稱)
-    "1987:5027": ("NVMe SSD", "Phison PS5027-E27T 控制器（系統碟）"),
-    "10ec:8127": ("10GbE 網路", "Realtek RTL8127 10 Gb 乙太網路"),
-    "14c3:7925": ("Wi-Fi 7 / 藍牙", "MediaTek MT7925（AzureWave 模組）"),
-    "10de:2e12": ("GPU", "NVIDIA GB10 Blackwell 顯示核心"),
+    "1987:5027": ("NVMe SSD", msg('phison', LANG_DEFAULT)),
+    "10ec:8127": (msg('network_10g', LANG_DEFAULT), msg('realtek', LANG_DEFAULT)),
+    "14c3:7925": (msg('wifi_bt', LANG_DEFAULT), msg('mediatek', LANG_DEFAULT)),
+    "10de:2e12": ("GPU", msg('gb10_gpu', LANG_DEFAULT)),
 }
-PCI_CLASS_ZH = {"01": "儲存控制器", "02": "網路", "03": "顯示", "04": "多媒體", "06": "橋接", "0c": "序列匯流排", "10": "加密", "12": "處理加速"}
+PCI_CLASS_ZH = {"01": msg('storage_controller', LANG_DEFAULT), "02": msg('network', LANG_DEFAULT), "03": msg('display', LANG_DEFAULT), "04": msg('multimedia', LANG_DEFAULT), "06": msg('bridge', LANG_DEFAULT), "0c": msg('serial_bus', LANG_DEFAULT), "10": msg('crypto', LANG_DEFAULT), "12": msg('accelerator', LANG_DEFAULT)}
 
 
 def _pci_devices():
@@ -1775,14 +2270,14 @@ def _dmi():
         r = subprocess.run(["sudo", "-n", "/usr/sbin/dmidecode", "-t", "1,2,3,16,17"],
                            capture_output=True, text=True, timeout=10, env=_ENV_C)
     except (OSError, subprocess.TimeoutExpired) as e:
-        return {"available": False, "note": f"dmidecode 執行失敗：{e}"}
+        return {"available": False, "note": msg('dmidecode_exec_failed', LANG_DEFAULT, p0=e)}
     if r.returncode != 0:
         err = (r.stderr or "").strip().splitlines()
         err = err[-1] if err else f"rc={r.returncode}"
         if "password" in err.lower() or "sudo" in err.lower():
             return {"available": False,
-                    "note": "dmidecode 需要 root。要顯示序號與記憶體模組，請在 sudoers 只放行 /usr/sbin/dmidecode 免密碼（見 README）"}
-        return {"available": False, "note": f"dmidecode 失敗：{err}"}
+                    "note": msg('dmi_root', LANG_DEFAULT)}
+        return {"available": False, "note": msg('dmidecode_failed', LANG_DEFAULT, p0=err)}
     sections, cur = [], None
     for line in r.stdout.splitlines():
         if line.startswith("Handle "):
@@ -1823,7 +2318,7 @@ def _bluetooth():
         return None
     show = _run(["bluetoothctl", "show"], timeout=5)
     if show is None:
-        return {"available": False, "note": "bluetoothctl 無法連到 bluetoothd（服務未啟動或無藍牙硬體）"}
+        return {"available": False, "note": msg('bluetooth_unavailable', LANG_DEFAULT)}
     ctl = {}
     for line in show.splitlines():
         line = line.strip()
@@ -1888,22 +2383,22 @@ def _nvme_health():
             "vendor": PCI_VENDOR.get(vid) or vid, "vendor_pci_id": f"{vid}:{did}", "controller": ctrl_name,
             "oui": oui, "oui_vendor": OUI.get(oui) if oui else None,
             "dramless": "DRAM-less" in (ctrl_name or ""), "hmb": os.path.exists(base + "/hmb"),
-            "form_factor_note": "NAND 顆粒廠商從軟體查不到", "vendor_source": "PCI 廠商 ID 與 EUI-64 OUI（硬體登記值）"}
+            "form_factor_note": msg('nand_unavailable', LANG_DEFAULT), "vendor_source": msg('nvme_vendor_source', LANG_DEFAULT)}
     try:
         r = subprocess.run(["sudo", "-n", "/usr/sbin/nvme", "smart-log", "/dev/nvme0n1", "--output-format=json"],
                            capture_output=True, text=True, timeout=10, env=_ENV_C)
     except (OSError, subprocess.TimeoutExpired) as e:
-        return {**info, "available": False, "note": f"nvme 執行失敗：{e}"}
+        return {**info, "available": False, "note": msg('nvme_exec_failed', LANG_DEFAULT, p0=e)}
     if r.returncode != 0:
         err = (r.stderr or "").strip().splitlines()
         err = err[-1] if err else f"rc={r.returncode}"
         if "password" in err.lower() or "sudo" in err.lower():
-            return {**info, "available": False, "note": "SMART 需要 root：請在 sudoers 放行 nvme smart-log（見 README），這裡只顯示免 root 的欄位"}
-        return {**info, "available": False, "note": f"nvme smart-log 失敗：{err}"}
+            return {**info, "available": False, "note": msg('smart_root', LANG_DEFAULT)}
+        return {**info, "available": False, "note": msg('nvme_smart_failed', LANG_DEFAULT, p0=err)}
     try:
         j = json.loads(r.stdout)
     except ValueError:
-        return {**info, "available": False, "note": "nvme 輸出不是 JSON"}
+        return {**info, "available": False, "note": msg('nvme_not_json', LANG_DEFAULT)}
     g = lambda k: j.get(k)
     # data_units 單位是 512 bytes × 1000
     du_bytes = lambda v: v * 512 * 1000 if isinstance(v, (int, float)) else None
@@ -1911,7 +2406,7 @@ def _nvme_health():
     crit = g("critical_warning") or 0
     warn_bits = []
     if isinstance(crit, int):
-        for bit, label in ((0, "備用空間低於門檻"), (1, "溫度超出門檻"), (2, "媒體可靠度下降"), (3, "已轉唯讀"), (4, "揮發性備援記憶體失效")):
+        for bit, label in ((0, msg('spare_low', LANG_DEFAULT)), (1, msg('temp_threshold', LANG_DEFAULT)), (2, msg('media_degraded', LANG_DEFAULT)), (3, msg('read_only', LANG_DEFAULT)), (4, msg('volatile_failed', LANG_DEFAULT))):
             if crit & (1 << bit):
                 warn_bits.append(label)
     return {
@@ -1924,7 +2419,7 @@ def _nvme_health():
         "power_on_hours": g("power_on_hours"), "power_cycles": g("power_cycles"),
         "unsafe_shutdowns": g("unsafe_shutdowns"), "media_errors": g("media_errors"), "num_err_log_entries": g("num_err_log_entries"),
         "warning_temp_time": g("warning_temp_time"), "critical_comp_time": g("critical_comp_time"),
-        "source": "nvme smart-log（sudoers 僅放行此指令）",
+        "source": msg('nvme_source', LANG_DEFAULT),
     }
 
 
@@ -2092,7 +2587,7 @@ def wifi_channel_analysis(rescan=False):
         args.append("yes")
     out = _run(args, timeout=40)
     if out is None:
-        return {"ok": False, "error": "nmcli 掃描失敗"}
+        return {"ok": False, "error": msg('wifi_scan_failed', LANG_DEFAULT)}
     aps, mine = [], None
     for line in out.splitlines():
         parts = re.split(r"(?<!\\):", line)
@@ -2126,19 +2621,19 @@ def wifi_channel_analysis(rescan=False):
     if any(a["band"] == "2.4 GHz" for a in aps):
         cands = [score("2.4 GHz", c, "overlap") for c in (1, 6, 11)]
         bands["2.4 GHz"] = {"candidates": sorted(cands, key=lambda x: x["score"]),
-                            "note": "2.4 GHz 只有 1/6/11 互不重疊；相鄰頻道也會互相干擾，分數已把 ±4 格的鄰居加權算進去。"}
+                            "note": msg('wifi_24_note', LANG_DEFAULT)}
     fives = sorted({a["chan"] for a in aps if a["band"] == "5 GHz"})
     if fives:
         common = [36, 40, 44, 48, 149, 153, 157, 161]
         cands = [score("5 GHz", c, "same") for c in sorted(set(common) | set(fives))]
         bands["5 GHz"] = {"candidates": sorted(cands, key=lambda x: x["score"])[:8],
-                          "note": "5 GHz 的 20 MHz 頻道互不重疊，只算同頻道；但若路由器用 40/80 MHz，實際會跨到相鄰頻道。"}
+                          "note": msg('wifi_5_note', LANG_DEFAULT)}
     aps.sort(key=lambda a: (a["band"], a["chan"], -a["signal"]))
     return {"ok": True, "aps": aps, "bands": bands, "current": mine, "rescanned": bool(rescan),
             "scanned": datetime.now().isoformat(timespec="seconds"),
-            "caveats": ["掃描是一瞬間的快照，鄰居用量會隨時段變動，建議不同時間各掃一次再決定。",
-                        "訊號是 NetworkManager 給的百分比，不是 dBm，只適合互相比較。",
-                        "本工具只做分析，改頻道要自己進路由器管理頁。"]}
+            "caveats": [msg('wifi_snapshot', LANG_DEFAULT),
+                        msg('wifi_signal', LANG_DEFAULT),
+                        msg('wifi_analysis_only', LANG_DEFAULT)]}
 
 
 _WIFI_SCAN = {"ts": 0, "data": None}
@@ -2244,7 +2739,7 @@ def llm_status():
                                "quant": ((m.get("details") or {}).get("quantization_level")), "params": ((m.get("details") or {}).get("parameter_size")),
                                "family": ((m.get("details") or {}).get("family"))} for m in tags.get("models", [])],
                 "bench": True,
-                "note": "Ollama 不提供 Prometheus 指標，tok/s 只能靠實際跑一段生成量測（下方按鈕）。",
+                "note": msg('ollama_metrics', LANG_DEFAULT),
             })
         elif t["kind"] == "lmstudio":
             models = _http_json(base + "/v1/models")
@@ -2252,7 +2747,7 @@ def llm_status():
                 continue
             out.append({"kind": "LM Studio", "url": base, "version": None,
                         "loaded": [{"name": m.get("id")} for m in models.get("data", [])], "installed": [], "bench": False,
-                        "note": "LM Studio 的 /v1/models 只列可用模型，不給效能指標。"})
+                        "note": msg('lmstudio_metrics', LANG_DEFAULT)})
         elif t["kind"] == "llama.cpp":
             props = _http_json(base + "/props")
             if props is None:
@@ -2261,14 +2756,14 @@ def llm_status():
             out.append({"kind": "llama.cpp", "url": base, "version": (props.get("build_info") or None),
                         "loaded": [{"name": (props.get("default_generation_settings") or {}).get("model") or props.get("model_path")}],
                         "installed": [], "bench": False, "slots": slots if isinstance(slots, list) else [],
-                        "note": "來源 /props 與 /slots。"})
+                        "note": msg('llamacpp_source', LANG_DEFAULT)})
         elif t["kind"] == "vllm":
             models = _http_json(base + "/v1/models")
             if models is None:
                 continue
             out.append({"kind": "vLLM", "url": base, "version": None,
                         "loaded": [{"name": m.get("id")} for m in models.get("data", [])], "installed": [], "bench": False,
-                        "note": "vLLM 的 Prometheus /metrics 尚未解析，這裡只列模型。"})
+                        "note": msg('vllm_metrics', LANG_DEFAULT)})
     return out
 
 
@@ -2300,7 +2795,7 @@ def ollama_config():
             "num_parallel": int(env.get("OLLAMA_NUM_PARALLEL", "0") or 0) or None,
             "max_loaded": int(env.get("OLLAMA_MAX_LOADED_MODELS", "0") or 0) or None,
             "models_dir": env.get("OLLAMA_MODELS", "/usr/share/ollama/.ollama/models"),
-            "note": "改設定要 root：sudo systemctl edit ollama，在 [Service] 加 Environment=OLLAMA_NUM_PARALLEL=4 後 restart。本工具不提權，只顯示。"}
+            "note": msg('ollama_config', LANG_DEFAULT)}
 
 
 def llm_stores():
@@ -2330,13 +2825,13 @@ def llm_stores():
             names, _, kb = out.partition("---")
             vol = {"available": True, "models": [n for n in names.split() if n], "bytes": int(kb.strip()) * 1024 if kb.strip().isdigit() else None}
     groups = {}
-    for src, items in (("Ollama", ol), ("LM Studio", lm), ("Open WebUI 卷", [{"name": n, "bytes": None} for n in vol["models"]])):
+    for src, items in (("Ollama", ol), ("LM Studio", lm), (msg('webui_volume', LANG_DEFAULT), [{"name": n, "bytes": None} for n in vol["models"]])):
         for it in items:
             groups.setdefault(norm(it["name"].split(":")[0]), []).append({"source": src, **it})
     dups = [{"key": k, "items": v} for k, v in groups.items() if len({x["source"] for x in v}) > 1]
     dups.sort(key=lambda d: -sum((x["bytes"] or 0) for x in d["items"]))
     return {"ollama": ol, "lmstudio": lm, "openwebui_volume": vol, "duplicates": dups,
-            "note": "重複判定用名稱正規化（去掉 GGUF、instruct 等字尾）比對，是啟發式；同名不代表同一量化版本，刪之前自己確認。"}
+            "note": msg('duplicate_note', LANG_DEFAULT)}
 
 
 _LLM_BENCH = {"lock": threading.Lock(), "state": {"status": "idle"}}
@@ -2365,7 +2860,7 @@ def llm_bench_start(model, num_predict=128):
     with _LLM_BENCH["lock"]:
         if _LLM_BENCH["state"].get("status") == "running":
             return False
-        _LLM_BENCH["state"] = {"status": "running", "model": model, "num_predict": num_predict, "phase": "載入／暖機",
+        _LLM_BENCH["state"] = {"status": "running", "model": model, "num_predict": num_predict, "phase": msg('warming', LANG_DEFAULT),
                                "started": datetime.now().isoformat(timespec="seconds")}
     threading.Thread(target=_llm_bench_run, args=(model, num_predict), daemon=True).start()
     return True
@@ -2378,9 +2873,9 @@ def _llm_bench_run_concurrent(model, n, num_predict):
     try:
         warm = _http_json(base + "/api/generate", {"model": model, "prompt": "hi", "stream": False, "options": {"num_predict": 1, "temperature": 0}}, timeout=600)
         if warm is None:
-            raise RuntimeError("暖機失敗")
+            raise RuntimeError(msg('warm_failed', LANG_DEFAULT))
         with _LLM_BENCH["lock"]:
-            _LLM_BENCH["state"]["phase"] = f"{n} 個請求同時生成 {num_predict} token"
+            _LLM_BENCH["state"]["phase"] = msg('bench_concurrent_phase', LANG_DEFAULT, p0=n, p1=num_predict)
         results = [None] * n
         def one(i):
             results[i] = _http_json(base + "/api/generate", {"model": model, "prompt": prompts[i], "stream": False,
@@ -2397,7 +2892,7 @@ def _llm_bench_run_concurrent(model, n, num_predict):
                "num_predict": num_predict, "decode_tps": round(toks / wall, 1) if wall else None, "decode_tokens": toks,
                "per_request_tps": per, "wall_s": round(wall, 1), "failed": n - len(ok), "prefill_tps": None,
                "num_parallel": cfg.get("num_parallel"),
-               "note": f"{n} 併發、每請求 {num_predict} token；總 tok/s＝合計 token ÷ 牆鐘時間。OLLAMA_NUM_PARALLEL={cfg.get('num_parallel')}，" + ("小於併發數，後面的請求在排隊。" if (cfg.get("num_parallel") or 1) < n else "足夠同時處理。")}
+               "note": msg('bench_concurrent_note', LANG_DEFAULT, p0=n, p1=num_predict, p2=cfg.get('num_parallel')) + (msg('requests_queued', LANG_DEFAULT) if (cfg.get("num_parallel") or 1) < n else msg('requests_parallel', LANG_DEFAULT))}
         for m in (_http_json(base + "/api/ps") or {}).get("models", []):
             if m.get("name") == model:
                 det = m.get("details") or {}
@@ -2413,7 +2908,7 @@ def llm_bench_start_concurrent(model, n, num_predict=128):
     with _LLM_BENCH["lock"]:
         if _LLM_BENCH["state"].get("status") == "running":
             return False
-        _LLM_BENCH["state"] = {"status": "running", "model": model, "concurrency": n, "num_predict": num_predict, "phase": "載入／暖機",
+        _LLM_BENCH["state"] = {"status": "running", "model": model, "concurrency": n, "num_predict": num_predict, "phase": msg('warming', LANG_DEFAULT),
                                "started": datetime.now().isoformat(timespec="seconds")}
     threading.Thread(target=_llm_bench_run_concurrent, args=(model, n, num_predict), daemon=True).start()
     return True
@@ -2428,13 +2923,13 @@ def _llm_bench_run(model, num_predict=128):
         warm = _http_json(base + "/api/generate", {"model": model, "prompt": "hi", "stream": False,
                                                     "options": {"num_predict": 1, "temperature": 0}}, timeout=600)
         if warm is None:
-            raise RuntimeError("暖機請求失敗（模型載入失敗或逾時）")
+            raise RuntimeError(msg('warm_request_failed', LANG_DEFAULT))
         with _LLM_BENCH["lock"]:
-            _LLM_BENCH["state"]["phase"] = f"生成 {num_predict} token 中"
+            _LLM_BENCH["state"]["phase"] = msg('bench_phase', LANG_DEFAULT, p0=num_predict)
         r = _http_json(base + "/api/generate", {"model": model, "prompt": prompt, "stream": False,
                                                  "options": {"num_predict": num_predict, "temperature": 0}}, timeout=900)
         if r is None:
-            raise RuntimeError("量測請求失敗")
+            raise RuntimeError(msg('bench_failed', LANG_DEFAULT))
         ec, ed = r.get("eval_count") or 0, r.get("eval_duration") or 0
         pc, pd = r.get("prompt_eval_count") or 0, r.get("prompt_eval_duration") or 0
         # 模型資訊（大小／量化／參數量）從 /api/ps 抓，寫進歷史方便比較
@@ -2449,7 +2944,7 @@ def _llm_bench_run(model, num_predict=128):
                "prefill_tps": round(pc / pd * 1e9, 1) if pd else None, "prompt_tokens": pc,
                "load_ms": round((warm.get("load_duration") or 0) / 1e6), "total_ms": round((r.get("total_duration") or 0) / 1e6),
                "num_predict": num_predict, **info,
-               "note": f"單一請求、temperature 0、{num_predict} token；prefill 若 prompt 被快取會偏高。"}
+               "note": msg('bench_note', LANG_DEFAULT, p0=num_predict)}
         llm_hist_append(res)
     except Exception as e:
         res = {"status": "error", "model": model, "error": str(e), "finished": datetime.now().isoformat(timespec="seconds")}
@@ -2463,7 +2958,7 @@ HOME = os.path.expanduser("~")
 DISK_ACTIONS = {  # 白名單：只有這些指令能被 /api/disk/action 觸發
     "docker_prune": ["docker", "image", "prune", "-f"],          # 只清 dangling 映像，不動有 tag 的
     "docker_builder_prune": ["docker", "builder", "prune", "-f"],
-    "trash_empty": ["bash", "-c", "rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null; echo 已清空垃圾桶"],
+    "trash_empty": ["bash", "-c", "rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null; echo " + msg("trash_cleared", LANG_DEFAULT)],
     "npm_cache_clean": ["bash", "-c", "npm cache clean --force 2>&1 | tail -2; du -sh ~/.npm"],
 }
 _DISK = {"lock": threading.Lock(), "data": None, "ts": 0, "scanning": False}
@@ -2569,8 +3064,8 @@ def disk_scan():
             cats.append({"key": key, "label": label, "bytes": b or 0, "note": note, "action": action, "items": items or []})
         # Ollama（系統服務，模型在 /usr/share/ollama）
         om = _ollama_models()
-        cat("ollama", "Ollama 模型", _du("/usr/share/ollama"),
-            "系統服務，存在 /usr/share/ollama；同一模型的不同 tag 共用 blob，清單加總會大於實際占用。可在此刪除個別模型", None, om)
+        cat("ollama", msg('ollama_models', LANG_DEFAULT), _du("/usr/share/ollama"),
+            msg('ollama_disk_note', LANG_DEFAULT), None, om)
         # LM Studio
         lm = os.path.join(HOME, ".lmstudio", "models")
         if os.path.isdir(lm):
@@ -2579,7 +3074,7 @@ def disk_scan():
                 for mdl in _du_children(pub["path"], 30):
                     items.append({"name": f"{pub['name']}/{mdl['name']}", "bytes": mdl["bytes"], "path": mdl["path"]})
             items.sort(key=lambda x: -x["bytes"])
-            cat("lmstudio", "LM Studio 模型", _du(lm), "~/.lmstudio/models；請在 LM Studio 內刪除，這裡只列出", None, items[:30])
+            cat("lmstudio", msg('lmstudio_models', LANG_DEFAULT), _du(lm), msg('lmstudio_disk_note', LANG_DEFAULT), None, items[:30])
         # Docker
         dk = _docker_df()
         if dk:
@@ -2589,24 +3084,24 @@ def disk_scan():
                 return float(m.group(1)) * {"B": 1, "KB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12}[m.group(2)]
             total_dk = sum(gb(r.get("Size")) for r in dk["summary"])
             recl = sum(gb(r.get("Reclaimable", "").split(" ")[0]) for r in dk["summary"])
-            items = [{"name": f"{r.get('Type')}：{r.get('TotalCount') or r.get('Total')} 個，可回收 {r.get('Reclaimable')}", "bytes": gb(r.get("Size"))} for r in dk["summary"]]
-            items += [{"name": f"卷 {v['name']}", "bytes": gb(v.get("size")), "note": f"被 {v.get('links')} 個容器用"} for v in dk["volumes"]]
-            cat("docker", "Docker", total_dk, f"映像可回收約 {recl/1e9:.1f} GB；卷不自動清（可能是資料）", "docker_prune", items)
+            items = [{"name": msg('docker_count', LANG_DEFAULT, p0=r.get('Type'), p1=r.get('TotalCount') or r.get('Total'), p2=r.get('Reclaimable')), "bytes": gb(r.get("Size"))} for r in dk["summary"]]
+            items += [{"name": msg('volume', LANG_DEFAULT, p0=v['name']), "bytes": gb(v.get("size")), "note": msg('volume_links', LANG_DEFAULT, p0=v.get('links'))} for v in dk["volumes"]]
+            cat("docker", "Docker", total_dk, msg('docker_reclaim', LANG_DEFAULT, p0=format(recl/1e9, '.1f')), "docker_prune", items)
         # snap 使用者資料（Steam 等）
         sn = os.path.join(HOME, "snap")
         if os.path.isdir(sn):
-            cat("snap_home", "snap 應用資料（~/snap）", _du(sn), "Steam 遊戲、瀏覽器設定檔等；請在各應用內管理", None, _du_children(sn, 10))
-        cat("flatpak", "flatpak（系統）", _du("/var/lib/flatpak"), "app＋runtime；未使用的 runtime 可用 flatpak uninstall --unused", None)
-        cat("snapd", "snap（系統）", _du("/var/lib/snapd"), "snapd 預設保留舊版本 2 份", None)
+            cat("snap_home", msg('snap_data', LANG_DEFAULT), _du(sn), msg('snap_data_note', LANG_DEFAULT), None, _du_children(sn, 10))
+        cat("flatpak", msg('flatpak_system', LANG_DEFAULT), _du("/var/lib/flatpak"), msg('flatpak_note', LANG_DEFAULT), None)
+        cat("snapd", msg('snap_system', LANG_DEFAULT), _du("/var/lib/snapd"), msg('snap_retention', LANG_DEFAULT), None)
         # 只量 archives：apt clean 清的就是這裡；同層的 pkgcache.bin／srcpkgcache.bin 是套件索引，清不掉也不該清
-        cat("apt_cache", "apt 套件快取", _du("/var/cache/apt/archives"), "下載過的 .deb，清掉無害", "apt_clean")
+        cat("apt_cache", msg('apt_cache', LANG_DEFAULT), _du("/var/cache/apt/archives"), msg('apt_cache_note', LANG_DEFAULT), "apt_clean")
         ar = _apt_autoremovable()
-        cat("apt_autoremove", "apt 可自動移除的套件", None, f"{len(ar)} 個不再需要的相依套件（含舊核心）" if ar else "沒有", "apt_autoremove" if ar else None, [{"name": n, "bytes": 0} for n in ar])
-        cat("journal", "系統日誌 journal", _du("/var/log/journal"), "需 root 才能 vacuum，這裡不動", None)
-        cat("cache", "~/.cache", _du(os.path.join(HOME, ".cache")), "各應用快取", None, _du_children(os.path.join(HOME, ".cache"), 8))
-        cat("npm", "~/.npm", _du(os.path.join(HOME, ".npm")), "npm 快取", "npm_cache_clean")
+        cat("apt_autoremove", msg('apt_autoremove', LANG_DEFAULT), None, msg('autoremove_count', LANG_DEFAULT, p0=len(ar)) if ar else msg('none', LANG_DEFAULT), "apt_autoremove" if ar else None, [{"name": n, "bytes": 0} for n in ar])
+        cat("journal", msg('journal', LANG_DEFAULT), _du("/var/log/journal"), msg('journal_note', LANG_DEFAULT), None)
+        cat("cache", "~/.cache", _du(os.path.join(HOME, ".cache")), msg('app_cache', LANG_DEFAULT), None, _du_children(os.path.join(HOME, ".cache"), 8))
+        cat("npm", "~/.npm", _du(os.path.join(HOME, ".npm")), msg('npm_cache', LANG_DEFAULT), "npm_cache_clean")
         tr = os.path.join(HOME, ".local", "share", "Trash")
-        cat("trash", "垃圾桶", _du(tr), "", "trash_empty")
+        cat("trash", msg('trash', LANG_DEFAULT), _du(tr), "", "trash_empty")
         home_top = _du_children(HOME, 15)
         big = _big_files(HOME)
         data = {"total": total, "free": free, "used": total - free, "categories": cats, "home_top": home_top, "big_files": big,
@@ -2655,9 +3150,9 @@ def gpu_stuck_evaluate(samples):
         "kind": "low_clock" if low_clock else "hw_slowdown",
         "sm_mhz": last["sm_mhz"], "util_pct": last["util_pct"], "power_w": last.get("power_w"),
         "reasons": sorted(set().union(*[set(x.get("event_reasons") or []) for x in recent])),
-        "message": (f"GPU 有負載（{last['util_pct']}%）但 SM 時脈釘在 {last['sm_mhz']} MHz、功耗 {last.get('power_w') or '—'} W，持續 30 秒以上。"
-                    if low_clock else f"GPU 硬體降速旗標持續亮著：{'、'.join(sorted(set().union(*[set(x.get('event_reasons') or []) for x in recent])))}。"),
-        "advice": "論壇多人確認的根因是電源供應器內 USB-C PD 控制器韌體卡住。解法：拔掉電源供應器與所有 USB-C 裝置，按住電源鍵 30 秒，再等 60 秒讓電容放電，然後接回開機。只重開機沒用，PD 控制器在變壓器裡，要斷電才會重置。",
+        "message": (msg('gpu_stuck_load', LANG_DEFAULT, p0=last['util_pct'], p1=last['sm_mhz'], p2=last.get('power_w') or '—')
+                    if low_clock else msg('gpu_stuck_flags', LANG_DEFAULT, p0='、'.join(sorted(set().union(*[set(x.get('event_reasons') or []) for x in recent]))))),
+        "advice": msg('gpu_stuck_advice', LANG_DEFAULT),
     }
 
 
@@ -2679,8 +3174,8 @@ def _gpu_watch():
                     if notify:
                         _GPU_WATCH["last_notify"] = time.time()
                 if notify:
-                    subprocess.run(["notify-send", "-u", "critical", "-a", "Spark Center", "GPU 卡在低功耗狀態",
-                                    alert["message"] + " 開 http://localhost:%d/#monitor 看處理方式。" % PORT], timeout=10)
+                    subprocess.run(["notify-send", "-u", "critical", "-a", "Spark Center", msg('gpu_stuck_title', LANG_DEFAULT),
+                                    alert["message"] + msg('gpu_help', LANG_DEFAULT) % PORT], timeout=10)
         except Exception:
             pass
         time.sleep(5)
@@ -2701,8 +3196,8 @@ def _disk_watch():
             pct = (1 - st.f_bavail / st.f_blocks) * 100
             if pct >= 90 and time.time() - last > 6 * 3600:
                 free_gb = st.f_bavail * st.f_frsize / 1e9
-                subprocess.run(["notify-send", "-u", "critical", "-a", "Spark Center", "根分割區快滿了",
-                                f"已用 {pct:.0f}%，剩 {free_gb:.0f} GB。開 http://localhost:{PORT}/#disk 看誰在吃空間。"], timeout=10)
+                subprocess.run(["notify-send", "-u", "critical", "-a", "Spark Center", msg('disk_full_title', LANG_DEFAULT),
+                                msg('disk_full', LANG_DEFAULT, p0=format(pct, '.0f'), p1=format(free_gb, '.0f'), p2=PORT)], timeout=10)
                 last = time.time()
         except Exception:
             pass
@@ -2715,7 +3210,7 @@ def _disk_watch():
 
 _FW = {"ts": 0, "data": None, "lock": threading.Lock()}
 FW_TTL = 600
-FW_STATE = {0: "未知", 1: "待處理（等重開機）", 2: "成功", 3: "失敗", 4: "需要重開機", 5: "重開後失敗", 6: "交易失敗"}
+FW_STATE = {0: msg('fw_unknown', LANG_DEFAULT), 1: msg('fw_pending', LANG_DEFAULT), 2: msg('fw_success', LANG_DEFAULT), 3: msg('failed', LANG_DEFAULT), 4: msg('fw_reboot', LANG_DEFAULT), 5: msg('fw_failed_reboot', LANG_DEFAULT), 6: msg('transaction_failed', LANG_DEFAULT)}
 DISK_ACTIONS.update({
     "fwupd_refresh": ["fwupdmgr", "refresh", "--force"],
     "fwupd_update": ["fwupdmgr", "update", "-y", "--no-reboot-check"],   # polkit 會跳密碼；裝完不自動重開
@@ -2737,7 +3232,7 @@ def fwupd_status(force=False):
         if not force and _FW["data"] and time.time() - _FW["ts"] < FW_TTL:
             return _FW["data"]
     if not _run(["which", "fwupdmgr"], timeout=3):
-        return {"available": False, "note": "沒有 fwupdmgr"}
+        return {"available": False, "note": msg('fwupd_missing', LANG_DEFAULT)}
     devs = (_fw_json(["get-devices"]) or {}).get("Devices", [])
     ups = (_fw_json(["get-updates"], timeout=120) or {}).get("Devices", [])
     hist = (_fw_json(["get-history"]) or {}).get("Devices", [])
@@ -2919,8 +3414,16 @@ class Handler(BaseHTTPRequestHandler):
         if args and str(args[1]).startswith(("4", "5")):
             super().log_message(fmt, *args)
 
+    def _request_lang(self):
+        from urllib.parse import parse_qs, urlsplit
+        query = parse_qs(urlsplit(self.path).query)
+        requested = (query.get("lang") or [None])[0]
+        if requested is None:
+            requested = self.headers.get("Accept-Language", LANG_DEFAULT).split(",", 1)[0].split(";", 1)[0]
+        return "zh-TW" if requested.lower().startswith("zh") else "en"
+
     def _json(self, obj, code=200):
-        body = json.dumps(obj, ensure_ascii=False).encode()
+        body = json.dumps(_localized_response(obj, self.lang), ensure_ascii=False).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -2937,6 +3440,7 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def do_GET(self):
+        self.lang = self._request_lang()
         path = self.path.split("?", 1)[0]
         if path in ("/", "/index.html"):
             with open(os.path.join(HERE, "index.html"), "rb") as f:
@@ -3088,43 +3592,44 @@ class Handler(BaseHTTPRequestHandler):
             ident = (q.get("id") or [""])[0]
             ver = (q.get("installed") or [""])[0]
             if not source or not ident:
-                return self._json({"ok": False, "error": "缺 source 或 id"}, 400)
+                return self._json({"ok": False, "error": msg('missing_source_id', LANG_DEFAULT)}, 400)
             self._json(get_changelog(source, ident, ver))
         else:
             self._json({"ok": False, "error": "not found"}, 404)
 
     def do_POST(self):
+        self.lang = self._request_lang()
         path = self.path.split("?", 1)[0]
         data = self._body()
         if path == "/api/simulate":
             names = [n for n in data.get("packages", []) if isinstance(n, str)]
             if not names:
-                return self._json({"ok": False, "error": "沒有選取任何套件"}, 400)
+                return self._json({"ok": False, "error": msg('no_pkgs', LANG_DEFAULT)}, 400)
             return self._json(simulate(names))
         if path == "/api/install":
             names = [n for n in data.get("packages", []) if isinstance(n, str)]
             if not names:
-                return self._json({"ok": False, "error": "沒有選取任何套件"}, 400)
+                return self._json({"ok": False, "error": msg('no_pkgs', LANG_DEFAULT)}, 400)
             sim = simulate(names)
             if not sim["ok"]:
                 return self._json(sim, 400)
             if not JOB.start("install", names):
-                return self._json({"ok": False, "error": "已有工作在進行中"}, 409)
+                return self._json({"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 409)
             return self._json({"ok": True})
         if path == "/api/autostart":
             try:
                 return self._json(autostart_set(bool(data.get("enabled"))))
             except OSError as e:
-                return self._json({"ok": False, "error": f"寫入 autostart 失敗：{e}"}, 500)
+                return self._json({"ok": False, "error": msg('autostart_write_failed', LANG_DEFAULT, p0=e)}, 500)
         if path == "/api/hardware/usbc-map":
             # {"slot": 0-3, "controller": "NVDA8000:0x" | null, "note": "..."}；或 {"reset": true}
             if data.get("reset"):
                 usbc_map_save({}); return self._json({"ok": True, "calib": {}})
             slot, ctrl = data.get("slot"), data.get("controller")
             if slot not in (0, 1, 2, 3):
-                return self._json({"ok": False, "error": "slot 需為 0–3"}, 400)
+                return self._json({"ok": False, "error": msg('slot_invalid', LANG_DEFAULT)}, 400)
             if ctrl is not None and not re.fullmatch(r"NVDA800[01]:0\d", str(ctrl)):
-                return self._json({"ok": False, "error": "controller 格式不對"}, 400)
+                return self._json({"ok": False, "error": msg('controller_invalid', LANG_DEFAULT)}, 400)
             m = usbc_map_load()
             if ctrl is None and not data.get("note"):
                 m.pop(str(slot), None)
@@ -3136,67 +3641,67 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/api/llm/load", "/api/llm/unload"):
             model = data.get("model")
             if not model or not isinstance(model, str):
-                return self._json({"ok": False, "error": "缺 model"}, 400)
+                return self._json({"ok": False, "error": msg('missing_model', LANG_DEFAULT)}, 400)
             ka = "0" if path.endswith("unload") else (data.get("keep_alive") or "5m")
             r = _http_json(OLLAMA + "/api/generate", {"model": model, "keep_alive": ka}, timeout=600)
-            return self._json({"ok": r is not None, "error": None if r is not None else "Ollama 沒回應（模型不存在或載入失敗）"}, 200 if r is not None else 502)
+            return self._json({"ok": r is not None, "error": None if r is not None else msg('ollama_no_response', LANG_DEFAULT)}, 200 if r is not None else 502)
         if path == "/api/llm/pull":
             model = data.get("model")
             if not model or not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9._/:-]+", model):
-                return self._json({"ok": False, "error": "模型名稱格式不對"}, 400)
+                return self._json({"ok": False, "error": msg('model_invalid', LANG_DEFAULT)}, 400)
             ok = JOB.start("ollama_pull", [model])
-            return self._json({"ok": ok} if ok else {"ok": False, "error": "已有工作在進行中"}, 200 if ok else 409)
+            return self._json({"ok": ok} if ok else {"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 200 if ok else 409)
         if path == "/api/llm/bench_concurrent":
             model, n = data.get("model"), data.get("concurrency", 2)
             if not model or n not in (1, 2, 4, 8):
-                return self._json({"ok": False, "error": "缺 model 或 concurrency 需為 1/2/4/8"}, 400)
+                return self._json({"ok": False, "error": msg('concurrency_invalid', LANG_DEFAULT)}, 400)
             npred = data.get("num_predict", 128)
             if npred not in (64, 128, 256, 512):
-                return self._json({"ok": False, "error": "num_predict 需為 64/128/256/512"}, 400)
+                return self._json({"ok": False, "error": msg('num_predict_invalid', LANG_DEFAULT)}, 400)
             ok = llm_bench_start_concurrent(model, n, npred)
-            return self._json({"ok": ok} if ok else {"ok": False, "error": "已有量測在進行中"}, 200 if ok else 409)
+            return self._json({"ok": ok} if ok else {"ok": False, "error": msg('bench_running', LANG_DEFAULT)}, 200 if ok else 409)
         if path == "/api/llm/bench":
             model = data.get("model")
             if not model or not isinstance(model, str):
-                return self._json({"ok": False, "error": "缺 model"}, 400)
+                return self._json({"ok": False, "error": msg('missing_model', LANG_DEFAULT)}, 400)
             npred = data.get("num_predict", 128)
             if npred not in (64, 128, 256, 512):
-                return self._json({"ok": False, "error": "num_predict 需為 64/128/256/512"}, 400)
+                return self._json({"ok": False, "error": msg('num_predict_invalid', LANG_DEFAULT)}, 400)
             if not llm_bench_start(model, npred):
-                return self._json({"ok": False, "error": "已有量測在進行中"}, 409)
+                return self._json({"ok": False, "error": msg('bench_running', LANG_DEFAULT)}, 409)
             return self._json({"ok": True})
         if path == "/api/disk/action":
             act = data.get("action")
             if act == "ollama_delete":
                 name = data.get("name")
                 if not name or not isinstance(name, str):
-                    return self._json({"ok": False, "error": "缺 name"}, 400)
+                    return self._json({"ok": False, "error": msg('missing_name', LANG_DEFAULT)}, 400)
                 req = urllib.request.Request("http://127.0.0.1:11434/api/delete", data=json.dumps({"name": name}).encode(),
                                              headers={"Content-Type": "application/json"}, method="DELETE")
                 try:
                     with urllib.request.urlopen(req, timeout=60) as r:
                         r.read()
                 except urllib.error.HTTPError as e:
-                    return self._json({"ok": False, "error": f"Ollama 回 {e.code}：{e.read().decode(errors='replace')[:200]}"}, 502)
+                    return self._json({"ok": False, "error": msg('ollama_http', LANG_DEFAULT, p0=e.code, p1=e.read().decode(errors='replace')[:200])}, 502)
                 except (urllib.error.URLError, OSError) as e:
-                    return self._json({"ok": False, "error": f"連不到 Ollama：{e}"}, 502)
+                    return self._json({"ok": False, "error": msg('ollama_connect', LANG_DEFAULT, p0=e)}, 502)
                 _DISK["ts"] = 0
                 return self._json({"ok": True})
             if act == "apt_clean":
                 ok = JOB.start("aptclean")
-                return self._json({"ok": ok} if ok else {"ok": False, "error": "已有工作在進行中"}, 200 if ok else 409)
+                return self._json({"ok": ok} if ok else {"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 200 if ok else 409)
             if act == "apt_autoremove":
                 pk = _apt_autoremovable()
                 if not pk:
-                    return self._json({"ok": False, "error": "沒有可移除的套件"}, 400)
+                    return self._json({"ok": False, "error": msg('no_removable', LANG_DEFAULT)}, 400)
                 return self._json({"ok": JOB.start("remove", pk), "packages": pk})
             if act in DISK_ACTIONS:
                 return self._json({"ok": JOB.start("shell", [act])})
-            return self._json({"ok": False, "error": "未知動作"}, 400)
+            return self._json({"ok": False, "error": msg('unknown_action', LANG_DEFAULT)}, 400)
         if path == "/api/apps/update":
             source = data.get("source"); ids = [i for i in data.get("ids", []) if isinstance(i, str) and re.fullmatch(r"[A-Za-z0-9._+-]+", i)]
             if source not in ("flatpak", "snap") or not ids:
-                return self._json({"ok": False, "error": "source 需為 flatpak/snap 且 ids 非空"}, 400)
+                return self._json({"ok": False, "error": msg('source_ids_invalid', LANG_DEFAULT)}, 400)
             if source == "snap":
                 busy = {n: snap_running_apps(n) for n in ids}
                 busy = {n: v for n, v in busy.items() if v}
@@ -3205,13 +3710,13 @@ class Handler(BaseHTTPRequestHandler):
                         f"{n}（{'、'.join(sorted({x['app'] for x in v}))}，PID {', '.join(str(x['pid']) for x in v[:4])}）"
                         for n, v in busy.items())
                     return self._json({"ok": False, "running": busy,
-                                       "error": f"snapd 不會更新正在執行的 snap：{detail}。請先關閉這些程式再試。"}, 409)
+                                       "error": msg('snap_apps_running', LANG_DEFAULT, p0=detail)}, 409)
             if not JOB.start(source, ids):
-                return self._json({"ok": False, "error": "已有工作在進行中"}, 409)
+                return self._json({"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 409)
             return self._json({"ok": True})
         if path == "/api/refresh":
             if not JOB.start("refresh"):
-                return self._json({"ok": False, "error": "已有工作在進行中"}, 409)
+                return self._json({"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 409)
             return self._json({"ok": True})
         return self._json({"ok": False, "error": "not found"}, 404)
 
