@@ -97,6 +97,14 @@
   .hide { display: none !important; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; }
   .grid .panel { margin: 0; }
+  /* 硬體分頁的「關於這台機器」：機器圖＋型號大字＋六個關鍵規格，像 macOS 的「關於這台 Mac」 */
+  .hero { display: flex; gap: 28px; align-items: center; }
+  .hero .machine { flex: none; width: 150px; height: 110px; }
+  .hero .hname { font-size: 26px; font-weight: 700; line-height: 1.15; }
+  .hero .hname small { display: block; font-size: 13px; font-weight: 400; color: var(--muted); margin-top: 4px; }
+  .hero .specs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 24px; margin-top: 16px; }
+  @media (max-width: 900px) { .hero .specs { grid-template-columns: repeat(2, 1fr); } .hero .machine { display: none; } }
+  .hero .specs div { min-width: 0; } .hero .specs b { display: block; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; } .hero .specs span { color: var(--muted); font-size: 12px; }
   .kv { display: grid; grid-template-columns: 130px 1fr; gap: 6px 14px; margin-top: 12px; font-size: 14px; }
   .kv dt { color: var(--muted); } .kv dd { margin: 0; overflow-wrap: anywhere; }
   .meter { height: 8px; background: #0f1110; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; margin-top: 4px; }
@@ -322,6 +330,7 @@
 
   <section id="tab-hardware" class="hide">
     <div style="display:flex;gap:10px;align-items:center;margin:-8px 0 14px"><div id="hwNote" class="sub1" style="flex:1"></div><button id="btnHwReload" class="small">重新讀取硬體</button></div>
+    <div class="panel hide" id="hwHero"></div>
     <div class="panel" id="usbPortsPanel"><div class="panel-h"><h2>後面板</h2><span class="sub" id="usbPortsSub">讀取中…</span><div class="actions"><button id="btnCalib" class="small">校準孔位</button><button id="btnCalibReset" class="small">清除校準</button></div></div><div id="rear"></div><div id="usbPorts" style="margin-top:14px"></div></div>
     <div id="hw" class="grid"><div class="panel"><div class="empty">讀取中…</div></div></div>
   </section>
@@ -853,6 +862,21 @@ function stopHw() { if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } 
 function renderHwStatic() {
   const j = hw.static, S = j.system, C = j.cpu, G = j.gpu, D = j.dmi || {available:false};
   $('#hwNote').textContent = `硬體資料快取 1 小時並存快照，換硬體請按右邊按鈕。來源：/sys DMI、lscpu、nvidia-smi、lsblk、ip、bluetoothctl、lsusb、lspci、hwmon` + (D.available ? '，序號與記憶體模組來自 dmidecode（sudoers 僅放行此指令）' : '') + `。靜態資料快取 60 秒；這頁的開機時間、負載、感測器是進入分頁時抓一次，即時曲線在「監控」分頁。` + (D.available ? '' : ' ' + (D.note || ''));
+  // 關於這台機器：每一格都是實際讀到的值，讀不到就「—」
+  const disk0 = (j.disks || []).find(d => (d.partitions || []).some(p => (p.mountpoints || []).includes('/'))) || (j.disks || [])[0];
+  const family = D.available && D.system.family ? D.system.family : '';
+  const machineSvg = `<svg class="machine" viewBox="0 0 150 110" fill="none" stroke="var(--muted)" stroke-width="1.5"><rect x="15" y="20" width="120" height="70" rx="10" fill="#1a1c1b"/><rect x="15" y="20" width="120" height="70" rx="10" fill="url(#hg)"/><defs><linearGradient id="hg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".06"/><stop offset="1" stop-color="#000" stop-opacity=".25"/></linearGradient></defs><path d="M25 32h100M25 40h100M25 48h100M25 56h100M25 64h100M25 72h100" stroke="#2a2e2c" stroke-dasharray="1 3"/><rect x="30" y="80" width="90" height="3" rx="1.5" fill="var(--accent)" stroke="none" opacity=".85"/><circle cx="127" cy="28" r="2.5" fill="var(--accent)" stroke="none"/></svg>`;
+  $('#hwHero').classList.remove('hide');
+  $('#hwHero').innerHTML = `<div class="hero">${machineSvg}<div style="flex:1;min-width:0">
+    <div class="hname">${dash(S.sys_vendor).replace(/^ASUSTeK COMPUTER INC\.$/i, 'ASUS')} ${dash(S.product_name)}<small>${[family ? family + ' 系列' : '', S.product_version ? esc(S.product_version) : '', S.hostname ? '主機名稱 ' + esc(S.hostname) : ''].filter(Boolean).join(' · ')}</small></div>
+    <div class="specs">
+      <div><b>${G ? dash(G.name) : '—'}</b><span>晶片${C ? ` · ${dash(C.cpus)} 核 ${C.clusters.map(k => esc(k.model.replace('Cortex-', ''))).join('+')}` : ''}</span></div>
+      <div><b>${GB(j.memory.total)}</b><span>統一記憶體${D.available && D.memory.modules[0] ? ` · ${esc(D.memory.modules[0].type || '')}` : ''}</span></div>
+      <div><b>${disk0 ? GB(disk0.size) : '—'}</b><span>${disk0 ? `${esc((disk0.transport || '').toUpperCase())} · ${esc(disk0.model || '')}` : '儲存'}</span></div>
+      <div><b>DGX OS ${dash(S.dgx_release)}</b><span>${dash(S.os)} · 核心 ${dash(S.kernel)}</span></div>
+      <div><b class="mono" style="font-size:14px">${D.available ? dash(D.system.serial) : '—'}</b><span>序號${D.available ? '' : '（需 dmidecode）'}</span></div>
+      <div><b>${dash(S.bios_version).split('.').slice(0, 2).join('.')}</b><span>BIOS · ${dash(S.bios_date)}</span></div>
+    </div></div></div>`;
   const sys = `<div class="panel"><div class="panel-h"><h2>系統</h2></div><dl class="kv">
     <dt>機型</dt><dd>${dash(S.sys_vendor)} ${dash(S.product_name)}<div class="sub1">${dash(S.product_version)}</div></dd>
     <dt>主機板</dt><dd>${dash(S.board_vendor)} ${dash(S.board_name)}${D.available && (D.board.version || D.board.serial) ? `<div class="sub1">${[D.board.version ? '版本 ' + esc(D.board.version) : '', D.board.serial ? '序號 ' + esc(D.board.serial) : ''].filter(Boolean).join(' · ')}</div>` : ''}</dd>
