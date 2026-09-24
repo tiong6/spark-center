@@ -99,6 +99,14 @@
   .meter { height: 8px; background: #0f1110; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; margin-top: 4px; }
   .meter i { display: block; height: 100%; background: var(--accent); }
   .meter.warn i { background: var(--warn); } .meter.hot i { background: var(--danger); }
+  /* 磁碟分段條（macOS 儲存空間那種）：每個分類一段、剩餘是深色，圖例在下 */
+  .segbar { display: flex; height: 18px; border-radius: 6px; overflow: hidden; background: #0f1110; border: 1px solid var(--line); margin-top: 14px; }
+  .segbar i { display: block; height: 100%; min-width: 0; border-right: 1px solid #111312; transition: filter .15s; }
+  .segbar i:hover { filter: brightness(1.25); }
+  .seglegend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .seglegend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .seglegend em { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
+  .seglegend b { color: var(--text); font-weight: 500; }
   .stat { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 12px; }
   .stat div { min-width: 90px; } .stat b { font-size: 22px; display: block; line-height: 1.1; } .stat span { color: var(--muted); font-size: 12px; }
   .mon { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 18px; margin-bottom: 18px; }
@@ -580,13 +588,36 @@ $('#appSearch').oninput = e => { state.q = e.target.value; if (state.apps) rende
 $('#btnAppsReload').onclick = () => loadApps(true);
 
 /* ---- 磁碟分頁 ---- */
+// 分段條把掃描到的分類併成幾大塊；「其他」是即時已用量減掉掃到的總和（系統檔、未掃描目錄都在裡面），不是猜的
+const SEG_GROUPS = [
+  { key: 'models', label: '模型', color: '#76b900', cats: ['ollama', 'lmstudio'] },
+  { key: 'docker', label: 'Docker', color: '#4aa3ff', cats: ['docker'] },
+  { key: 'apps', label: '應用資料', color: '#c88fe0', cats: ['snap_home', 'flatpak', 'snapd'] },
+  { key: 'cache', label: '快取', color: '#f5a524', cats: ['apt_cache', 'cache', 'npm'] },
+  { key: 'logs', label: '日誌', color: '#5fc9c0', cats: ['journal'] },
+  { key: 'trash', label: '垃圾桶', color: '#e08fa8', cats: ['trash', 'apt_autoremove'] },
+];
+function diskSegBar(d, L) {
+  const by = Object.fromEntries(d.categories.map(c => [c.key, c.bytes || 0]));
+  const used = L.total - L.free;
+  const segs = SEG_GROUPS.map(g => ({ ...g, bytes: g.cats.reduce((a, k) => a + (by[k] || 0), 0) })).filter(g => g.bytes > 0);
+  const known = segs.reduce((a, g) => a + g.bytes, 0);
+  const other = Math.max(0, used - known);
+  if (other > 0) segs.push({ key: 'other', label: '其他（系統、未掃描）', color: '#6b7370', bytes: other });
+  const overlap = known > used ? known - used : 0;   // 分類有重疊或掃描與即時用量時間差時會發生，照實講
+  const seg = (g) => `<i style="width:${(g.bytes / L.total * 100).toFixed(2)}%;background:${g.color}" title="${esc(g.label)} ${GB(g.bytes)}（${(g.bytes / L.total * 100).toFixed(1)}%）"></i>`;
+  const leg = (g) => `<span><em style="background:${g.color}"></em>${esc(g.label)} <b>${GB(g.bytes)}</b></span>`;
+  return `<div class="segbar">${segs.map(seg).join('')}</div>` +
+    `<div class="seglegend">${segs.map(leg).join('')}<span><em style="background:#0f1110;border:1px solid var(--line)"></em>剩餘 <b>${GB(L.free)}</b></span>` +
+    (overlap ? `<span class="sub1">分類加總比即時已用量多 ${GB(overlap)}（分類重疊或掃描時間差）</span>` : '') + `</div>`;
+}
 const ACT_LABEL = { apt_clean: '清 apt 快取', apt_autoremove: 'apt autoremove', docker_prune: '清 dangling 映像', npm_cache_clean: '清 npm 快取', trash_empty: '清空垃圾桶' };
 async function loadDisk(force) {
   const j = await api('/api/disk' + (force ? '?force=1' : ''));
   if (!j.ok) { $('#diskCats').innerHTML = `<div class="empty">讀取失敗：${esc(j.error)}</div>`; return; }
   const L = j.live, used = L.total - L.free, pct = used / L.total * 100;
   $('#diskStat').innerHTML = `<div><b>${GB(used)}</b><span>已使用（${pct.toFixed(1)}%）</span></div><div><b>${GB(L.free)}</b><span>剩餘</span></div><div><b>${GB(L.total)}</b><span>總量</span></div>`;
-  $('#diskMeter').innerHTML = meter(pct, 85, 90);
+  $('#diskMeter').innerHTML = j.data ? diskSegBar(j.data, L) : meter(pct, 85, 90);   // 明細還沒掃完就先給單色條
   const warn = $('#diskWarn'); warn.classList.toggle('hide', pct < 90); if (pct >= 90) warn.innerHTML = `<b>根分割區已用 ${pct.toFixed(0)}%</b>，剩 ${GB(L.free)}。超過 90% 時每 6 小時會跳一次桌面通知。Ollama 拉一個 120B 模型要 60 GB，拉之前先清。`;
   $('#dotDisk').classList.toggle('hide', pct < 90);
   const d = j.data;
