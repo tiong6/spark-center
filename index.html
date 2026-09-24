@@ -509,7 +509,9 @@ function startPolling(title) {
 async function pollJob() {
   const j = await api('/api/job'); state.job = j; updateGo();
   if (j.progress == null) $('#jobprog').removeAttribute('value'); else $('#jobprog').value = j.progress;
-  $('#jobstatus').textContent = (j.status_text || '') + (j.details ? ' · ' + j.details : '') + (j.status==='running' && j.progress != null ? ` · ${j.progress}%` : '');
+  const x = j.status === 'running' && j.xfer && j.xfer.total ? j.xfer : null;
+  const xferText = x ? ` · 已下載 ${(x.done/1e6).toFixed(1)} / ${(x.total/1e6).toFixed(1)} MB` + (x.speed ? ` · ${(x.speed/1e6).toFixed(1)} MB/s` : '') + (x.eta > 0 ? ` · 約剩 ${x.eta >= 60 ? Math.round(x.eta/60) + ' 分' : x.eta + ' 秒'}` : '') : '';
+  $('#jobstatus').textContent = (j.status_text || '') + (j.details ? ' · ' + j.details : '') + (j.status==='running' && j.progress != null ? ` · ${j.progress}%` : '') + xferText;
   $('#joblog').textContent = (j.log || []).join('\n');
   if (j.status === 'done' || j.status === 'error') {
     clearInterval(state.polling); state.polling = null;

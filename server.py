@@ -335,6 +335,7 @@ class Job:
             "progress": 0,
             "status_text": "",
             "details": "",
+            "xfer": None,          # apt 下載明細：{"done","total","speed","eta","items","items_total"}，aptdaemon progress-details
             "exit": None,
             "error": None,
             "log": [],
@@ -553,6 +554,13 @@ class Job:
                 with self.lock:
                     self.state["progress"] = int(p) if p <= 100 else None
 
+            def on_progress_details(t, items, items_total, done, total, speed, eta):
+                # aptdaemon 的百分比不是照位元組線性走（下載大約只占前半），幾百 MB 只看百分比會像卡住；
+                # 這裡把位元組與速率直接端出來。下載結束後 total 會歸 0，就清掉。
+                with self.lock:
+                    self.state["xfer"] = ({"done": int(done), "total": int(total), "speed": int(speed), "eta": int(eta),
+                                           "items": int(items), "items_total": int(items_total)} if total > 0 else None)
+
             def on_error(t, code, details):
                 msg = f"{aenums.get_error_string_from_enum(code)}: {details}"
                 with self.lock:
@@ -582,6 +590,7 @@ class Job:
             trans.connect("status-changed", on_status)
             trans.connect("status-details-changed", on_details)
             trans.connect("progress-changed", on_progress)
+            trans.connect("progress-details-changed", on_progress_details)
             trans.connect("error", on_error)
             trans.connect("config-file-conflict", on_conffile)
             trans.connect("finished", on_finished)
