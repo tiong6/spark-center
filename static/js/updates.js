@@ -139,10 +139,14 @@ async function loadRollback() {
   const jobs = (j.jobs || []).filter(x => (x.packages || []).length);
   if (!jobs.length) { box.innerHTML = `<div class="empty">${t("updates.rollback_none")}</div>`; return; }
   const src = { cache: t("updates.kept_from_cache"), repo: t("updates.kept_from_repo"), launchpad: t("updates.kept_from_launchpad"), npm: t("updates.kept_npm") };
-  let html = `<table><thead><tr><th style="width:28%">${t("updates.package")}</th><th style="width:26%">${t("updates.version")}</th><th>${t("updates.status")}</th><th style="width:190px"></th></tr></thead><tbody>`;
   const ver = { sha256: t("updates.verified_sha256"), apt: t("updates.verified_apt"), tls: t("updates.verified_tls"), registry: t("updates.verified_registry") };
-  for (const job of jobs) {
-    const kept = job.packages.filter(p => (p.deb || (p.kind === 'npm' && p.old)) && p.installed !== p.old);   // 已經是舊版的不算，按鈕沒意義
+  const head = `<table><thead><tr><th style="width:28%">${t("updates.package")}</th><th style="width:26%">${t("updates.version")}</th><th>${t("updates.status")}</th><th style="width:190px"></th></tr></thead><tbody>`;
+  // 面板會越留越長（5 次 × 每次好幾個套件）：只有還能降回的整筆照常顯示，已經降回或什麼都沒留的收進底下可展開的「其他紀錄」
+  const keptOf = job => job.packages.filter(p => (p.deb || (p.kind === 'npm' && p.old)) && p.installed !== p.old);   // 已經是舊版的不算，按鈕沒意義
+  const active = jobs.filter(j => keptOf(j).length), inactive = jobs.filter(j => !keptOf(j).length);
+  let html = active.length ? head : '';
+  const renderJob = job => {
+    const kept = keptOf(job);
     // 一組一起降回：舊主程式要求舊函式庫時，單獨降一個 apt 會拒絕，整組給才有完整退路
     const allBtn = kept.length > 1 ? ` <button class="small" data-rb-job="${esc(job.id)}" data-rb-name="" data-rb-all="${kept.map(p => p.name).join(', ')}">${t("updates.rollback_all_btn", {n: kept.length})}</button>` : '';
     html += `<tr class="grp"><td colspan="3"><span class="gname" style="color:var(--muted)">${t("updates.updated_at")} ${esc(job.started.replace('T', ' '))}</span></td><td>${allBtn}</td></tr>`;
@@ -154,8 +158,16 @@ async function loadRollback() {
       const cur = atOld ? `<span class="tag">${t("updates.rollback_at_old")}</span>` : (p.installed && p.installed !== p.new ? `<span class="sub1"> ${t("updates.rollback_now_with_value", {value: esc(p.installed)})}</span>` : '');
       html += `<tr class="sub"><td class="mono" style="padding-left:20px">${esc(p.name)}${dep}</td><td class="mono sub1">${esc(p.old || '—')} → ${esc(p.new || t("updates.removed"))}${cur}</td><td>${st}</td><td>${has && !atOld ? `<button class="small" data-rb-job="${esc(job.id)}" data-rb-name="${esc(p.name)}" data-rb-old="${esc(p.old)}" data-rb-new="${esc(p.new || '')}">${t("updates.rollback_btn", {v0: esc(p.old)})}</button>` : ''}</td></tr>`;
     }
+  };
+  active.forEach(renderJob);
+  if (active.length) html += `</tbody></table>`;
+  if (inactive.length) {
+    if (!active.length) html += `<div class="empty">${t("updates.rollback_nothing_active")}</div>`;
+    html += `<details style="margin-top:8px"><summary class="sub1">${t("updates.rollback_other_records", {n: inactive.length})}</summary>${head}`;
+    inactive.forEach(renderJob);
+    html += `</tbody></table></details>`;
   }
-  box.innerHTML = html + `</tbody></table>`;
+  box.innerHTML = html;
   // 降回和更新一樣走「模擬 → 展示實際變更 → 確認」：舊函式庫可能讓 apt 想移除依賴新版的應用程式，後端遇到會拒絕，這裡照實顯示原因
   box.querySelectorAll('button[data-rb-job]').forEach(b => b.onclick = async () => {
     const all = b.dataset.rbName === '', label = all ? b.dataset.rbAll : b.dataset.rbName;
