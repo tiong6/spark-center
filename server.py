@@ -979,6 +979,18 @@ NPM_TTL = 600
 NPM_BIN = shutil.which("npm") or "/usr/bin/npm"
 
 
+def _semver_key(v):
+    m = re.match(r"(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?", v or "")
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)), 1 if m.group(4) is None else 0, m.group(4) or "")
+
+
+def _semver_lt(a, b):
+    ka, kb = _semver_key(a), _semver_key(b)
+    return bool(ka and kb and ka < kb)
+
+
 def npm_status(force=False):
     """npm ls -g（全部）＋ npm outdated -g（有新版的）。outdated 有新版時結束碼是 1，不能用 _run 的 0 判定。"""
     with _NPM["lock"]:
@@ -1019,9 +1031,14 @@ def npm_status(force=False):
         od = json.loads(r.stdout or "{}") if r.returncode in (0, 1) else None
         if od is None:
             raise RuntimeError((r.stderr or "").strip()[:120] or f"rc={r.returncode}")
+        # wanted = npm 依目前 Node 版本（engines）算出的可裝最新版；dist-tag 的 latest 可能要求更新的 Node。
+        # 更新時要裝 wanted 而不是 @latest：@latest 會硬裝不相容版（只印 EBADENGINE 警告），真機踩到：
+        # agent-browser 0.38.1 要 Node ≥24，機器是 22。已裝版比 wanted 新就不是「有新版」，另標「較新」。
         for n, v in od.items():
             e = pk.setdefault(n, {"name": n, "current": v.get("current"), "latest": None, "outdated": False})
-            e.update(latest=v.get("latest"), outdated=bool(v.get("latest")) and v.get("latest") != v.get("current"))
+            want = v.get("wanted") or v.get("latest")
+            e.update(latest=want, dist_latest=v.get("latest"), outdated=bool(want) and _semver_lt(v.get("current"), want),
+                     newer=bool(want) and _semver_lt(want, v.get("current")))
         out["outdated"] = sum(1 for e in pk.values() if e["outdated"])
     except Exception as e:
         # 查不到新版不能變成「全部最新」：outdated 留 None，前端顯示「—」並掛紅字
@@ -1453,7 +1470,8 @@ class Job:
                 rollback_record_npm(packages)
             except Exception as e:
                 self._log("rollback record failed: " + str(e))
-            return self._run_subprocess([NPM_BIN, "install", "-g"] + [f"{n}@latest" for n in packages], packages)
+            want = {e["name"]: e.get("latest") for e in npm_status().get("packages", [])}
+            return self._run_subprocess([NPM_BIN, "install", "-g"] + [f"{n}@{want.get(n) or 'latest'}" for n in packages], packages)
         if kind == "rollback_npm":
             ents = rollback_npm_entries(packages[0], packages[1] or None)
             if not ents:
