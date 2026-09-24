@@ -58,7 +58,7 @@
   .to { color: var(--accent); }
   .grp td { background: var(--surface2); font-weight: 700; padding: 8px 10px; }
   .grp .site { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 10px; }
-  .grp td:nth-child(2) { border-left: 3px solid var(--grpc, transparent); }
+  .grp td:first-child { background: color-mix(in srgb, var(--grpc, var(--surface2)) 28%, var(--surface2)); box-shadow: inset 3px 0 0 var(--grpc, transparent); }
   .grp .gname { color: var(--grpc, var(--text)); }
   /* 群組底下的子項：勾選框與套件名往右退，讓層級看得出來 */
   .sub td:first-child { padding-left: 26px; }
