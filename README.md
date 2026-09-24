@@ -3,8 +3,8 @@
 **A local control panel for NVIDIA GB10 machines** — DGX Spark, ASUS Ascent GX10, and the Dell / HP / Gigabyte / Acer variants.
 Updates, monitoring, LLM management, disk analysis and a hardware inventory, in one page that binds to `127.0.0.1` and never reboots your machine on its own.
 
-> UI is Traditional Chinese. An English UI is planned (string table + switch) — PRs welcome.
-> 介面為繁體中文，英文版規劃中。
+> UI is bilingual: English and Traditional Chinese. It follows the browser language and a 中 / EN switch in the top bar overrides it.
+> 介面中英雙語，跟瀏覽器語言走，頂欄可切換。
 
 ---
 
