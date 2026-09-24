@@ -166,6 +166,9 @@ MSG = {
         "rollback_bad_deb": "下載到的檔案不是預期的套件版本",
         "rollback_not_installed": "套件未安裝，沒有舊版可留",
         "rollback_not_found": "找不到該筆保留檔",
+        "rollback_hash_mismatch": "下載到的檔案與 apt 索引的 sha256 不符，不採用",
+        "rollback_no_trusted_hash": "來源是 HTTP 而索引已無此版的雜湊可核對，不採用",
+        "rollback_auth": "降回上一版需要 root，透過 pkexec 執行 apt-get（桌面會跳密碼視窗）",
         "bench_all_failed": "{n} 個併發請求全部失敗，沒有可記的成績",
         "bench_partial_failed": "{failed}/{n} 個請求失敗，數字只算成功的那幾個，不是完整成績",
         "requests_queued": "小於併發數，後面的請求在排隊。",
@@ -395,6 +398,9 @@ MSG = {
         "rollback_bad_deb": "the downloaded file is not the expected package version",
         "rollback_not_installed": "package is not installed; nothing to keep",
         "rollback_not_found": "that kept file was not found",
+        "rollback_hash_mismatch": "the downloaded file does not match the sha256 in the apt index; not used",
+        "rollback_no_trusted_hash": "the source is plain HTTP and the index no longer has a hash for this version to check against; not used",
+        "rollback_auth": "Rolling back requires root; running apt-get through pkexec (a password dialog will appear on the desktop)",
         "bench_all_failed": "All {n} concurrent requests failed; nothing to record",
         "bench_partial_failed": "{failed} of {n} requests failed; the numbers cover only the successful ones and are not a complete result",
         "requests_queued": "below the concurrency; later requests are queued.",
@@ -750,6 +756,35 @@ def _deb_matches(path, name, version):
     return got.get("Package") == name and got.get("Version") == version
 
 
+def _sha256_of(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _rollback_changes(cache, names):
+    """模擬這次升級，回實際會被換掉／移除的已安裝套件（含相依帶入的），勾選的排前面。
+    只備份勾選清單會漏掉相依帶動的更新：舊主程式要求舊函式庫時，只留主程式沒有完整退路。"""
+    for name in names:
+        pkg = cache.get(name)
+        if pkg and pkg.installed and pkg.candidate and pkg.candidate != pkg.installed:
+            try:
+                pkg.mark_upgrade()
+            except Exception:
+                pass
+    out = []
+    seen = set()
+    for name in names:
+        if name not in seen:
+            seen.add(name); out.append((name, True))
+    for pkg in cache.get_changes():
+        if pkg.is_installed and pkg.name not in seen and (pkg.marked_upgrade or pkg.marked_downgrade or pkg.marked_delete):
+            seen.add(pkg.name); out.append((pkg.name, False))
+    return out
+
+
 def _fetch_file(url, dest, max_bytes):
     """下載到 dest；先看 Content-Length 擋太大的；回 (ok, reason)。"""
     req = urllib.request.Request(url, headers={"User-Agent": "spark-center"})
@@ -778,31 +813,42 @@ def rollback_prepare(names, log=lambda s: None, status=lambda s: None):
     os.makedirs(job_dir, exist_ok=True)
     rec = {"id": job_id, "started": datetime.now().isoformat(timespec="seconds"), "packages": []}
     max_bytes = ROLLBACK_MAX_MB * 1024 * 1024
-    for name in names:
+    try:
+        targets = _rollback_changes(cache, names)
+    except Exception as e:
+        log("rollback simulate failed: " + str(e)); targets = [(n, True) for n in names]
+    for name, selected in targets:
         pkg = cache.get(name)
-        entry = {"name": name, "old": None, "new": None, "arch": None, "deb": None, "source": None, "reason": None}
+        entry = {"name": name, "selected": selected, "old": None, "new": None, "arch": None, "deb": None, "source": None, "verified": None, "reason": None}
         rec["packages"].append(entry)
         if not pkg or not pkg.installed:
             entry["reason"] = msg("rollback_not_installed", LANG_DEFAULT); continue
         inst = pkg.installed
-        entry.update(old=inst.version, new=pkg.candidate.version if pkg.candidate else None, arch=inst.architecture)
+        entry.update(old=inst.version, new=None if pkg.marked_delete else (pkg.candidate.version if pkg.candidate else None), arch=inst.architecture)
         status(msg("rollback_preparing", LANG_DEFAULT, name=name, old=inst.version))
         fname = f"{name}_{inst.version.replace(':', '%3a')}_{inst.architecture}.deb"
         dest = os.path.join(job_dir, fname)
-        # 1. 本機 apt 快取
+        # 可信雜湊：apt 索引裡這個版本的 sha256（索引由簽章過的 Release 檔背書）。舊版常已從索引消失 → None。
+        try:
+            expected = inst.sha256 or None
+        except Exception:
+            expected = None
+        # 1. 本機 apt 快取：apt 下載時已核對過雜湊（root 才寫得進去）；索引還有的話再對一次。
         cached = os.path.join("/var/cache/apt/archives", fname)
-        if os.path.isfile(cached) and _deb_matches(cached, name, inst.version):
-            shutil.copyfile(cached, dest); entry.update(deb=os.path.relpath(dest, ROLLBACK_DIR), source="cache")
+        if os.path.isfile(cached) and _deb_matches(cached, name, inst.version) and (not expected or _sha256_of(cached) == expected):
+            shutil.copyfile(cached, dest); entry.update(deb=os.path.relpath(dest, ROLLBACK_DIR), source="cache", verified="sha256" if expected else "apt")
             log(msg("rollback_kept", LANG_DEFAULT, name=name, old=inst.version, source=msg("rollback_src_cache", LANG_DEFAULT))); continue
-        # 2. 來源伺服器的 pool；3. Launchpad（只有 Ubuntu 官方來源）
+        # 2. 來源伺服器的 pool（多半是 HTTP，只在索引還有雜湊可核對時採用）；
+        # 3. Launchpad（HTTPS；只要這個套件任一版本來自 Ubuntu 官方來源就試——舊版從索引消失後
+        #    installed.origins 會是空的，只看舊版的來源會永遠不試，而那正是需要備援的時候）。
         cands = []
         try:
-            if inst.uri:
+            if inst.uri and expected:
                 cands.append(("repo", inst.uri))
         except Exception:
             pass
-        orig = _origin_of(inst)
-        if (orig.get("site") or "").endswith("ubuntu.com") and "esm.ubuntu.com" not in (orig.get("site") or ""):
+        sites = {(_origin_of(v).get("site") or "") for v in pkg.versions}
+        if any(st.endswith("ubuntu.com") and "esm.ubuntu.com" not in st for st in sites):
             noepoch = inst.version.split(":", 1)[-1]
             cands.append(("launchpad", f"https://launchpad.net/ubuntu/+archive/primary/+files/{name}_{noepoch}_{inst.architecture}.deb"))
         reason = msg("rollback_no_source", LANG_DEFAULT)
@@ -815,7 +861,15 @@ def rollback_prepare(names, log=lambda s: None, status=lambda s: None):
                 reason = msg("rollback_too_big", LANG_DEFAULT, mb=round(why[1] / 1048576), max=ROLLBACK_MAX_MB); break
             if not _deb_matches(dest, name, inst.version):
                 reason = msg("rollback_bad_deb", LANG_DEFAULT); continue
-            entry.update(deb=os.path.relpath(dest, ROLLBACK_DIR), source=source)
+            if expected:
+                if _sha256_of(dest) != expected:
+                    reason = msg("rollback_hash_mismatch", LANG_DEFAULT); continue
+                verified = "sha256"
+            elif url.startswith("https://launchpad.net/"):
+                verified = "tls"
+            else:
+                reason = msg("rollback_no_trusted_hash", LANG_DEFAULT); continue
+            entry.update(deb=os.path.relpath(dest, ROLLBACK_DIR), source=source, verified=verified)
             log(msg("rollback_kept", LANG_DEFAULT, name=name, old=inst.version, source=msg(f"rollback_src_{source}", LANG_DEFAULT))); break
         if not entry["deb"]:
             try:
@@ -834,15 +888,17 @@ def rollback_prepare(names, log=lambda s: None, status=lambda s: None):
     return rec
 
 
-def rollback_deb_path(job_id, name):
+def rollback_deb_paths(job_id, name=None):
+    """該筆工作裡保留下來的 .deb（name 給了就只回那一個）。路徑限制在 ROLLBACK_DIR 底下。"""
+    out = []
     for j in _rollback_index_load():
         if j.get("id") == job_id:
             for p in j.get("packages", []):
-                if p.get("name") == name and p.get("deb"):
+                if (name is None or p.get("name") == name) and p.get("deb"):
                     fp = os.path.realpath(os.path.join(ROLLBACK_DIR, p["deb"]))
                     if fp.startswith(os.path.realpath(ROLLBACK_DIR) + os.sep) and os.path.isfile(fp):
-                        return fp, p
-    return None, None
+                        out.append((fp, p))
+    return out
 
 
 def list_updates():
@@ -1232,15 +1288,21 @@ class Job:
                 rollback_prepare(packages, self._log, lambda txt: self.state.__setitem__("status_text", txt))
             except Exception as e:
                 self._log("rollback prepare failed: " + str(e))
+        if kind == "rollback":
+            # 為什麼不用 aptdaemon 的 install_file：它最後跑 DebPackage.check()，預設拒絕比已安裝舊的版本
+            # （"A later version is already installed"），force=True 也一樣。apt-get 對本機 .deb 會照給的版本裝，
+            # 加 --allow-downgrades 明講意圖，相依由 apt 解；一次給整組檔案，舊主程式要求舊函式庫時才有完整退路。
+            paths = [fp for fp, _ in rollback_deb_paths(packages[0], packages[1] or None)]
+            if not paths:
+                with self.lock:
+                    self.state.update(status="error", error=msg("rollback_not_found", LANG_DEFAULT), finished=datetime.now().isoformat(timespec="seconds"))
+                return
+            self._log(msg("rollback_auth", LANG_DEFAULT))
+            return self._run_subprocess(["pkexec", "/usr/bin/apt-get", "install", "-y", "--allow-downgrades"] + paths, packages)
         loop = GLib.MainLoop()
         try:
             client = aptdaemon.client.AptClient()
-            if kind == "rollback":
-                fp, _ = rollback_deb_path(packages[0], packages[1])
-                if not fp:
-                    raise RuntimeError(msg("rollback_not_found", LANG_DEFAULT))
-                trans = client.install_file(fp)   # polkit org.debian.apt.install-file：跳密碼視窗
-            elif kind == "refresh":
+            if kind == "refresh":
                 trans = client.update_cache()
             elif kind == "aptclean":
                 trans = client.clean()                 # polkit org.debian.apt.clean：active session 免密碼
@@ -3881,10 +3943,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True})
         if path == "/api/rollback":
             job_id, name = str(data.get("job") or ""), str(data.get("name") or "")
-            if not re.fullmatch(r"\d{8}T\d{6}", job_id) or not re.fullmatch(r"[a-z0-9.+-]+", name):
+            if not re.fullmatch(r"\d{8}T\d{6}", job_id) or (name and not re.fullmatch(r"[a-z0-9.+-]+", name)):
                 return self._json({"ok": False, "error": msg("rollback_not_found", LANG_DEFAULT)}, 400)
-            fp, _ = rollback_deb_path(job_id, name)
-            if not fp:
+            if not rollback_deb_paths(job_id, name or None):
                 return self._json({"ok": False, "error": msg("rollback_not_found", LANG_DEFAULT)}, 404)
             if not JOB.start("rollback", [job_id, name]):
                 return self._json({"ok": False, "error": msg("job_running", LANG_DEFAULT)}, 409)

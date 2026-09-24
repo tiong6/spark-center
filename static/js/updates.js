@@ -111,21 +111,28 @@ async function loadRollback() {
   const jobs = (j.jobs || []).filter(x => (x.packages || []).length);
   if (!jobs.length) { box.innerHTML = `<div class="empty">${t("updates.rollback_none")}</div>`; return; }
   const src = { cache: t("updates.kept_from_cache"), repo: t("updates.kept_from_repo"), launchpad: t("updates.kept_from_launchpad") };
-  let html = `<table><thead><tr><th style="width:34%">${t("updates.package")}</th><th style="width:26%">${t("updates.version")}</th><th>${t("updates.status")}</th><th style="width:170px"></th></tr></thead><tbody>`;
+  let html = `<table><thead><tr><th style="width:28%">${t("updates.package")}</th><th style="width:26%">${t("updates.version")}</th><th>${t("updates.status")}</th><th style="width:190px"></th></tr></thead><tbody>`;
+  const ver = { sha256: t("updates.verified_sha256"), apt: t("updates.verified_apt"), tls: t("updates.verified_tls") };
   for (const job of jobs) {
-    html += `<tr class="grp"><td colspan="4"><span class="gname" style="color:var(--muted)">${t("updates.updated_at")} ${esc(job.started.replace('T', ' '))}</span></td></tr>`;
+    const kept = job.packages.filter(p => p.deb);
+    // 一組一起降回：舊主程式要求舊函式庫時，單獨降一個 apt 會拒絕，整組給才有完整退路
+    const allBtn = kept.length > 1 ? ` <button class="small" data-rb-job="${esc(job.id)}" data-rb-name="" data-rb-all="${kept.map(p => p.name).join(', ')}">${t("updates.rollback_all_btn", {n: kept.length})}</button>` : '';
+    html += `<tr class="grp"><td colspan="3"><span class="gname" style="color:var(--muted)">${t("updates.updated_at")} ${esc(job.started.replace('T', ' '))}</span></td><td>${allBtn}</td></tr>`;
     for (const p of job.packages) {
-      const st = p.deb ? `<span class="tag ok">${esc(src[p.source] || p.source)}</span>` : `<span class="tag" title="${esc(p.reason || '')}">${t("updates.not_kept")}</span><span class="sub1"> ${esc(p.reason || '')}</span>`;
-      html += `<tr class="sub"><td></td><td class="mono">${esc(p.name)}<br><span class="sub1">${esc(p.old || '—')} → ${esc(p.new || '—')}</span></td><td>${st}</td><td>${p.deb ? `<button class="small" data-rb-job="${esc(job.id)}" data-rb-name="${esc(p.name)}" data-rb-old="${esc(p.old)}" data-rb-new="${esc(p.new || '')}">${t("updates.rollback_btn", {v0: esc(p.old)})}</button>` : ''}</td></tr>`;
+      const dep = p.selected === false ? ` <span class="tag" title="${t("updates.dep_pulled_hint")}">${t("updates.dep_pulled")}</span>` : '';
+      const st = p.deb ? `<span class="tag ok">${esc(src[p.source] || p.source)}</span><span class="sub1"> ${esc(ver[p.verified] || '')}</span>` : `<span class="tag" title="${esc(p.reason || '')}">${t("updates.not_kept")}</span><span class="sub1"> ${esc(p.reason || '')}</span>`;
+      html += `<tr class="sub"><td class="mono" style="padding-left:20px">${esc(p.name)}${dep}</td><td class="mono sub1">${esc(p.old || '—')} → ${esc(p.new || t("updates.removed"))}</td><td>${st}</td><td>${p.deb ? `<button class="small" data-rb-job="${esc(job.id)}" data-rb-name="${esc(p.name)}" data-rb-old="${esc(p.old)}" data-rb-new="${esc(p.new || '')}">${t("updates.rollback_btn", {v0: esc(p.old)})}</button>` : ''}</td></tr>`;
     }
   }
   box.innerHTML = html + `</tbody></table>`;
   box.querySelectorAll('button[data-rb-job]').forEach(b => b.onclick = async () => {
-    if (!confirm(t("updates.rollback_confirm", {name: b.dataset.rbName, new: b.dataset.rbNew, old: b.dataset.rbOld}))) return;
+    const all = b.dataset.rbName === '';
+    const q = all ? t("updates.rollback_all_confirm", {list: b.dataset.rbAll}) : t("updates.rollback_confirm", {name: b.dataset.rbName, new: b.dataset.rbNew, old: b.dataset.rbOld});
+    if (!confirm(q)) return;
     b.disabled = true;
     const r = await api('/api/rollback', {job: b.dataset.rbJob, name: b.dataset.rbName});
     if (!r.ok) { alert(r.error); b.disabled = false; return; }
-    startPolling(t("job.rollback_with_value", {value: b.dataset.rbName})); window.scrollTo({top: 0, behavior: 'smooth'});
+    startPolling(t("job.rollback_with_value", {value: all ? b.dataset.rbAll : b.dataset.rbName})); window.scrollTo({top: 0, behavior: 'smooth'});
   });
 }
 async function load() {
@@ -183,7 +190,7 @@ function jobTitle(j) {   // 重新整理頁面或服務重啟後接回工作時�
   return ({ refresh: t("job.refresh_apt_sources"), install: t("job.apt_install_with_value", {value: pk}), remove: t("job.apt_remove_with_value", {value: pk}),
             aptclean: t("job.clear_apt_cache"), snap: t("job.snap_update_with_value", {value: pk}), flatpak: t("job.flatpak_update_with_value", {value: pk}),
             ollama_pull: 'ollama pull ' + pk, shell: t("job.system_action_with_value", {value: pk}),
-            rollback: t("job.rollback_with_value", {value: (j.packages || [])[1] || pk}) })[j.kind] || (t("job.job_with_value", {value: pk}));
+            rollback: t("job.rollback_with_value", {value: (j.packages || [])[1] || (j.packages || [])[0] || pk}) })[j.kind] || (t("job.job_with_value", {value: pk}));
 }
 function startPolling(title) {
   const c = $('#jobcard'); c.className = 'panel notice';

@@ -10,9 +10,11 @@
 
 ### 新增
 
-- **降回上一版**（更新分頁新面板）。從這裡更新前，會先把每個要被換掉的舊版 .deb 留一份到 data/rollback/（保留最近 5 次，每檔上限 150 MB），來源依序是本機 apt 快取、來源伺服器的 pool、Launchpad（Ubuntu 官方套件永久保留）。ESM 需授權、第三方倉庫不留舊版、檔案太大的，誠實標「未保留」與原因。降回走 aptdaemon 的 install_file（跳密碼視窗）；降回後該更新會再次出現在清單，不勾就不會再裝上。起因：Ubuntu 來源只發布最新版，「清 apt 快取」又會清掉本機舊 .deb，出事時沒有退路。
+- **降回上一版**（更新分頁新面板）。從這裡更新前，會先把每個要被換掉的舊版 .deb 留一份到 data/rollback/（保留最近 5 次，每檔上限 150 MB），來源依序是本機 apt 快取、來源伺服器的 pool、Launchpad（Ubuntu 官方套件永久保留）。ESM 需授權、第三方倉庫不留舊版、檔案太大的，誠實標「未保留」與原因。降回用 pkexec 跑 `apt-get install --allow-downgrades` 裝保留的 .deb（跳密碼視窗）；降回後該更新會再次出現在清單，不勾就不會再裝上。起因：Ubuntu 來源只發布最新版，「清 apt 快取」又會清掉本機舊 .deb，出事時沒有退路。
 
 ### 修正
+
+- **降回上一版：第三輪外部 review 的 4 個問題。**（1）原本走 aptdaemon 的 `install_file`，它最後跑 `DebPackage.check()`，預設拒絕比已安裝舊的版本（force=True 也一樣），所以按了根本降不回去；改成 pkexec 跑 `apt-get install -y --allow-downgrades <保留的 .deb>`，相依由 apt 解。（2）從來源伺服器（HTTP）或 Launchpad 下載的檔案原本只核對 Package/Version 欄位；現在核對 apt 索引裡該版本的 sha256，不符不採用；索引已無此版時只接受 Launchpad 的 HTTPS，並在面板標明「無法再核對雜湊」。（3）舊版從索引消失後，`installed.origins` 是空的，原本因此永遠不會試 Launchpad，而那正是需要備援的時候；改看該套件任一版本的來源。（4）原本只備份勾選的套件，漏掉相依帶動一起換掉的（例如只勾 curl 會一起升 libcurl4t64）；現在先模擬升級，依實際變更備份，面板標「相依帶入」，並多一顆「整組降回」，一次把整組交給 apt。已知副作用：apt 對本機 .deb 會把相依帶入的函式庫標成手動安裝，之後 autoremove 不會清它們。
 
 - **併發量測全部失敗仍記成成功**（外部 review 第二輪）。全敗改回 error 不寫歷史；部分失敗標「N/M 個請求失敗」、前端顯示失敗數、平均值防除零。
 - **快速切換分頁時舊的監控請求關掉新分頁的輪詢**。startMon 在等待硬體資料回來後檢查監控分頁是否仍顯示。
