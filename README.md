@@ -67,6 +67,16 @@ systemctl --user status spark-center     # 狀態
 journalctl --user -u spark-center -f     # 日誌
 ```
 
+## Remote access
+
+Spark Center listens on 127.0.0.1 only and has no login, on purpose. To use it from another machine, forward the port over SSH so the connection still arrives as local:
+
+```
+ssh -L 11001:127.0.0.1:11001 <user>@<your GB10>
+```
+
+then open http://127.0.0.1:11001 on that machine. NVIDIA Sync's *Add Custom* does the same thing: name it, set port 11001, tick *Auto open in browser*, leave the path empty. Any local port works on the remote side. Password dialogs for apt, snap and firmware still appear on the GB10's own desktop, not on the remote machine.
+
 ## Optional: two read-only sudoers rules
 
 Everything works without root. Two panels need it, and each is a single read-only command with its arguments pinned:

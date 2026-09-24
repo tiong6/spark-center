@@ -3979,12 +3979,16 @@ class Handler(BaseHTTPRequestHandler):
         """修改型請求的來源驗證。只綁 127.0.0.1 擋不住瀏覽器裡任何網頁對本機發的跨站 POST（text/plain 的
         簡單請求不會 preflight，直接送到）。三道關：Host 必須是本機＋本埠；有 Origin 就必須是自己；
         Content-Type 必須是 application/json（強迫瀏覽器 preflight，而本服務不回應 OPTIONS，跨站就死在瀏覽器裡）。"""
-        allowed_hosts = {f"127.0.0.1:{PORT}", f"localhost:{PORT}", f"[::1]:{PORT}"}
+        # 只認本機位址，埠號不限：SSH 轉埠（ssh -L、NVIDIA Sync 的 Custom）在遠端那台常用別的本機埠號，
+        # 瀏覽器送來的 Host 就是那個埠。DNS rebinding 靠的是非本機的主機名，放寬埠號不影響這道防線。
+        def _local(hostport):
+            h = hostport.rsplit(":", 1)[0] if re.search(r":\d+$", hostport) else hostport
+            return h in ("127.0.0.1", "localhost", "[::1]")
         host = (self.headers.get("Host") or "").strip().lower()
-        if host not in allowed_hosts:
+        if not _local(host):
             return f"Host={host or '(none)'}"
         origin = (self.headers.get("Origin") or "").strip().lower()
-        if origin and origin not in {f"http://{h}" for h in allowed_hosts}:
+        if origin and not (origin.startswith("http://") and _local(origin[len("http://"):])):
             return f"Origin={origin}"
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         if ctype != "application/json":

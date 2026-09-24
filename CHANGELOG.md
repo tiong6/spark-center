@@ -14,6 +14,8 @@
 
 ### 修正
 
+- **POST 的 Host 檢查改成「本機位址、埠號不限」。** SSH 轉埠或 NVIDIA Sync 的 Custom 連線在遠端那台常用別的本機埠號，瀏覽器送來的 Host 是那個埠，原本會被 403。DNS rebinding 靠的是非本機主機名，放寬埠號不影響這道防線；curl 驗過 localhost:任意埠放行、evil.example 與 localhost.evil.com 仍擋、跨站 Origin 與 text/plain 仍擋。README 加「Remote access」一節。
+
 - **降回上一版：第三輪外部 review 的 4 個問題。**（1）原本走 aptdaemon 的 `install_file`，它最後跑 `DebPackage.check()`，預設拒絕比已安裝舊的版本（force=True 也一樣），所以按了根本降不回去；改成 pkexec 跑 `apt-get install -y --allow-downgrades <保留的 .deb>`，相依由 apt 解。（2）從來源伺服器（HTTP）或 Launchpad 下載的檔案原本只核對 Package/Version 欄位；現在核對 apt 索引裡該版本的 sha256，不符不採用；索引已無此版時只接受 Launchpad 的 HTTPS，並在面板標明「無法再核對雜湊」。（3）舊版從索引消失後，`installed.origins` 是空的，原本因此永遠不會試 Launchpad，而那正是需要備援的時候；改看該套件任一版本的來源。（4）原本只備份勾選的套件，漏掉相依帶動一起換掉的（例如只勾 curl 會一起升 libcurl4t64）；現在先模擬升級，依實際變更備份，面板標「相依帶入」，並多一顆「整組降回」，一次把整組交給 apt。真機實測（2026-09-25）：更新 curl → 整組降回 → curl 與 libcurl4t64 回到 10.13，dpkg 乾淨、無壞相依、curl 可用、libcurl4t64 的自動安裝標記保留；再裝回最新版。
 - **降回上一版：第四輪 review 的 2 個問題。**（1）降回原本直接 `-y` 執行，沒有先展示相依變更；舊函式庫可能讓 apt 選擇移除依賴新版的應用程式，確認視窗卻沒說。現在降回和更新一樣走「apt-get -s 模擬 → 展示實際變更 → 確認」，模擬結果有移除就拒絕並列出是誰，真正執行時再加 `--no-remove` 雙重保險。（2）更新走 aptdaemon 時設定檔衝突一律保留現有版本，改用 apt-get 後沒有對應選項；服務的 stdin 是 /dev/null，dpkg 問不到人會中途失敗、留下未設定的套件。現在加 `--force-confdef --force-confold`，沿用同一政策。 降版失敗時另跑 `dpkg --audit`（不需 root）：有套件未完成設定就在錯誤訊息裡指引 `sudo dpkg --configure -a`，狀態完整也明講；修復本身需要再一次密碼，不自動做。
 
