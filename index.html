@@ -22,8 +22,9 @@
   .mark { width: 24px; height: 24px; border-radius: 6px; background: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNTYgMjU2Ij4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYmciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiMxYjIxMWMiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMwZjExMTAiLz48L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8cmVjdCB3aWR0aD0iMjU2IiBoZWlnaHQ9IjI1NiIgcng9IjU4IiBmaWxsPSJ1cmwoI2JnKSIvPgogIDwhLS0g5YSA6KGo6LuM6YGT77yI5pqX77yJ6IiH5aGr6Imy5byn77yI57ag77yJ77yM5Y2K5ZyT5b6e5bem5Yiw5Y+z77yM57y65Y+j5Zyo5LiLIC0tPgogIDxwYXRoIGQ9Ik0gNDAgMTY4IEEgODggODggMCAwIDEgMjE2IDE2OCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMmMzMTJlIiBzdHJva2Utd2lkdGg9IjIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNIDQwIDE2OCBBIDg4IDg4IDAgMCAxIDE3OCA4NyIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNzZiOTAwIiBzdHJva2Utd2lkdGg9IjIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8IS0tIOmWg+mbu++8mlNwYXJrIC0tPgogIDxwb2x5Z29uIHBvaW50cz0iMTM4LDc0IDEwMCwxNDYgMTI4LDE0NiAxMTQsMjAyIDE2MCwxMjAgMTMyLDEyMCAxNDgsNzQiIGZpbGw9IiNlOGVhZTgiLz4KPC9zdmc+") center/contain no-repeat; }
   .topbar .brand { font-weight: 700; letter-spacing: .02em; }
   .topbar .brand small { color: var(--muted); font-weight: 400; margin-left: 10px; font-size: 12px; }
-  .topbar .right { margin-left: auto; color: var(--muted); font-size: 12px; }
-  .topbar .dash { display: inline-flex; align-items: center; gap: 6px; color: var(--text); text-decoration: none; margin-right: 14px; padding: 2px 8px 2px 2px; border: 1px solid var(--line); border-radius: 6px; }
+  .topbar .right { margin-left: auto; color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 12px; }
+  .topbar .right label { display: inline-flex; align-items: center; }
+  .topbar .dash { display: inline-flex; align-items: center; gap: 6px; color: var(--text); text-decoration: none; padding: 2px 8px 2px 3px; border: 1px solid var(--line); border-radius: 6px; line-height: 18px; }
   .topbar .dash:hover { background: var(--surface2); } .topbar .dash img { width: 18px; height: 18px; border-radius: 4px; }
   main { max-width: 1200px; margin: 0 auto; padding: 56px 24px 80px; }
   .titlerow { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 22px; flex-wrap: wrap; }
@@ -255,8 +256,8 @@
 <body>
 <div class="topbar">
   <span class="mark"></span>
-  <span class="brand">Spark Center <small>ASUS Ascend GX10</small></span>
-  <span class="right"><a class="dash hide" id="dashLink" target="_blank" rel="noopener" data-i18n-title="common.open_dgx_dashboard"><img src="/dashboard-icon" alt="" onerror="this.remove()"><span data-i18n="common.dgx_dashboard">DGX Dashboard</span></a><span class="switch" id="langSwitch" style="margin-right:12px"><span data-lang="zh-TW">中</span><span data-lang="en">EN</span></span><label title="在 ~/.config/autostart 放一份桌面捷徑，GNOME 登入後幾秒自動開啟這個視窗；取消就把檔案刪掉" data-i18n-title="common.create_a_desktop_shortcut_in_config" style="cursor:pointer"><input type="checkbox" id="autostart" style="vertical-align:middle;margin:0 4px 0 0"><span id="autostartLabel" data-i18n="common.open_at_login">登入時自動開啟</span></label><span data-i18n="common.127_0_0_1_only_no"> · 127.0.0.1 only · 不自動重開機</span></span>
+  <span class="brand">Spark Center <small id="machineName"></small></span>
+  <span class="right"><a class="dash hide" id="dashLink" target="_blank" rel="noopener" data-i18n-title="common.open_dgx_dashboard"><img src="/dashboard-icon" alt="" onerror="this.remove()"><span data-i18n="common.dgx_dashboard">DGX Dashboard</span></a><span class="switch" id="langSwitch"><span data-lang="zh-TW">中</span><span data-lang="en">EN</span></span><label title="在 ~/.config/autostart 放一份桌面捷徑，GNOME 登入後幾秒自動開啟這個視窗；取消就把檔案刪掉" data-i18n-title="common.create_a_desktop_shortcut_in_config" style="cursor:pointer"><input type="checkbox" id="autostart" style="margin:0 4px 0 0"><span id="autostartLabel" data-i18n="common.open_at_login">登入時自動開啟</span></label><span data-i18n="common.127_0_0_1_only_no"> · 127.0.0.1 only · 不自動重開機</span></span>
 </div>
 <main>
   <div class="titlerow">
@@ -2394,6 +2395,7 @@ $('#autostart').onchange = async () => {
   if (!r.ok) { alert(r.error || t("common.setting_failed")); }
   cb.checked = !!r.enabled;   // 以伺服器回報的實際狀態為準
 };
+api('/api/machine').then(r => { if (!r.ok) return; const name = [r.vendor, r.product].filter(Boolean).join(' ') || r.family; $('#machineName').textContent = name; if (name) document.title = `Spark Center · ${name}`; });   // 機型讀 DMI，讀不到就留空
 api('/api/dashboard').then(r => { const a = $('#dashLink'); if (r.ok && r.installed) { a.href = r.url; a.classList.remove('hide'); } });   // 沒裝 dgx-dashboard 就不顯示
 (async () => {
   loadAutostart();

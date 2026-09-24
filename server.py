@@ -3522,6 +3522,18 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "entries": apt_history()})
         elif path == "/api/reboot":
             self._json(reboot_status())
+        elif path == "/api/machine":
+            # 頂欄的機型：直接讀 DMI，不寫死。ASUSTeK COMPUTER INC. 這種長名縮成常見寫法，其餘照原文。
+            def dmi(k):
+                try:
+                    return open(f"/sys/class/dmi/id/{k}", encoding="utf-8", errors="replace").read().strip()
+                except OSError:
+                    return ""
+            vendor = dmi("sys_vendor")
+            vendor = re.sub(r"^ASUSTeK COMPUTER INC\.$", "ASUS", vendor, flags=re.I)
+            vendor = re.sub(r"^(Dell Inc\.|HP Inc\.|Hewlett-Packard|Gigabyte Technology Co\., Ltd\.|Acer|NVIDIA)$",
+                            lambda m: {"dell inc.": "Dell", "hp inc.": "HP", "hewlett-packard": "HP", "gigabyte technology co., ltd.": "GIGABYTE"}.get(m.group(1).lower(), m.group(1)), vendor, flags=re.I)
+            self._json({"ok": True, "vendor": vendor, "product": dmi("product_name"), "family": dmi("product_family")})
         elif path == "/api/dashboard":
             # DGX Dashboard 的網址：埠號照 /usr/bin/dgx-dashboard 的邏輯讀 ports.env，讀不到就 11000
             port = 11000

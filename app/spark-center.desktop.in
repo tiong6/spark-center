@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Spark Center
-Comment=ASUS Ascent GX10 更新、監控、硬體、磁碟
+Comment=GB10 機器（DGX Spark、ASUS Ascent GX10 等）的更新、監控、硬體、磁碟
 Exec="@ROOT@/app/spark-center-app"
 Icon=spark-center
 Terminal=false
