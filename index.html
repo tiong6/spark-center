@@ -835,7 +835,9 @@ const STR = {
     "mon.download": "下行",
     "mon.upload": "上行",
     "mon.network": "網路 {v0}",
-    "mon.chart_scale_follows_the_interval_maximum": "{v0} · {v1} · 折線刻度為區間最大值",
+    "mon.network_wifi": "Wi-Fi 網路",
+    "mon.network_wired": "有線網路",
+    "mon.chart_scale_follows_the_interval_maximum": "介面 {v0} · {v1} · 折線刻度為區間最大值",
     "mon.download_rx": "下行 (rx)",
     "mon.upload_tx": "上行 (tx)",
     "mon.sampled_every_seconds_the_chart_keeps": "每 {v0} 秒取樣一次，折線保留最近 {v1} 點（約 {v2} 分鐘）；歷史只存在這個頁面裡，離開硬體分頁就停止取樣，重新整理即清空。儀表外圈綠 / 橘 / 紅為 75% 與 90% 門檻。",
@@ -1388,7 +1390,9 @@ const STR = {
     "mon.download": "Download",
     "mon.upload": "Upload",
     "mon.network": "Network {v0}",
-    "mon.chart_scale_follows_the_interval_maximum": "{v0} · {v1} · chart scale follows the interval maximum",
+    "mon.network_wifi": "Wi-Fi network",
+    "mon.network_wired": "Wired network",
+    "mon.chart_scale_follows_the_interval_maximum": "interface {v0} · {v1} · chart scale follows the interval maximum",
     "mon.download_rx": "Download (rx)",
     "mon.upload_tx": "Upload (tx)",
     "mon.sampled_every_seconds_the_chart_keeps": "Sampled every {v0} seconds; the chart keeps the latest {v1} points (about {v2} minutes). History exists only in this page; leaving the Hardware tab stops sampling, and reloading clears it. Gauge rings turn green / orange / red at the 75% and 90% thresholds.",
@@ -2287,7 +2291,7 @@ function renderMon(j, rerender) {
     const rs = hw.hist['rx:' + n.name] || [], ts = hw.hist['tx:' + n.name] || [];
     const ymax = Math.max(1024, ...rs.map(d => d[1]), ...ts.map(d => d[1])) * 1.15;
     const ser = [{label: t("mon.download"), color: C_LINE, data: rs}, {label: t("mon.upload"), color: C_TX, data: ts}];
-    cards.push(monCard('net-' + n.name, t("mon.network", {v0: n.name}), t("mon.chart_scale_follows_the_interval_maximum", {v0: n.kind, v1: n.ipv4.join(', ')}), tileLeft(rx == null ? '…' : '↓ ' + fmtRate(rx), rx == null ? t("mon.waiting_for_second_sample") : '↑ ' + fmtRate(tx)), ser, ymax, fmtRate, `<span><i style="background:${C_LINE}"></i>${t("mon.download_rx")}</span><span><i style="background:${C_TX}"></i>${t("mon.upload_tx")}</span>`));
+    cards.push(monCard('net-' + n.name, n.kind === 'wifi' ? t("mon.network_wifi") : n.kind === 'ethernet' ? t("mon.network_wired") : t("mon.network", {v0: n.name}), t("mon.chart_scale_follows_the_interval_maximum", {v0: n.name, v1: n.ipv4.join(', ')}), tileLeft(rx == null ? '…' : '↓ ' + fmtRate(rx), rx == null ? t("mon.waiting_for_second_sample") : '↑ ' + fmtRate(tx)), ser, ymax, fmtRate, `<span><i style="background:${C_LINE}"></i>${t("mon.download_rx")}</span><span><i style="background:${C_TX}"></i>${t("mon.upload_tx")}</span>`));
     hovers.push(['net-' + n.name, ser, fmtRate]);
   }
   // 版面自訂：順序與隱藏記在這個瀏覽器（localStorage），每次重繪都套用；拖曳中不重繪，免得卡片在手上被換掉
