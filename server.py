@@ -171,6 +171,8 @@ MSG = {
         "rollback_no_trusted_hash": "來源是 HTTP 而索引已無此版的雜湊可核對，不採用",
         "rollback_auth": "降回上一版需要 root，透過 pkexec 執行 apt-get（桌面會跳密碼視窗）",
         "rollback_sim_failed": "無法模擬降回：{err}",
+        "rollback_left_broken": "。dpkg 回報有套件未完成設定：請在終端機跑 sudo dpkg --configure -a 修復後，再重新整理更新清單",
+        "rollback_state_intact": "。dpkg 回報套件狀態完整，沒有留下未完成設定的套件",
         "rollback_would_remove": "降回會連帶移除 {pkgs}（它們需要新版）。這裡不替你拆掉別的軟體，所以不做",
         "bench_all_failed": "{n} 個併發請求全部失敗，沒有可記的成績",
         "bench_partial_failed": "{failed}/{n} 個請求失敗，數字只算成功的那幾個，不是完整成績",
@@ -405,6 +407,8 @@ MSG = {
         "rollback_no_trusted_hash": "the source is plain HTTP and the index no longer has a hash for this version to check against; not used",
         "rollback_auth": "Rolling back requires root; running apt-get through pkexec (a password dialog will appear on the desktop)",
         "rollback_sim_failed": "Could not simulate the rollback: {err}",
+        "rollback_left_broken": ". dpkg reports packages left unconfigured: run sudo dpkg --configure -a in a terminal to repair, then refresh the update list",
+        "rollback_state_intact": ". dpkg reports the package state is intact; nothing was left unconfigured",
         "rollback_would_remove": "Rolling back would also remove {pkgs} (they need the newer version). This tool will not remove other software for you, so it stops here",
         "bench_all_failed": "All {n} concurrent requests failed; nothing to record",
         "bench_partial_failed": "{failed} of {n} requests failed; the numbers cover only the successful ones and are not a complete result",
@@ -1197,6 +1201,11 @@ class Job:
                     hint = {126: msg('auth_cancelled', LANG_DEFAULT), 127: msg('command_missing', LANG_DEFAULT),
                             10: msg('snap_busy', LANG_DEFAULT)}.get(rc)
                     self.state["error"] = (hint or msg('exit_code', LANG_DEFAULT, p0=rc)) + msg('see_log', LANG_DEFAULT)
+                    if self.state.get("kind") == "rollback" and rc not in (126, 127):
+                        # 降版中途失敗可能留下 unpacked／half-configured 的套件。dpkg --audit 不需 root，查得到就明講該怎麼救；
+                        # 修復本身要再一次密碼，這裡不自動做，交給使用者在終端機跑。
+                        audit = (_run(["dpkg", "--audit"], timeout=30) or "").strip()
+                        self.state["error"] += msg('rollback_left_broken' if audit else 'rollback_state_intact', LANG_DEFAULT)
                 self.state["status_text"] = msg('done', LANG_DEFAULT) if rc == 0 else msg('failed', LANG_DEFAULT)
                 self.state["finished"] = datetime.now().isoformat(timespec="seconds")
         except Exception as e:
