@@ -17,6 +17,8 @@ async function ensureStatic() {
 }
 async function startMon() {          // 監控分頁：持續輪詢
   if (!(await ensureStatic())) return;
+  // 等 /api/hardware 回來的期間使用者可能已切到別的分頁；那時不能再動計時器，否則會關掉新分頁的輪詢、開監控的
+  if ($('#tab-monitor').classList.contains('hide')) return;
   stopHw(); pollHw(); hw.timer = setInterval(pollHw, MON_INTERVAL_MS);
   pollWifiExtra(); hw.wifiTimer = setInterval(pollWifiExtra, 10000);
 }

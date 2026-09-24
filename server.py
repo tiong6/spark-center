@@ -153,6 +153,8 @@ MSG = {
         "duplicate_note": "重複判定用名稱正規化（去掉 GGUF、instruct 等字尾）比對，是啟發式；同名不代表同一量化版本，刪之前自己確認。",
         "warming": "載入／暖機",
         "warm_failed": "暖機失敗",
+        "bench_all_failed": "{n} 個併發請求全部失敗，沒有可記的成績",
+        "bench_partial_failed": "{failed}/{n} 個請求失敗，數字只算成功的那幾個，不是完整成績",
         "requests_queued": "小於併發數，後面的請求在排隊。",
         "requests_parallel": "足夠同時處理。",
         "warm_request_failed": "暖機請求失敗（模型載入失敗或逾時）",
@@ -368,6 +370,8 @@ MSG = {
         "duplicate_note": "Duplicate detection compares normalized names (removing suffixes such as GGUF and instruct) and is heuristic; matching names do not imply the same quantization. Verify before deleting.",
         "warming": "Loading / warming up",
         "warm_failed": "Warm-up failed",
+        "bench_all_failed": "All {n} concurrent requests failed; nothing to record",
+        "bench_partial_failed": "{failed} of {n} requests failed; the numbers cover only the successful ones and are not a complete result",
         "requests_queued": "below the concurrency; later requests are queued.",
         "requests_parallel": "sufficient for simultaneous processing.",
         "warm_request_failed": "Warm-up request failed (model loading failed or timed out)",
@@ -2893,6 +2897,8 @@ def _llm_bench_run_concurrent(model, n, num_predict):
         [t.start() for t in ths]; [t.join() for t in ths]
         wall = time.time() - t0
         ok = [r for r in results if r]
+        if not ok:   # 全部失敗：這不是成績，是失敗；不寫歷史
+            raise RuntimeError(msg('bench_all_failed', LANG_DEFAULT, n=n))
         toks = sum(r.get("eval_count") or 0 for r in ok)
         per = [round((r.get("eval_count") or 0) / (r.get("eval_duration") or 1) * 1e9, 1) for r in ok]
         cfg = ollama_config()
@@ -2900,7 +2906,7 @@ def _llm_bench_run_concurrent(model, n, num_predict):
                "num_predict": num_predict, "decode_tps": round(toks / wall, 1) if wall else None, "decode_tokens": toks,
                "per_request_tps": per, "wall_s": round(wall, 1), "failed": n - len(ok), "prefill_tps": None,
                "num_parallel": cfg.get("num_parallel"),
-               "note": msg('bench_concurrent_note', LANG_DEFAULT, p0=n, p1=num_predict, p2=cfg.get('num_parallel')) + (msg('requests_queued', LANG_DEFAULT) if (cfg.get("num_parallel") or 1) < n else msg('requests_parallel', LANG_DEFAULT))}
+               "note": (msg('bench_partial_failed', LANG_DEFAULT, failed=n - len(ok), n=n) + " " if len(ok) < n else "") + msg('bench_concurrent_note', LANG_DEFAULT, p0=n, p1=num_predict, p2=cfg.get('num_parallel')) + (msg('requests_queued', LANG_DEFAULT) if (cfg.get("num_parallel") or 1) < n else msg('requests_parallel', LANG_DEFAULT))}
         for m in (_http_json(base + "/api/ps") or {}).get("models", []):
             if m.get("name") == model:
                 det = m.get("details") or {}
