@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-09-25
+
+*Security and honesty fixes from an external code review: cross-site POST rejected, fwupd query failure no longer shown as "up to date", trash emptying covers hidden files and reports failure.*
+
+### 修正
+
+- **修改型 API 沒有驗證請求來源**。只綁 127.0.0.1 擋不住瀏覽器裡任何網頁對本機發的跨站 POST（text/plain 的簡單請求不做 preflight，直接送到），清垃圾桶、docker prune、刪 Ollama 模型這幾個不需要密碼的動作會被外站網頁觸發。現在三道關：Host 必須是本機加本埠；有 Origin 就必須是自己；Content-Type 必須是 application/json（強迫瀏覽器 preflight，本服務不回應 OPTIONS，跨站就死在瀏覽器裡）。不符回 403 並說明原因。
+- **fwupd 查詢失敗被當成「已是最新」**。`fwupdmgr` 逾時或 LVFS 連不上時回傳 None，原本被轉成空清單，畫面顯示所有裝置 Up to date。現在查不到的數字顯示「—」、每個裝置標「不明（查詢失敗）」、上方掛紅字說明，且失敗結果不快取。
+- **清空垃圾桶漏掉隱藏檔且永遠回報成功**。bash 的 `*` 不含點開頭的檔案，後面的 echo 又蓋掉 rm 的退出碼。改用 `find -mindepth 1 -delete`，用 `&&` 串接，刪除失敗就退出碼非 0、不印「已清空」。
+
 ## 2026-09-24
 
 *Updates tab: hides firmware sub-packages no loaded driver uses, gives apt sources readable names and colours.*

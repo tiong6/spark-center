@@ -186,6 +186,8 @@ MSG = {
         "fw_failed_reboot": "重開後失敗",
         "fw_reboot": "需要重開機",
         "fwupd_missing": "沒有 fwupdmgr",
+        "fwupd_query_failed": "fwupdmgr 查詢失敗（{what}），無法判斷有沒有韌體更新；這不是「已是最新」",
+        "bad_origin": "拒絕：請求不是來自本機的 Spark Center 頁面（{why}）",
         "missing_source_id": "缺 source 或 id",
         "no_pkgs": "沒有選取任何套件",
         "job_running": "已有工作在進行中",
@@ -399,6 +401,8 @@ MSG = {
         "fw_failed_reboot": "Failed after reboot",
         "fw_reboot": "Reboot required",
         "fwupd_missing": "fwupdmgr is unavailable",
+        "fwupd_query_failed": "fwupdmgr query failed ({what}); whether firmware updates exist is unknown. This is not \"up to date\"",
+        "bad_origin": "Rejected: the request did not come from the local Spark Center page ({why})",
         "missing_source_id": "Missing source or id",
         "no_pkgs": "No packages selected",
         "job_running": "A job is already running",
@@ -2962,7 +2966,8 @@ HOME = os.path.expanduser("~")
 DISK_ACTIONS = {  # 白名單：只有這些指令能被 /api/disk/action 觸發
     "docker_prune": ["docker", "image", "prune", "-f"],          # 只清 dangling 映像，不動有 tag 的
     "docker_builder_prune": ["docker", "builder", "prune", "-f"],
-    "trash_empty": ["bash", "-c", "rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null; echo " + msg("trash_cleared", LANG_DEFAULT)],
+    # find -mindepth 1 -delete 含點開頭的隱藏檔（bash 的 * 不含）；用 && 串接，刪除失敗就不會印「已清空」、退出碼非 0
+    "trash_empty": ["bash", "-c", "T=~/.local/share/Trash; mkdir -p \"$T/files\" \"$T/info\" && find \"$T/files\" \"$T/info\" -mindepth 1 -delete && echo " + msg("trash_cleared", LANG_DEFAULT) + " && du -sh \"$T\""],
     "npm_cache_clean": ["bash", "-c", "npm cache clean --force 2>&1 | tail -2; du -sh ~/.npm"],
 }
 _DISK = {"lock": threading.Lock(), "data": None, "ts": 0, "scanning": False}
@@ -3237,9 +3242,15 @@ def fwupd_status(force=False):
             return _FW["data"]
     if not _run(["which", "fwupdmgr"], timeout=3):
         return {"available": False, "note": msg('fwupd_missing', LANG_DEFAULT)}
-    devs = (_fw_json(["get-devices"]) or {}).get("Devices", [])
-    ups = (_fw_json(["get-updates"], timeout=120) or {}).get("Devices", [])
-    hist = (_fw_json(["get-history"]) or {}).get("Devices", [])
+    # 三支查詢各自可能失敗（逾時、LVFS 連不上、fwupd 壞掉）。失敗不能變成空清單，否則畫面會說「已是最新」。
+    q_devs, q_ups, q_hist = _fw_json(["get-devices"]), _fw_json(["get-updates"], timeout=120), _fw_json(["get-history"])
+    failed = [n for n, q in (("get-devices", q_devs), ("get-updates", q_ups), ("get-history", q_hist)) if q is None]
+    if q_devs is None:   # 連裝置清單都拿不到，什麼都不能說
+        return {"available": True, "error": msg("fwupd_query_failed", LANG_DEFAULT, what=", ".join(failed)), "devices": [],
+                "updates": None, "mismatches": None, "pending": None, "generated": datetime.now().isoformat(timespec="seconds")}
+    devs = q_devs.get("Devices", [])
+    ups = (q_ups or {}).get("Devices", [])
+    hist = (q_hist or {}).get("Devices", [])
     latest = {}   # DeviceId → 可升級的最新版本
     for d in ups:
         rels = d.get("Releases") or []
@@ -3272,12 +3283,16 @@ def fwupd_status(force=False):
             "pending": bool(last and last["state"] in (1, 4)),
         })
     rows.sort(key=lambda r: (not r["mismatch"], not r["update_available"], r["hidden"], r["name"] or ""))
-    data = {"available": True, "devices": rows, "updates": sum(1 for r in rows if r["update_available"]),
-            "mismatches": sum(1 for r in rows if r["mismatch"]), "pending": sum(1 for r in rows if r["pending"]),
+    # get-updates 失敗：更新數未知（None），不是 0；get-history 失敗：對不上／等重開機未知
+    data = {"available": True, "devices": rows,
+            "updates": None if q_ups is None else sum(1 for r in rows if r["update_available"]),
+            "mismatches": None if q_hist is None else sum(1 for r in rows if r["mismatch"]),
+            "pending": None if q_hist is None else sum(1 for r in rows if r["pending"]),
+            "error": msg("fwupd_query_failed", LANG_DEFAULT, what=", ".join(failed)) if failed else None,
             "generated": datetime.now().isoformat(timespec="seconds"),
             "fwupd_version": (lambda v: (re.search(r"runtime\s+org\.freedesktop\.fwupd\s+(\S+)", v) or [None, None])[1])(_run(["fwupdmgr", "--version"], timeout=5) or "")}
     with _FW["lock"]:
-        _FW.update(ts=time.time(), data=data)
+        _FW.update(ts=0 if failed else time.time(), data=data)   # 失敗的不快取，下次再查
     return data
 
 
@@ -3653,9 +3668,29 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._json({"ok": False, "error": "not found"}, 404)
 
+    def _origin_problem(self):
+        """修改型請求的來源驗證。只綁 127.0.0.1 擋不住瀏覽器裡任何網頁對本機發的跨站 POST（text/plain 的
+        簡單請求不會 preflight，直接送到）。三道關：Host 必須是本機＋本埠；有 Origin 就必須是自己；
+        Content-Type 必須是 application/json（強迫瀏覽器 preflight，而本服務不回應 OPTIONS，跨站就死在瀏覽器裡）。"""
+        allowed_hosts = {f"127.0.0.1:{PORT}", f"localhost:{PORT}", f"[::1]:{PORT}"}
+        host = (self.headers.get("Host") or "").strip().lower()
+        if host not in allowed_hosts:
+            return f"Host={host or '(none)'}"
+        origin = (self.headers.get("Origin") or "").strip().lower()
+        if origin and origin not in {f"http://{h}" for h in allowed_hosts}:
+            return f"Origin={origin}"
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            return f"Content-Type={ctype or '(none)'}"
+        return None
+
     def do_POST(self):
         self.lang = self._request_lang()
         path = self.path.split("?", 1)[0]
+        why = self._origin_problem()
+        if why:
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            return self._json({"ok": False, "error": msg("bad_origin", self.lang, why=why)}, 403)
         data = self._body()
         if path == "/api/simulate":
             names = [n for n in data.get("packages", []) if isinstance(n, str)]

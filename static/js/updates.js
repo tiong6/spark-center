@@ -86,12 +86,16 @@ async function loadFirmware(force) {
   const j = await api('/api/firmware' + (force ? '?force=1' : ''));
   const box = $('#fw'); if (!box) return;
   if (!j.ok || !j.available) { box.innerHTML = `<div class="empty">${esc(j.error || j.note || t("updates.fwupd_unavailable"))}</div>`; return; }
-  $('#fwMeta').textContent = t("updates.fwupd_updatable_devices_updates_available_version", {v0: j.fwupd_version || '—', v1: j.devices.length, v2: j.updates, v3: j.mismatches, v4: j.pending, v5: j.generated.replace('T',' ')});
-  $('#btnFwUpdate').classList.toggle('hide', j.updates === 0);
+  if (j.error && !j.devices.length) { box.innerHTML = `<div class="panel notice danger">${esc(j.error)}</div>`; $('#fwMeta').textContent = ''; $('#btnFwUpdate').classList.add('hide'); return; }
+  // 查詢部分失敗時，數字是 null → 顯示「—」，不顯示 0；並在上方掛紅字說明
+  const q = v => v == null ? '—' : v;
+  $('#fwMeta').textContent = t("updates.fwupd_updatable_devices_updates_available_version", {v0: j.fwupd_version || '—', v1: j.devices.length, v2: q(j.updates), v3: q(j.mismatches), v4: q(j.pending), v5: j.generated.replace('T',' ')});
+  $('#btnFwUpdate').classList.toggle('hide', !j.updates);
+  const errBanner = j.error ? `<div class="panel notice danger" style="margin-bottom:10px">${esc(j.error)}</div>` : '';
   const vis = j.devices.filter(d => !d.hidden), hid = j.devices.filter(d => d.hidden);
-  const row = d => { const last = d.history[0]; const st = d.mismatch ? `<span class="tag reboot">${t("updates.history_reports_success_but_version_differs")}</span>` : d.pending ? `<span class="tag sec">${t("updates.awaiting_reboot_to_apply")}</span>` : d.update_available ? `<span class="tag sec">${t("updates.new_version", {v0: esc(d.latest)})}</span>` : `<span class="tag ok">${t("updates.up_to_date")}</span>`;
+  const row = d => { const last = d.history[0]; const st = d.mismatch ? `<span class="tag reboot">${t("updates.history_reports_success_but_version_differs")}</span>` : d.pending ? `<span class="tag sec">${t("updates.awaiting_reboot_to_apply")}</span>` : d.update_available ? `<span class="tag sec">${t("updates.new_version", {v0: esc(d.latest)})}</span>` : j.updates == null ? `<span class="tag">${t("updates.unknown_query_failed")}</span>` : `<span class="tag ok">${t("updates.up_to_date")}</span>`;
     return `<tr><td><b>${esc(d.name)}</b><div class="sub1">${esc(d.summary || d.plugin || '')}</div></td><td class="mono">${esc(d.version || '—')}</td><td>${st}</td><td class="sub1">${last ? `${esc(last.old || '?')} → ${esc(last.new || '?')}，${esc(last.state_zh)}${last.error ? '：' + esc(last.error) : ''}<br>${esc((last.when || '').replace('T',' '))}` : '—'}</td></tr>`; };
-  let html = `<table><thead><tr><th style="width:30%">${t("updates.device")}</th><th style="width:16%">${t("updates.current_version_2")}</th><th style="width:20%">${t("updates.status")}</th><th>${t("updates.last_update_fwupd_history")}</th></tr></thead><tbody>${vis.map(row).join('')}</tbody></table>`;
+  let html = errBanner + `<table><thead><tr><th style="width:30%">${t("updates.device")}</th><th style="width:16%">${t("updates.current_version_2")}</th><th style="width:20%">${t("updates.status")}</th><th>${t("updates.last_update_fwupd_history")}</th></tr></thead><tbody>${vis.map(row).join('')}</tbody></table>`;
   if (hid.length) html += `<details style="margin-top:8px"><summary class="sub1">${t("updates.hidden_devices_certificates_and_keys", {v0: hid.length})}</summary><table><tbody>${hid.map(row).join('')}</tbody></table></details>`;
   html += `<div class="sub1" style="margin-top:8px">${t("updates.version_mismatch_means_fwupd_history_records")}</div>`;
   box.innerHTML = html;
