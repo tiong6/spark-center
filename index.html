@@ -1711,9 +1711,16 @@ async function pollJob() {
     clearInterval(state.autoClose); state.autoClose = null;
     const closeCard = () => { clearInterval(state.autoClose); state.autoClose = null; $('#jobcard').classList.add('hide'); };
     $('#jobClose').onclick = closeCard;
-    if (j.status === 'done') {   // 成功的 30 秒後自動收起；失敗的留著，要讓人看到
-      let n = 30; $('#jobClose').textContent = t("job.close_auto", {n});
-      state.autoClose = setInterval(() => { n -= 1; const b = $('#jobClose'); if (!b) { clearInterval(state.autoClose); return; } if (n <= 0) closeCard(); else b.textContent = t("job.close_auto", {n}); }, 1000);
+    if (j.status === 'done') {   // 成功的 15 秒後自動收起；失敗的留著，要讓人看到
+      // 只在看得到的時候倒數：視窗在背景或滑鼠停在卡片上就暫停，更新跑完時人不在座位也不會錯過結果
+      let n = 15; $('#jobClose').textContent = t("job.close_auto", {n});
+      const card = $('#jobcard'); card.onmouseenter = () => { state.autoClosePaused = true; }; card.onmouseleave = () => { state.autoClosePaused = false; };
+      state.autoClosePaused = card.matches(':hover');
+      state.autoClose = setInterval(() => {
+        const b = $('#jobClose'); if (!b) { clearInterval(state.autoClose); return; }
+        if (document.visibilityState !== 'visible' || state.autoClosePaused) return;
+        n -= 1; if (n <= 0) closeCard(); else b.textContent = t("job.close_auto", {n});
+      }, 1000);
     }
     state.apps = null; await load(); loadFirmware(true);
     if (!$('#tab-apps').classList.contains('hide')) loadApps(true);
