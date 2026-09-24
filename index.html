@@ -208,7 +208,7 @@
 <div class="topbar">
   <span class="mark"></span>
   <span class="brand">Spark Center <small>ASUS Ascend GX10</small></span>
-  <span class="right">127.0.0.1 only · 不自動重開機</span>
+  <span class="right"><label title="在 ~/.config/autostart 放一份桌面捷徑，GNOME 登入後幾秒自動開啟這個視窗；取消就把檔案刪掉" style="cursor:pointer"><input type="checkbox" id="autostart" style="vertical-align:middle;margin:0 4px 0 0"><span id="autostartLabel">登入時自動開啟</span></label> · 127.0.0.1 only · 不自動重開機</span>
 </div>
 <main>
   <div class="titlerow">
@@ -1110,7 +1110,22 @@ async function pollHw(staticOnly) {
     sens.map(s => `<tr><td class="mono">${esc(s.chip)}</td><td>${esc(s.label)}</td><td class="mono" style="color:${s.temp_c >= 85 ? 'var(--danger)' : s.temp_c >= 70 ? 'var(--warn)' : 'inherit'}">${s.temp_c.toFixed(1)} °C</td></tr>`).join('') + `</tbody></table>` : `<div class="empty">hwmon 沒有溫度感測點</div>`);
 }
 
+/* 登入時自動開啟：狀態以 ~/.config/autostart 裡有沒有檔案為準，不另存設定 */
+async function loadAutostart() {
+  const r = await api('/api/autostart');
+  const cb = $('#autostart');
+  if (!r.ok) { cb.disabled = true; $('#autostartLabel').textContent = '登入時自動開啟（讀取失敗）'; return; }
+  cb.checked = r.enabled;
+}
+$('#autostart').onchange = async () => {
+  const cb = $('#autostart'); cb.disabled = true;
+  const r = await api('/api/autostart', {enabled: cb.checked});
+  cb.disabled = false;
+  if (!r.ok) { alert(r.error || '設定失敗'); }
+  cb.checked = !!r.enabled;   // 以伺服器回報的實際狀態為準
+};
 (async () => {
+  loadAutostart();
   await load();
   const j = await api('/api/job');
   if (j.status === 'running') startPolling(jobTitle(j));

@@ -256,6 +256,44 @@ def simulate(names):
     }
 
 
+# ---------- 登入時自動開啟（XDG autostart） ----------
+
+AUTOSTART_FILE = os.path.expanduser("~/.config/autostart/spark-center.desktop")
+DESKTOP_INSTALLED = os.path.expanduser("~/.local/share/applications/spark-center.desktop")
+
+
+def autostart_status():
+    """真相只有一個：autostart 目錄裡有沒有這個 .desktop 檔（且沒被 Hidden 關掉）。"""
+    enabled = False
+    if os.path.isfile(AUTOSTART_FILE):
+        try:
+            txt = open(AUTOSTART_FILE, encoding="utf-8").read()
+            enabled = not re.search(r"^Hidden=true$", txt, re.M) and not re.search(r"^X-GNOME-Autostart-enabled=false$", txt, re.M)
+        except OSError:
+            pass
+    return {"ok": True, "enabled": enabled, "path": AUTOSTART_FILE}
+
+
+def autostart_set(enabled):
+    if not enabled:
+        try:
+            os.remove(AUTOSTART_FILE)
+        except FileNotFoundError:
+            pass
+        return autostart_status()
+    # 以 install.sh 產生的桌面捷徑為準（Exec 已填好實際路徑）；沒有就用模板現填
+    try:
+        txt = open(DESKTOP_INSTALLED, encoding="utf-8").read()
+    except OSError:
+        txt = open(os.path.join(HERE, "app", "spark-center.desktop.in"), encoding="utf-8").read().replace("@ROOT@", HERE)
+    txt = re.sub(r"^(Hidden|X-GNOME-Autostart-enabled|X-GNOME-Autostart-Delay)=.*\n?", "", txt, flags=re.M).rstrip("\n")
+    txt += "\nX-GNOME-Autostart-enabled=true\nX-GNOME-Autostart-Delay=3\n"   # 等桌面就緒再開，視窗才會在正確位置
+    os.makedirs(os.path.dirname(AUTOSTART_FILE), exist_ok=True)
+    with open(AUTOSTART_FILE, "w", encoding="utf-8") as f:
+        f.write(txt)
+    return autostart_status()
+
+
 def reboot_status():
     if not os.path.exists(REBOOT_FLAG):
         return {"required": False, "packages": []}
@@ -2860,6 +2898,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "entries": apt_history()})
         elif path == "/api/reboot":
             self._json(reboot_status())
+        elif path == "/api/autostart":
+            self._json(autostart_status())
         elif path == "/api/hardware":
             try:
                 force = "force=1" in (self.path.split("?", 1) + [""])[1]
@@ -2955,6 +2995,11 @@ class Handler(BaseHTTPRequestHandler):
             if not JOB.start("install", names):
                 return self._json({"ok": False, "error": "已有工作在進行中"}, 409)
             return self._json({"ok": True})
+        if path == "/api/autostart":
+            try:
+                return self._json(autostart_set(bool(data.get("enabled"))))
+            except OSError as e:
+                return self._json({"ok": False, "error": f"寫入 autostart 失敗：{e}"}, 500)
         if path == "/api/hardware/usbc-map":
             # {"slot": 0-3, "controller": "NVDA8000:0x" | null, "note": "..."}；或 {"reset": true}
             if data.get("reset"):
