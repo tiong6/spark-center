@@ -103,6 +103,34 @@ async function loadFirmware(force) {
 $('#btnFwRefresh').onclick = async () => { $('#fwMeta').textContent = t("updates.querying_lvfs"); const r = await api('/api/disk/action', {action: 'fwupd_refresh'}); if (!r.ok) { alert(r.error); return; } startPolling(t("updates.fwupd_refresh_lvfs_metadata")); const w = setInterval(async () => { const jj = await api('/api/job'); if (jj.status !== 'running') { clearInterval(w); loadFirmware(true); } }, 1500); };
 $('#btnFwUpdate').onclick = async () => { if (!confirm(t("updates.install_all_available_firmware_updates_with"))) return; const r = await api('/api/disk/action', {action: 'fwupd_update'}); if (!r.ok) { alert(r.error); return; } startPolling(t("updates.fwupd_install_firmware_updates")); window.scrollTo({top: 0, behavior: 'smooth'}); };
 
+/* ---- npm 全域套件：Claude Code、Gemini CLI、OpenClaw 這類 CLI 工具，apt/snap/flatpak 都看不到 ---- */
+async function loadNpm(force) {
+  const box = $('#npm'); if (!box) return;
+  const j = await api('/api/npm' + (force ? '?force=1' : ''));
+  if (!j.ok || !j.available) { box.innerHTML = `<div class="empty">${esc(j.error || j.note || '—')}</div>`; $('#npmMeta').textContent = ''; $('#btnNpmUpdate').classList.add('hide'); return; }
+  const q = v => v == null ? '—' : v;   // 查不到新版時顯示「—」，不顯示 0
+  $('#npmMeta').textContent = t("updates.npm_meta", {n: j.packages.length, o: q(j.outdated), prefix: j.prefix || '—', when: j.generated.replace('T', ' ')});
+  $('#btnNpmUpdate').classList.toggle('hide', !j.outdated);
+  let html = j.error ? `<div class="panel notice danger" style="margin-bottom:10px">${esc(j.error)}</div>` : '';
+  if (!j.packages.length) { box.innerHTML = html + `<div class="empty">${t("updates.npm_none")}</div>`; return; }
+  html += `<table><thead><tr><th style="width:34%">${t("updates.package")}</th><th style="width:16%">${t("updates.current_version_2")}</th><th style="width:16%">${t("updates.npm_latest")}</th><th>${t("updates.status")}</th><th style="width:120px"></th></tr></thead><tbody>`;
+  for (const p of j.packages) {
+    const st = p.outdated ? `<span class="tag sec">${t("updates.new_version", {v0: esc(p.latest)})}</span>` : j.outdated == null ? `<span class="tag">${t("updates.unknown_query_failed")}</span>` : `<span class="tag ok">${t("updates.up_to_date")}</span>`;
+    html += `<tr><td class="mono">${esc(p.name)}</td><td class="mono">${esc(p.current || '—')}</td><td class="mono">${esc(p.latest || '—')}</td><td>${st}</td><td>${p.outdated ? `<button class="small primary" data-npm="${esc(p.name)}">${t("common.update")}</button>` : ''}</td></tr>`;
+  }
+  box.innerHTML = html + `</tbody></table>`;
+  box.querySelectorAll('button[data-npm]').forEach(b => b.onclick = () => npmUpdate([b.dataset.npm], b));
+  $('#btnNpmUpdate').onclick = () => npmUpdate(j.packages.filter(p => p.outdated).map(p => p.name), $('#btnNpmUpdate'));
+}
+async function npmUpdate(names, btn) {
+  if (!confirm(t("updates.npm_confirm", {list: names.join(', ')}))) return;
+  btn.disabled = true;
+  const r = await api('/api/npm/update', {names});
+  if (!r.ok) { alert(t("updates.could_not_start_with_value", {value: r.error})); btn.disabled = false; return; }
+  startPolling(t("job.npm_update_with_value", {value: names.join(', ')})); window.scrollTo({top: 0, behavior: 'smooth'});
+}
+$('#btnNpmRefresh').onclick = () => { $('#npmMeta').textContent = t("updates.npm_querying"); loadNpm(true); };
+
 /* ---- 降回上一版：清單來自 data/rollback/index.json，每筆是一次更新工作 ---- */
 async function loadRollback() {
   const box = $('#rollback'); if (!box) return;
@@ -110,20 +138,21 @@ async function loadRollback() {
   if (!j.ok) { box.innerHTML = `<div class="empty">${esc(j.error)}</div>`; return; }
   const jobs = (j.jobs || []).filter(x => (x.packages || []).length);
   if (!jobs.length) { box.innerHTML = `<div class="empty">${t("updates.rollback_none")}</div>`; return; }
-  const src = { cache: t("updates.kept_from_cache"), repo: t("updates.kept_from_repo"), launchpad: t("updates.kept_from_launchpad") };
+  const src = { cache: t("updates.kept_from_cache"), repo: t("updates.kept_from_repo"), launchpad: t("updates.kept_from_launchpad"), npm: t("updates.kept_npm") };
   let html = `<table><thead><tr><th style="width:28%">${t("updates.package")}</th><th style="width:26%">${t("updates.version")}</th><th>${t("updates.status")}</th><th style="width:190px"></th></tr></thead><tbody>`;
-  const ver = { sha256: t("updates.verified_sha256"), apt: t("updates.verified_apt"), tls: t("updates.verified_tls") };
+  const ver = { sha256: t("updates.verified_sha256"), apt: t("updates.verified_apt"), tls: t("updates.verified_tls"), registry: t("updates.verified_registry") };
   for (const job of jobs) {
-    const kept = job.packages.filter(p => p.deb && p.installed !== p.old);   // 已經是舊版的不算，按鈕沒意義
+    const kept = job.packages.filter(p => (p.deb || (p.kind === 'npm' && p.old)) && p.installed !== p.old);   // 已經是舊版的不算，按鈕沒意義
     // 一組一起降回：舊主程式要求舊函式庫時，單獨降一個 apt 會拒絕，整組給才有完整退路
     const allBtn = kept.length > 1 ? ` <button class="small" data-rb-job="${esc(job.id)}" data-rb-name="" data-rb-all="${kept.map(p => p.name).join(', ')}">${t("updates.rollback_all_btn", {n: kept.length})}</button>` : '';
     html += `<tr class="grp"><td colspan="3"><span class="gname" style="color:var(--muted)">${t("updates.updated_at")} ${esc(job.started.replace('T', ' '))}</span></td><td>${allBtn}</td></tr>`;
     for (const p of job.packages) {
       const dep = p.selected === false ? ` <span class="tag" title="${t("updates.dep_pulled_hint")}">${t("updates.dep_pulled")}</span>` : '';
-      const atOld = p.deb && p.installed === p.old;
-      const st = p.deb ? `<span class="tag ok">${esc(src[p.source] || p.source)}</span><span class="sub1"> ${esc(ver[p.verified] || '')}</span>` : `<span class="tag" title="${esc(p.reason || '')}">${t("updates.not_kept")}</span><span class="sub1"> ${esc(p.reason || '')}</span>`;
+      const has = p.deb || (p.kind === 'npm' && p.old);
+      const atOld = has && p.installed === p.old;
+      const st = has ? `<span class="tag ok">${esc(src[p.source] || p.source)}</span><span class="sub1"> ${esc(ver[p.verified] || '')}</span>` : `<span class="tag" title="${esc(p.reason || '')}">${t("updates.not_kept")}</span><span class="sub1"> ${esc(p.reason || '')}</span>`;
       const cur = atOld ? `<span class="tag">${t("updates.rollback_at_old")}</span>` : (p.installed && p.installed !== p.new ? `<span class="sub1"> ${t("updates.rollback_now_with_value", {value: esc(p.installed)})}</span>` : '');
-      html += `<tr class="sub"><td class="mono" style="padding-left:20px">${esc(p.name)}${dep}</td><td class="mono sub1">${esc(p.old || '—')} → ${esc(p.new || t("updates.removed"))}${cur}</td><td>${st}</td><td>${p.deb && !atOld ? `<button class="small" data-rb-job="${esc(job.id)}" data-rb-name="${esc(p.name)}" data-rb-old="${esc(p.old)}" data-rb-new="${esc(p.new || '')}">${t("updates.rollback_btn", {v0: esc(p.old)})}</button>` : ''}</td></tr>`;
+      html += `<tr class="sub"><td class="mono" style="padding-left:20px">${esc(p.name)}${dep}</td><td class="mono sub1">${esc(p.old || '—')} → ${esc(p.new || t("updates.removed"))}${cur}</td><td>${st}</td><td>${has && !atOld ? `<button class="small" data-rb-job="${esc(job.id)}" data-rb-name="${esc(p.name)}" data-rb-old="${esc(p.old)}" data-rb-new="${esc(p.new || '')}">${t("updates.rollback_btn", {v0: esc(p.old)})}</button>` : ''}</td></tr>`;
     }
   }
   box.innerHTML = html + `</tbody></table>`;
@@ -156,7 +185,7 @@ async function loadRollback() {
   });
 }
 async function load() {
-  loadFirmware(); loadRollback();
+  loadFirmware(); loadNpm(); loadRollback();
   const j = await api('/api/updates');
   if (!j.ok) { $('#list').innerHTML = `<div class="panel notice danger">${t("updates.could_not_load_the_list", {v0: esc(j.error)})}</div>`; return; }
   const names = new Set(j.items.map(i => i.name));
@@ -210,7 +239,9 @@ function jobTitle(j) {   // 重新整理頁面或服務重啟後接回工作時�
   return ({ refresh: t("job.refresh_apt_sources"), install: t("job.apt_install_with_value", {value: pk}), remove: t("job.apt_remove_with_value", {value: pk}),
             aptclean: t("job.clear_apt_cache"), snap: t("job.snap_update_with_value", {value: pk}), flatpak: t("job.flatpak_update_with_value", {value: pk}),
             ollama_pull: 'ollama pull ' + pk, shell: t("job.system_action_with_value", {value: pk}),
-            rollback: t("job.rollback_with_value", {value: (j.packages || [])[1] || (j.packages || [])[0] || pk}) })[j.kind] || (t("job.job_with_value", {value: pk}));
+            npm: t("job.npm_update_with_value", {value: pk}),
+            rollback: t("job.rollback_with_value", {value: (j.packages || [])[1] || (j.packages || [])[0] || pk}),
+            rollback_npm: t("job.rollback_with_value", {value: (j.packages || [])[1] || (j.packages || [])[0] || pk}) })[j.kind] || (t("job.job_with_value", {value: pk}));
 }
 function startPolling(title) {
   const c = $('#jobcard'); c.className = 'panel notice';

@@ -20,7 +20,7 @@ function renderApps() {
   const rows = j.items.filter(a => (state.src === 'all' || (state.src === 'upd' ? !!a.candidate : a.source === state.src)) &&
     (!q || [a.name, a.name_zh, a.id, a.comment].some(x => (x||'').toLowerCase().includes(q))));
   if (!rows.length) { $('#apps').innerHTML = `<div class="empty">${t("apps.no_matching_apps")}</div>`; return; }
-  let html = `<table><thead><tr><th style="width:34%">${t("tab.apps")}</th><th style="width:12%">${t("updates.version")}</th><th class="col-opt">${t("apps.source")}</th><th style="width:84px">${t("updates.size")}</th><th style="width:142px">${t("apps.installed_at")}</th><th style="width:110px">${t("updates.status")}</th><th style="width:124px"></th></tr></thead><tbody>`;
+  let html = `<table><thead><tr><th style="width:30%">${t("tab.apps")}</th><th style="width:12%">${t("updates.version")}</th><th class="col-opt" style="width:14%">${t("apps.source")}</th><th style="width:84px">${t("updates.size")}</th><th style="width:142px">${t("apps.installed_at")}</th><th style="width:110px">${t("updates.status")}</th><th style="width:124px"></th></tr></thead><tbody>`;
   const initial = a => esc((a.name_zh || a.name || '?').trim().charAt(0).toUpperCase());
   for (const a of rows) {
     const status = a.candidate ? `<span class="to mono">→ ${esc(a.candidate)}</span>` :
@@ -29,7 +29,7 @@ function renderApps() {
     html += `<tr>
       <td><div class="appcell">${ic}<div class="apptext"><b>${esc(a.name_zh || a.name)}</b>${a.name_zh ? `<span class="sub1"> ${esc(a.name)}</span>` : ''}<div class="sub1 mono" title="${esc(a.id)}">${esc(a.id)}<span class="tag ${a.source}">${a.source}</span></div>${a.comment ? `<div class="sub1" title="${esc(a.comment)}">${esc(a.comment)}</div>` : ''}</div></div></td>
       <td class="mono">${esc(a.version)}</td>
-      <td class="col-opt sub1">${esc(a.origin)}</td>
+      <td class="col-opt sub1 ell" title="${esc(a.origin)}">${esc(a.origin)}</td>
       <td class="sub1">${a.size ? fmtBytes(a.size) : '—'}</td>
       <td class="sub1 mono" style="font-size:12px">${a.installed_at ? esc(a.installed_at.replace('T', ' ')) : '—'}</td>
       <td>${status}</td>

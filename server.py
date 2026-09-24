@@ -171,6 +171,9 @@ MSG = {
         "rollback_no_trusted_hash": "來源是 HTTP 而索引已無此版的雜湊可核對，不採用",
         "rollback_auth": "降回上一版需要 root，透過 pkexec 執行 apt-get（桌面會跳密碼視窗）",
         "rollback_sim_failed": "無法模擬降回：{err}",
+        "npm_missing": "找不到 npm，沒有全域套件可查",
+        "npm_query_failed": "npm ls -g 失敗：{err}",
+        "npm_outdated_failed": "查不到新版（npm outdated 失敗，可能是連不上 registry）：{err}",
         "rollback_left_broken": "。dpkg 回報有套件未完成設定：請在終端機跑 sudo dpkg --configure -a 修復後，再重新整理更新清單",
         "rollback_state_intact": "。dpkg 回報套件狀態完整，沒有留下未完成設定的套件",
         "rollback_would_remove": "降回會連帶移除 {pkgs}（它們需要新版）。這裡不替你拆掉別的軟體，所以不做",
@@ -407,6 +410,9 @@ MSG = {
         "rollback_no_trusted_hash": "the source is plain HTTP and the index no longer has a hash for this version to check against; not used",
         "rollback_auth": "Rolling back requires root; running apt-get through pkexec (a password dialog will appear on the desktop)",
         "rollback_sim_failed": "Could not simulate the rollback: {err}",
+        "npm_missing": "npm not found; no global packages to check",
+        "npm_query_failed": "npm ls -g failed: {err}",
+        "npm_outdated_failed": "Could not check for new versions (npm outdated failed, possibly no access to the registry): {err}",
         "rollback_left_broken": ". dpkg reports packages left unconfigured: run sudo dpkg --configure -a in a terminal to repair, then refresh the update list",
         "rollback_state_intact": ". dpkg reports the package state is intact; nothing was left unconfigured",
         "rollback_would_remove": "Rolling back would also remove {pkgs} (they need the newer version). This tool will not remove other software for you, so it stops here",
@@ -887,21 +893,26 @@ def rollback_prepare(names, log=lambda s: None, status=lambda s: None):
                 pass
             entry["reason"] = reason
             log(msg("rollback_not_kept", LANG_DEFAULT, name=name, old=inst.version, reason=reason))
-    def _sig(j):   # 同一組（套件、舊版、新版）就是同一個退路，留兩份沒意義（更新→降回→再更新會產生一模一樣的紀錄）
-        return frozenset((p.get("name"), p.get("old"), p.get("new")) for p in j.get("packages", []) if p.get("deb"))
+    _rollback_index_add(rec)
+    return rec
+
+
+def _rollback_index_add(rec):
+    """把一筆新紀錄放進索引：同 id 或同一組（套件、舊版、新版）的舊紀錄連目錄一起刪（更新→降回→再更新會產生一模一樣的紀錄），
+    超過 ROLLBACK_KEEP 的最舊的也刪。"""
+    def _sig(j):
+        return frozenset((p.get("name"), p.get("old"), p.get("new")) for p in j.get("packages", []) if p.get("deb") or p.get("kind") == "npm")
     with _ROLLBACK_LOCK:
         jobs = []
         for j in _rollback_index_load():
-            if j.get("id") == job_id or (_sig(j) and _sig(j) == _sig(rec)):
+            if j.get("id") == rec["id"] or (_sig(j) and _sig(j) == _sig(rec)):
                 shutil.rmtree(os.path.join(ROLLBACK_DIR, j["id"]), ignore_errors=True)
                 continue
             jobs.append(j)
         jobs.insert(0, rec)
         for old_job in jobs[ROLLBACK_KEEP:]:
             shutil.rmtree(os.path.join(ROLLBACK_DIR, old_job["id"]), ignore_errors=True)
-        jobs = jobs[:ROLLBACK_KEEP]
-        _rollback_index_save(jobs)
-    return rec
+        _rollback_index_save(jobs[:ROLLBACK_KEEP])
 
 
 def rollback_deb_paths(job_id, name=None):
@@ -957,6 +968,73 @@ def rollback_simulate(paths):
     if removed:
         return {"ok": False, "changes": changes, "error": msg("rollback_would_remove", LANG_DEFAULT, pkgs=", ".join(removed))}
     return {"ok": True, "changes": changes}
+
+
+# ---------- npm 全域套件 ----------
+# 為什麼要做：Claude Code、Gemini CLI、OpenClaw 這類工具是 npm -g 裝的，apt/snap/flatpak 都看不到，改版又快。
+# 裝在使用者的 prefix（~/.npmrc 的 prefix），更新不需要 root。舊版 registry 永久保留，降回只要指定版號，不用留檔案。
+# pip 與 Docker 刻意不做：系統 pip 套件是 apt 管的（PEP 668），venv 的版本是專案鎖的；Docker pull 新映像不等於容器已更新。
+_NPM = {"ts": 0, "data": None, "lock": threading.Lock()}
+NPM_TTL = 600
+NPM_BIN = shutil.which("npm") or "/usr/bin/npm"
+
+
+def npm_status(force=False):
+    """npm ls -g（全部）＋ npm outdated -g（有新版的）。outdated 有新版時結束碼是 1，不能用 _run 的 0 判定。"""
+    with _NPM["lock"]:
+        if not force and _NPM["data"] and time.time() - _NPM["ts"] < NPM_TTL:
+            return _NPM["data"]
+    if not os.path.isfile(NPM_BIN):
+        return {"ok": True, "available": False, "note": msg('npm_missing', LANG_DEFAULT)}
+    out = {"ok": True, "available": True, "packages": [], "outdated": None, "error": None,
+           "generated": datetime.now().isoformat(timespec="seconds"), "prefix": None}
+    try:
+        r = subprocess.run([NPM_BIN, "ls", "-g", "--depth=0", "--json"], capture_output=True, text=True, timeout=60, env=_ENV_C)
+        deps = json.loads(r.stdout or "{}").get("dependencies") or {}
+        pk = {n: {"name": n, "current": v.get("version"), "latest": None, "outdated": False} for n, v in deps.items()}
+        out["prefix"] = (_run([NPM_BIN, "prefix", "-g"], timeout=20) or "").strip() or None
+    except Exception as e:
+        out.update(error=msg('npm_query_failed', LANG_DEFAULT, err=str(e)[:120]))
+        return out
+    try:
+        r = subprocess.run([NPM_BIN, "outdated", "-g", "--json"], capture_output=True, text=True, timeout=90, env=_ENV_C)
+        od = json.loads(r.stdout or "{}") if r.returncode in (0, 1) else None
+        if od is None:
+            raise RuntimeError((r.stderr or "").strip()[:120] or f"rc={r.returncode}")
+        for n, v in od.items():
+            e = pk.setdefault(n, {"name": n, "current": v.get("current"), "latest": None, "outdated": False})
+            e.update(latest=v.get("latest"), outdated=bool(v.get("latest")) and v.get("latest") != v.get("current"))
+        out["outdated"] = sum(1 for e in pk.values() if e["outdated"])
+    except Exception as e:
+        # 查不到新版不能變成「全部最新」：outdated 留 None，前端顯示「—」並掛紅字
+        out.update(error=msg('npm_outdated_failed', LANG_DEFAULT, err=str(e)[:120]))
+    out["packages"] = sorted(pk.values(), key=lambda e: (not e["outdated"], e["name"]))
+    with _NPM["lock"]:
+        if not out["error"]:
+            _NPM.update(ts=time.time(), data=out)
+    return out
+
+
+def rollback_record_npm(names):
+    """npm 更新前把「目前版 → 新版」記進降回索引（不留檔案：registry 保留所有版本，降回就是 npm install -g name@old）。"""
+    st = npm_status()
+    cur = {e["name"]: e for e in st.get("packages", [])}
+    job_id = datetime.now().strftime("%Y%m%dT%H%M%S")
+    rec = {"id": job_id, "started": datetime.now().isoformat(timespec="seconds"), "packages": []}
+    for n in names:
+        e = cur.get(n) or {}
+        rec["packages"].append({"name": n, "kind": "npm", "selected": True, "old": e.get("current"), "new": e.get("latest"),
+                                "arch": None, "deb": None, "source": "npm", "verified": "registry",
+                                "reason": None if e.get("current") else msg("rollback_not_installed", LANG_DEFAULT)})
+    _rollback_index_add(rec)
+    return rec
+
+
+def rollback_npm_entries(job_id, name=None):
+    for j in _rollback_index_load():
+        if j.get("id") == job_id:
+            return [p for p in j.get("packages", []) if p.get("kind") == "npm" and p.get("old") and (name is None or p.get("name") == name)]
+    return []
 
 
 def list_updates():
@@ -1218,6 +1296,7 @@ class Job:
             _APPS_CACHE["ts"] = 0  # 讓應用程式清單重新掃描
             _FW["ts"] = 0
             _DASH_CACHE["ts"] = 0
+            _NPM["ts"] = 0
 
     def _run_ollama_pull(self, model):
         req = urllib.request.Request(OLLAMA + "/api/pull", data=json.dumps({"name": model, "stream": True}).encode(), headers={"Content-Type": "application/json"})
@@ -1351,6 +1430,19 @@ class Job:
                 rollback_prepare(packages, self._log, lambda txt: self.state.__setitem__("status_text", txt))
             except Exception as e:
                 self._log("rollback prepare failed: " + str(e))
+        if kind == "npm":
+            try:
+                rollback_record_npm(packages)
+            except Exception as e:
+                self._log("rollback record failed: " + str(e))
+            return self._run_subprocess([NPM_BIN, "install", "-g"] + [f"{n}@latest" for n in packages], packages)
+        if kind == "rollback_npm":
+            ents = rollback_npm_entries(packages[0], packages[1] or None)
+            if not ents:
+                with self.lock:
+                    self.state.update(status="error", error=msg("rollback_not_found", LANG_DEFAULT), finished=datetime.now().isoformat(timespec="seconds"))
+                return
+            return self._run_subprocess([NPM_BIN, "install", "-g"] + [f"{e['name']}@{e['old']}" for e in ents], [e["name"] for e in ents])
         if kind == "rollback":
             # 為什麼不用 aptdaemon 的 install_file：它最後跑 DebPackage.check()，預設拒絕比已安裝舊的版本
             # （"A later version is already installed"），force=True 也一樣。apt-get 對本機 .deb 會照給的版本裝，
@@ -3884,13 +3976,24 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "max-age=86400")
             self.end_headers()
             self.wfile.write(body)
+        elif path == "/api/npm":
+            try:
+                self._json(npm_status(force="force=1" in (self.path.split("?", 1) + [""])[1]))
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/rollback":
             # 附上目前安裝的版本：降回之後那筆紀錄還在，前端要靠這個判斷「已經是這版」而不再給按鈕
             jobs = _rollback_index_load()
             try:
                 cache = apt.Cache()
+                npm_cur = None
                 for j in jobs:
                     for p in j.get("packages", []):
+                        if p.get("kind") == "npm":
+                            if npm_cur is None:
+                                npm_cur = {e["name"]: e.get("current") for e in npm_status().get("packages", [])}
+                            p["installed"] = npm_cur.get(p.get("name"))
+                            continue
                         pkg = cache.get(p.get("name"))
                         p["installed"] = pkg.installed.version if pkg and pkg.installed else None
             except Exception:
@@ -4018,10 +4121,25 @@ class Handler(BaseHTTPRequestHandler):
             if not JOB.start("install", names):
                 return self._json({"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 409)
             return self._json({"ok": True})
+        if path == "/api/npm/update":
+            names = [n for n in data.get("names", []) if isinstance(n, str) and re.fullmatch(r"(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*", n)]
+            if not names:
+                return self._json({"ok": False, "error": msg('no_pkgs', LANG_DEFAULT)}, 400)
+            if not JOB.start("npm", names):
+                return self._json({"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 409)
+            return self._json({"ok": True})
         if path == "/api/rollback":
             job_id, name = str(data.get("job") or ""), str(data.get("name") or "")
-            if not re.fullmatch(r"\d{8}T\d{6}", job_id) or (name and not re.fullmatch(r"[a-z0-9.+-]+", name)):
+            if not re.fullmatch(r"\d{8}T\d{6}", job_id) or (name and not re.fullmatch(r"(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._+-]*", name)):
                 return self._json({"ok": False, "error": msg("rollback_not_found", LANG_DEFAULT)}, 400)
+            ents = rollback_npm_entries(job_id, name or None)
+            if ents:   # npm：沒有相依模擬，registry 直接重裝指定版本；照樣先展示變更再確認
+                sim = {"ok": True, "changes": [{"name": e["name"], "action": "downgrade", "from": e.get("new") or "", "to": e["old"], "requested": True} for e in ents]}
+                if data.get("simulate"):
+                    return self._json(sim)
+                if not JOB.start("rollback_npm", [job_id, name]):
+                    return self._json({"ok": False, "error": msg("job_running", LANG_DEFAULT)}, 409)
+                return self._json({"ok": True})
             paths = [fp for fp, _ in rollback_deb_paths(job_id, name or None)]
             if not paths:
                 return self._json({"ok": False, "error": msg("rollback_not_found", LANG_DEFAULT)}, 404)

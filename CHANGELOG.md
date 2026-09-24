@@ -10,6 +10,9 @@
 
 ### 新增
 
+- **npm 全域套件面板**（更新分頁）。Claude Code、Gemini CLI、OpenClaw 這類 CLI 工具是 `npm -g` 裝的，apt／snap／flatpak 都看不到。面板用 `npm ls -g` 列全部、`npm outdated -g` 標新版（查不到新版時顯示「—」並掛紅字，不顯示 0），單顆或整批更新；裝在使用者的 prefix，不需要密碼。更新前把「目前版 → 新版」記進降回索引（不留檔案，registry 保留所有版本），降回面板可重裝指定版號。真機驗證：@playwright/cli 0.1.5 → 0.1.21 → 降回 0.1.5。pip 與 Docker 映像刻意不做：系統 pip 套件歸 apt 管（PEP 668），venv 版本是專案鎖的，Docker pull 新映像不等於容器已更新。
+- **POST 的 Host 檢查放寬到任意本機埠號**，SSH 轉埠與 NVIDIA Sync 的 Custom 連線能用（實測 Sync 配的是 localhost:36027）。
+
 - **降回上一版**（更新分頁新面板）。從這裡更新前，會先把每個要被換掉的舊版 .deb 留一份到 data/rollback/（保留最近 5 次，每檔上限 150 MB），來源依序是本機 apt 快取、來源伺服器的 pool、Launchpad（Ubuntu 官方套件永久保留）。ESM 需授權、第三方倉庫不留舊版、檔案太大的，誠實標「未保留」與原因。降回用 pkexec 跑 `apt-get install --allow-downgrades` 裝保留的 .deb（跳密碼視窗）；降回後該更新會再次出現在清單，不勾就不會再裝上。起因：Ubuntu 來源只發布最新版，「清 apt 快取」又會清掉本機舊 .deb，出事時沒有退路。
 
 ### 修正

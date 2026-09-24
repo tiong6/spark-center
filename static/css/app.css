@@ -73,6 +73,8 @@
   .badge.remove, .badge.purge { border-color: #6b2a2a; color: #ff8a8a; }
   .pk { display: inline-block; font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: #0f1110; border: 1px solid #2c302e; border-radius: 4px; padding: 1px 6px; margin: 2px 4px 2px 0; }
   .sub1 { color: var(--muted); font-size: 12px; }
+  /* 沒指定寬度的欄在窄視窗會被固定寬度的欄擠到一個字一行（來源欄 "snap.brave" 曾直排）：給寬度並截尾，完整值在 title */
+  td.ell { max-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
   .empty { text-align: center; padding: 36px; color: var(--muted); }
   .clrow td { background: #0f1110; }
