@@ -1,0 +1,41 @@
+[
+ {
+  "id": "20260925T012209",
+  "started": "2026-09-25T01:22:09",
+  "packages": [
+   {
+    "name": "curl",
+    "selected": true,
+    "old": "8.5.0-2ubuntu10.13",
+    "new": "8.5.0-2ubuntu10.15",
+    "arch": "arm64",
+    "deb": "20260925T012209/curl_8.5.0-2ubuntu10.13_arm64.deb",
+    "source": "repo",
+    "verified": "sha256",
+    "reason": null
+   },
+   {
+    "name": "libcurl3t64-gnutls",
+    "selected": false,
+    "old": "8.5.0-2ubuntu10.13",
+    "new": "8.5.0-2ubuntu10.15",
+    "arch": "arm64",
+    "deb": "20260925T012209/libcurl3t64-gnutls_8.5.0-2ubuntu10.13_arm64.deb",
+    "source": "repo",
+    "verified": "sha256",
+    "reason": null
+   },
+   {
+    "name": "libcurl4t64",
+    "selected": false,
+    "old": "8.5.0-2ubuntu10.13",
+    "new": "8.5.0-2ubuntu10.15",
+    "arch": "arm64",
+    "deb": "20260925T012209/libcurl4t64_8.5.0-2ubuntu10.13_arm64.deb",
+    "source": "repo",
+    "verified": "sha256",
+    "reason": null
+   }
+  ]
+ }
+]
