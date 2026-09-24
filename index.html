@@ -58,6 +58,8 @@
   .to { color: var(--accent); }
   .grp td { background: var(--surface2); font-weight: 700; padding: 8px 10px; }
   .grp .site { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 10px; }
+  .grp td:nth-child(2) { border-left: 3px solid var(--grpc, transparent); }
+  .grp .gname { color: var(--grpc, var(--text)); }
   /* 群組底下的子項：勾選框與套件名往右退，讓層級看得出來 */
   .sub td:first-child { padding-left: 26px; }
   .sub td:nth-child(2) { padding-left: 20px; }
@@ -378,6 +380,16 @@ function renderReboot(rb) {
   el.innerHTML = `<b>系統目前需要重開機</b>（依據 /var/run/reboot-required）。` +
     (rb.packages.length ? `觸發的套件：${rb.packages.map(esc).join('、')}。` : '') + ` 本工具不會自動重開，時機由你決定。`;
 }
+/* 來源群組的識別色：已知廠商固定色，其餘從色盤依名稱穩定挑一個（只做辨識，不代表重要程度） */
+const GRP_PALETTE = ['#d8b45a', '#c88fe0', '#5fc9c0', '#f0a06a', '#8fb0ff', '#e08fa8'];
+function groupColor(name, site) {
+  const k = `${name} ${site}`.toLowerCase();
+  if (k.includes('ubuntu')) return '#e95420';
+  if (k.includes('nvidia')) return 'var(--accent)';
+  if (k.includes('microsoft')) return '#4aa3ff';
+  let h = 0; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return GRP_PALETTE[h % GRP_PALETTE.length];
+}
 function renderList() {
   const box = $('#list');
   $('#dotUpd').classList.toggle('hide', state.items.length === 0);
@@ -397,14 +409,14 @@ function renderList() {
   let html = Object.keys(groups).length ? `<table>${THEAD}<tbody>` : '';
   for (const g of Object.keys(groups).sort()) {
     const items = groups[g]; const allSel = items.every(i => state.selected.has(i.name));
-    html += `<tr class="grp"><td><input type="checkbox" data-group="${esc(g)}" ${allSel?'checked':''}></td><td colspan="5">${esc(g)} <span class="site">${items.length} 個 · ${esc(items[0].site)}</span></td></tr>`;
+    html += `<tr class="grp" style="--grpc:${groupColor(g, items[0].site)}"><td><input type="checkbox" data-group="${esc(g)}" ${allSel?'checked':''}></td><td colspan="5"><span class="gname">${esc(g)}</span> <span class="site">${items.length} 個 · ${esc(items[0].site)}</span></td></tr>`;
     for (const it of items) html += row(it);
   }
   if (Object.keys(groups).length) html += `</tbody></table>`;
   if (passive.length) {
     const allSel = passive.every(i => state.selected.has(i.name));
     html += `<details id="passiveFw" style="margin-top:12px" ${state.passiveOpen ? 'open' : ''}><summary class="sub1">本機用不到的 firmware 子套件 ${passive.length} 個（由 linux-firmware 總包相依拖入；已載入的核心模組沒有宣告要用它們的檔案，依 modinfo 判定，無法排除驅動動態請求）</summary>` +
-      `<table style="margin-top:6px">${THEAD}<tbody><tr class="grp"><td><input type="checkbox" data-passive="1" ${allSel?'checked':''}></td><td colspan="5">firmware 子套件 <span class="site">${passive.length} 個 · 升級無害，只是本機沒有對應硬體</span></td></tr>${passive.map(row).join('')}</tbody></table></details>`;
+      `<table style="margin-top:6px">${THEAD}<tbody><tr class="grp"><td><input type="checkbox" data-passive="1" ${allSel?'checked':''}></td><td colspan="5"><span class="gname" style="color:var(--muted)">firmware 子套件</span> <span class="site">${passive.length} 個 · 升級無害，只是本機沒有對應硬體</span></td></tr>${passive.map(row).join('')}</tbody></table></details>`;
   }
   box.innerHTML = html;
   const det = box.querySelector('#passiveFw'); if (det) det.ontoggle = () => { state.passiveOpen = det.open; };
