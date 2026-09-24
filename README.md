@@ -18,7 +18,7 @@ Spark Center replaces that button and adds the things people keep asking for on 
 
 English interface captured on an ASUS Ascend GX10 with live system data.
 
-**Monitor** — memory, CPU, GPU, temperatures and network activity.
+**Monitor** — memory, CPU, GPU and temperatures. Wi-Fi and network cards are hidden for privacy.
 
 ![Spark Center Monitor tab in English, showing live gauges and activity charts](docs/screenshots/monitor-en.png)
 
