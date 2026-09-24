@@ -3869,7 +3869,17 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif path == "/api/rollback":
-            self._json({"ok": True, "jobs": _rollback_index_load(), "keep": ROLLBACK_KEEP, "max_mb": ROLLBACK_MAX_MB})
+            # 附上目前安裝的版本：降回之後那筆紀錄還在，前端要靠這個判斷「已經是這版」而不再給按鈕
+            jobs = _rollback_index_load()
+            try:
+                cache = apt.Cache()
+                for j in jobs:
+                    for p in j.get("packages", []):
+                        pkg = cache.get(p.get("name"))
+                        p["installed"] = pkg.installed.version if pkg and pkg.installed else None
+            except Exception:
+                pass
+            self._json({"ok": True, "jobs": jobs, "keep": ROLLBACK_KEEP, "max_mb": ROLLBACK_MAX_MB})
         elif path == "/api/autostart":
             self._json(autostart_status())
         elif path == "/api/hardware":

@@ -114,14 +114,16 @@ async function loadRollback() {
   let html = `<table><thead><tr><th style="width:28%">${t("updates.package")}</th><th style="width:26%">${t("updates.version")}</th><th>${t("updates.status")}</th><th style="width:190px"></th></tr></thead><tbody>`;
   const ver = { sha256: t("updates.verified_sha256"), apt: t("updates.verified_apt"), tls: t("updates.verified_tls") };
   for (const job of jobs) {
-    const kept = job.packages.filter(p => p.deb);
+    const kept = job.packages.filter(p => p.deb && p.installed !== p.old);   // 已經是舊版的不算，按鈕沒意義
     // 一組一起降回：舊主程式要求舊函式庫時，單獨降一個 apt 會拒絕，整組給才有完整退路
     const allBtn = kept.length > 1 ? ` <button class="small" data-rb-job="${esc(job.id)}" data-rb-name="" data-rb-all="${kept.map(p => p.name).join(', ')}">${t("updates.rollback_all_btn", {n: kept.length})}</button>` : '';
     html += `<tr class="grp"><td colspan="3"><span class="gname" style="color:var(--muted)">${t("updates.updated_at")} ${esc(job.started.replace('T', ' '))}</span></td><td>${allBtn}</td></tr>`;
     for (const p of job.packages) {
       const dep = p.selected === false ? ` <span class="tag" title="${t("updates.dep_pulled_hint")}">${t("updates.dep_pulled")}</span>` : '';
+      const atOld = p.deb && p.installed === p.old;
       const st = p.deb ? `<span class="tag ok">${esc(src[p.source] || p.source)}</span><span class="sub1"> ${esc(ver[p.verified] || '')}</span>` : `<span class="tag" title="${esc(p.reason || '')}">${t("updates.not_kept")}</span><span class="sub1"> ${esc(p.reason || '')}</span>`;
-      html += `<tr class="sub"><td class="mono" style="padding-left:20px">${esc(p.name)}${dep}</td><td class="mono sub1">${esc(p.old || '—')} → ${esc(p.new || t("updates.removed"))}</td><td>${st}</td><td>${p.deb ? `<button class="small" data-rb-job="${esc(job.id)}" data-rb-name="${esc(p.name)}" data-rb-old="${esc(p.old)}" data-rb-new="${esc(p.new || '')}">${t("updates.rollback_btn", {v0: esc(p.old)})}</button>` : ''}</td></tr>`;
+      const cur = atOld ? `<span class="tag">${t("updates.rollback_at_old")}</span>` : (p.installed && p.installed !== p.new ? `<span class="sub1"> ${t("updates.rollback_now_with_value", {value: esc(p.installed)})}</span>` : '');
+      html += `<tr class="sub"><td class="mono" style="padding-left:20px">${esc(p.name)}${dep}</td><td class="mono sub1">${esc(p.old || '—')} → ${esc(p.new || t("updates.removed"))}${cur}</td><td>${st}</td><td>${p.deb && !atOld ? `<button class="small" data-rb-job="${esc(job.id)}" data-rb-name="${esc(p.name)}" data-rb-old="${esc(p.old)}" data-rb-new="${esc(p.new || '')}">${t("updates.rollback_btn", {v0: esc(p.old)})}</button>` : ''}</td></tr>`;
     }
   }
   box.innerHTML = html + `</tbody></table>`;
