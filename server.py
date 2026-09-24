@@ -529,7 +529,10 @@ def _localized_response(value, lang, field=None):
     if isinstance(value, list):
         return [_localized_response(item, lang, field) for item in value]
     if isinstance(value, str):
-        return _message_text(value, lang)
+        text = _message_text(value, lang)
+        if field in ("group", "origin"):
+            text = text.replace("（", " (").replace("）", ")")   # 來源名稱的全形括號在英文介面改半形
+        return text
     return value
 
 

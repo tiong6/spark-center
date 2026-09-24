@@ -103,13 +103,13 @@
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; }
   .grid .panel { margin: 0; }
   /* 硬體分頁的「關於這台機器」：機器圖＋型號大字＋六個關鍵規格，像 macOS 的「關於這台 Mac」 */
-  .hero { display: flex; gap: 28px; align-items: center; }
-  .hero .machine { flex: none; width: 150px; height: 110px; }
-  .hero .hname { font-size: 26px; font-weight: 700; line-height: 1.15; }
-  .hero .hname small { display: block; font-size: 13px; font-weight: 400; color: var(--muted); margin-top: 4px; }
-  .hero .specs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 24px; margin-top: 16px; }
-  @media (max-width: 900px) { .hero .specs { grid-template-columns: repeat(2, 1fr); } .hero .machine { display: none; } }
-  .hero .specs div { min-width: 0; } .hero .specs b { display: block; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; } .hero .specs span { color: var(--muted); font-size: 12px; }
+  .about { display: flex; gap: 28px; align-items: center; }
+  .about .machine { flex: none; width: 150px; height: 110px; }
+  .about .hname { font-size: 26px; font-weight: 700; line-height: 1.15; }
+  .about .hname small { display: block; font-size: 13px; font-weight: 400; color: var(--muted); margin-top: 4px; }
+  .about .specs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 24px; margin-top: 16px; }
+  @media (max-width: 900px) { .about .specs { grid-template-columns: repeat(2, 1fr); } .about .machine { display: none; } }
+  .about .specs div { min-width: 0; } .about .specs b { display: block; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; } .about .specs span { color: var(--muted); font-size: 12px; }
   .kv { display: grid; grid-template-columns: 130px 1fr; gap: 6px 14px; margin-top: 12px; font-size: 14px; }
   .kv dt { color: var(--muted); } .kv dd { margin: 0; overflow-wrap: anywhere; }
   .meter { height: 8px; background: #0f1110; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; margin-top: 4px; }
@@ -1990,7 +1990,7 @@ function renderHwStatic() {
   const family = D.available && D.system.family ? D.system.family : '';
   const machineSvg = `<svg class="machine" viewBox="0 0 150 110" fill="none" stroke="var(--muted)" stroke-width="1.5"><rect x="15" y="20" width="120" height="70" rx="10" fill="#1a1c1b"/><rect x="15" y="20" width="120" height="70" rx="10" fill="url(#hg)"/><defs><linearGradient id="hg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".06"/><stop offset="1" stop-color="#000" stop-opacity=".25"/></linearGradient></defs><path d="M25 32h100M25 40h100M25 48h100M25 56h100M25 64h100M25 72h100" stroke="#2a2e2c" stroke-dasharray="1 3"/><rect x="30" y="80" width="90" height="3" rx="1.5" fill="var(--accent)" stroke="none" opacity=".85"/><circle cx="127" cy="28" r="2.5" fill="var(--accent)" stroke="none"/></svg>`;
   $('#hwHero').classList.remove('hide');
-  $('#hwHero').innerHTML = `<div class="hero">${machineSvg}<div style="flex:1;min-width:0">
+  $('#hwHero').innerHTML = `<div class="about">${machineSvg}<div style="flex:1;min-width:0">
     <div class="hname">${dash(S.sys_vendor).replace(/^ASUSTeK COMPUTER INC\.$/i, 'ASUS')} ${dash(S.product_name)}<small>${[family ? t("hw.series_with_value", {value: family}) : '', S.product_version ? esc(S.product_version) : '', S.hostname ? t("hw.hostname_with_value", {value: esc(S.hostname)}) : ''].filter(Boolean).join(' · ')}</small></div>
     <div class="specs">
       <div><b>${G ? dash(G.name) : '—'}</b><span>${t("hw.chip", {v5: C ? t("hw.cores", {v0: dash(C.cpus), v1: C.clusters.map(k => esc(k.model.replace('Cortex-', ''))).join('+')}) : ''})}</span></div>
