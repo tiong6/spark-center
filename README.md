@@ -88,6 +88,7 @@ Without them those panels say so on screen instead of showing blanks.
 
 - **It does not replace the Spark OS firmware OTA.** That path is NVIDIA's and closed. When `dgx-release`, `dgx-spark-ota-update-meta` or `linux-image-nvidia` appear in the update list, use the stock Dashboard for those.
 - It does not change router settings, kill your applications, or remove Docker volumes. Where something is risky it tells you and stops.
+- **Rollback is per package, not a system restore.** It reinstalls the exact `.deb` that was replaced, after an apt simulation; it does not snapshot the filesystem, and it refuses when going back would remove other software. Tested end to end on a real security update (curl: update → roll back the set → verify → update again).
 - It lists only applications that have a desktop entry. Command-line tools and libraries are not in the Apps tab; they are in Updates.
 
 ## 一個要知道的取捨
@@ -111,7 +112,7 @@ Ubuntu 24.04 / DGX OS 7.x on aarch64. 以下都是系統內建，不需要另外
 | `tools/check.sh` | 改動前的靜態檢查：語法、CSS 重複選擇器、重複 id、字串表對齊 |
 | `install.sh` | 產生並安裝 systemd 單元與桌面捷徑 |
 | `spark-center.service.in`、`app/spark-center.desktop.in` | 路徑用 `@ROOT@` 的模板 |
-| `data/` | 執行時資料（孔位校準、量測歷史、硬體快照），已 git 忽略 |
+| `data/` | 執行時資料（孔位校準、量測歷史、硬體快照、`rollback/` 裡更新前保留的舊版 .deb），已 git 忽略 |
 | `docs/` | README 截圖，以及已完成的工單（英文化規格與術語表） |
 | `HANDOFF.md`、`CLAUDE.md` | Maintainer's working notes in Chinese: current state and next steps, and the working conventions for the coding agent. Not needed to install or use the tool. 維護者的中文工作筆記，安裝與使用不需要看。 |
 
