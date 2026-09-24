@@ -409,7 +409,7 @@ function renderList() {
   let html = Object.keys(groups).length ? `<table>${THEAD}<tbody>` : '';
   for (const g of Object.keys(groups).sort()) {
     const items = groups[g]; const allSel = items.every(i => state.selected.has(i.name));
-    html += `<tr class="grp" style="--grpc:${groupColor(g, items[0].site)}"><td><input type="checkbox" data-group="${esc(g)}" ${allSel?'checked':''}></td><td colspan="5"><span class="gname">${esc(g)}</span> <span class="site">${items.length} 個 · ${esc(items[0].site)}</span></td></tr>`;
+    html += `<tr class="grp" style="--grpc:${groupColor(g, items[0].site)}"><td><input type="checkbox" data-group="${esc(g)}" ${allSel?'checked':''}></td><td colspan="5"><span class="gname">${esc(g)}</span> <span class="site">${items.length} 個 · ${esc(items[0].site)}${items[0].origin_raw && items[0].origin_raw !== g ? ` · Origin「${esc(items[0].origin_raw)}」` : ''}</span></td></tr>`;
     for (const it of items) html += row(it);
   }
   if (Object.keys(groups).length) html += `</tbody></table>`;

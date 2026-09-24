@@ -56,10 +56,33 @@ def _origin_of(version):
     }
 
 
+# 來源主機 → 人看得懂的名稱。廠商在 Release 檔的 Origin 欄位常填得看不懂（VS Code 填 "code stable"、
+# NodeSource 填 ". nodistro"、OpenAI 乾脆不填），這張表只做「翻譯」，原始 Origin 仍隨 site 一起顯示。
+SITE_NAMES = {
+    "packages.microsoft.com": "Microsoft（VS Code）",
+    "persistent.oaistatic.com": "OpenAI（ChatGPT／Codex）",
+    "deb.nodesource.com": "NodeSource（Node.js）",
+    "dl.google.com": "Google（Chrome）",
+    "us-central1-apt.pkg.dev": "Google（Antigravity）",
+    "brave-browser-apt-release.s3.brave.com": "Brave",
+    "repository.spotify.com": "Spotify",
+    "pkgs.tailscale.com": "Tailscale",
+    "packagecloud.io": "GitHub（git-lfs）",
+    "esm.ubuntu.com": "Ubuntu Pro（ESM）",
+    "snapshot.ppa.launchpadcontent.net": "Canonical PPA",
+    "nvidia.github.io": "NVIDIA（container toolkit）",
+    "workbench.download.nvidia.com": "NVIDIA（AI Workbench）",
+    "developer.download.nvidia.com": "NVIDIA（CUDA／HPC SDK）",
+    "repo.download.nvidia.com": "NVIDIA（Spark OS）",
+}
+
+
 def _group_name(orig):
-    """把來源整理成人看得懂的分組名。優先用 Origin 欄位，沒有就用網址。"""
-    name = orig["origin"] or orig["label"] or orig["site"] or "未知來源"
+    """把來源整理成人看得懂的分組名。先查主機對照表，沒有就用 Origin 欄位，再沒有就用網址。"""
     site = orig["site"]
+    if site in SITE_NAMES:
+        return SITE_NAMES[site]
+    name = orig["origin"] or orig["label"] or site or "未知來源"
     if site.endswith("nvidia.com"):
         # NVIDIA 有多個 repo（spark / baseos / cuda），保留路徑辨識
         return f"NVIDIA ({site})"
@@ -177,6 +200,7 @@ def list_updates():
             "candidate": cand.version,
             "group": _group_name(orig),
             "site": orig["site"],
+            "origin_raw": orig["origin"] or orig["label"] or "",
             "archive": orig["archive"],
             "size": cand.size,
             "summary": cand.summary or "",
