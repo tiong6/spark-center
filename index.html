@@ -392,7 +392,9 @@ function groupColor(name, site) {
 }
 function renderList() {
   const box = $('#list');
-  $('#dotUpd').classList.toggle('hide', state.items.length === 0);
+  // 綠點與空狀態只看主清單：折疊起來的「本機用不到的 firmware 子套件」不算待辦
+  const active = state.items.filter(it => !(it.firmware && it.firmware.passive));
+  $('#dotUpd').classList.toggle('hide', active.length === 0);
   if (!state.items.length) { box.innerHTML = `<div class="empty">目前沒有可升級的套件。</div>`; updateGo(); return; }
   const THEAD = `<thead><tr><th style="width:36px"></th><th style="width:32%">套件</th><th style="width:24%">版本</th><th class="col-opt">說明</th><th style="width:80px">大小</th><th style="width:80px"></th></tr></thead>`;
   const row = it => `<tr class="sub">
@@ -413,6 +415,7 @@ function renderList() {
     for (const it of items) html += row(it);
   }
   if (Object.keys(groups).length) html += `</tbody></table>`;
+  else html += `<div class="empty">目前沒有需要處理的更新。</div>`;
   if (passive.length) {
     const allSel = passive.every(i => state.selected.has(i.name));
     html += `<details id="passiveFw" style="margin-top:12px" ${state.passiveOpen ? 'open' : ''}><summary class="sub1">本機用不到的 firmware 子套件 ${passive.length} 個（由 linux-firmware 總包相依拖入；已載入的核心模組沒有宣告要用它們的檔案，依 modinfo 判定，無法排除驅動動態請求）</summary>` +
@@ -456,7 +459,8 @@ async function load() {
   const names = new Set(j.items.map(i => i.name));
   for (const s of [...state.selected]) if (!names.has(s)) state.selected.delete(s);
   state.items = j.items;
-  $('#meta').textContent = `可升級 ${j.items.length} 個 · apt 索引最後更新 ${j.last_refresh ? j.last_refresh.replace('T',' ') : '—'}`;
+  const nPassive = j.items.filter(i => i.firmware && i.firmware.passive).length;
+  $('#meta').textContent = `可升級 ${j.items.length - nPassive} 個${nPassive ? `（另 ${nPassive} 個本機用不到的 firmware 已折疊）` : ''} · apt 索引最後更新 ${j.last_refresh ? j.last_refresh.replace('T',' ') : '—'}`;
   const D = j.dashboard;
   $('#dashCompare').innerHTML = D ? `對照：<b>DGX Dashboard 的 Update</b> 等同一次做完 升級 ${D.upgrade}${D.install ? ` · 新安裝 ${D.install}` : ''}${D.remove ? ` · <span style="color:var(--danger)">移除 ${D.remove}</span>` : ''}${D.firmware != null ? ` · 韌體 ${D.firmware}` : ''} · <span style="color:var(--warn)">強制重開機</span>，而且不顯示清單。${esc(D.note)}` : '';
   renderReboot(j.reboot); renderList();
