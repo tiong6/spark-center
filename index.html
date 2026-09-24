@@ -58,6 +58,9 @@
   .to { color: var(--accent); }
   .grp td { background: var(--surface2); font-weight: 700; padding: 8px 10px; }
   .grp .site { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 10px; }
+  /* 群組底下的子項：勾選框與套件名往右退，讓層級看得出來 */
+  .sub td:first-child { padding-left: 26px; }
+  .sub td:nth-child(2) { padding-left: 20px; }
   .tag { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid #3a3f3c; color: var(--muted); margin-left: 6px; vertical-align: middle; white-space: nowrap; }
   .tag.sec { color: var(--warn); border-color: var(--warn); }
   .tag.reboot { color: var(--danger); border-color: var(--danger); }
@@ -380,7 +383,7 @@ function renderList() {
   $('#dotUpd').classList.toggle('hide', state.items.length === 0);
   if (!state.items.length) { box.innerHTML = `<div class="empty">目前沒有可升級的套件。</div>`; updateGo(); return; }
   const THEAD = `<thead><tr><th style="width:36px"></th><th style="width:32%">套件</th><th style="width:24%">版本</th><th class="col-opt">說明</th><th style="width:80px">大小</th><th style="width:80px"></th></tr></thead>`;
-  const row = it => `<tr>
+  const row = it => `<tr class="sub">
         <td><input type="checkbox" data-pkg="${esc(it.name)}" ${state.selected.has(it.name)?'checked':''}></td>
         <td>${esc(it.name)}${it.security?'<span class="tag sec">security</span>':''}${it.spark_core?'<span class="tag" style="color:#76b900;border-color:#4b6b1e" title="Spark OS／NVIDIA 平台套件：Dashboard 的韌體＋重開機流程對這類才有意義">Spark OS · 建議用 Dashboard</span>':''}${it.reboot_hint?'<span class="tag reboot" title="依套件名稱推測，非系統判定">通常需重開（推測）</span>':''}${it.firmware && it.firmware.passive?`<span class="tag" title="${esc(it.firmware.pulled_by ? `由 ${it.firmware.pulled_by} 總包相依拖入；` : '自動安裝；')}已載入的核心模組沒有一個宣告要用這包的 ${it.firmware.files} 個檔案（依 modinfo -F firmware）">本機無驅動使用</span>`:''}</td>
         <td class="mono">${esc(it.installed)}<br><span class="to">→ ${esc(it.candidate)}</span></td>
