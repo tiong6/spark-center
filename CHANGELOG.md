@@ -15,6 +15,7 @@
 ### 修正
 
 - **降回上一版：第三輪外部 review 的 4 個問題。**（1）原本走 aptdaemon 的 `install_file`，它最後跑 `DebPackage.check()`，預設拒絕比已安裝舊的版本（force=True 也一樣），所以按了根本降不回去；改成 pkexec 跑 `apt-get install -y --allow-downgrades <保留的 .deb>`，相依由 apt 解。（2）從來源伺服器（HTTP）或 Launchpad 下載的檔案原本只核對 Package/Version 欄位；現在核對 apt 索引裡該版本的 sha256，不符不採用；索引已無此版時只接受 Launchpad 的 HTTPS，並在面板標明「無法再核對雜湊」。（3）舊版從索引消失後，`installed.origins` 是空的，原本因此永遠不會試 Launchpad，而那正是需要備援的時候；改看該套件任一版本的來源。（4）原本只備份勾選的套件，漏掉相依帶動一起換掉的（例如只勾 curl 會一起升 libcurl4t64）；現在先模擬升級，依實際變更備份，面板標「相依帶入」，並多一顆「整組降回」，一次把整組交給 apt。已知副作用：apt 對本機 .deb 會把相依帶入的函式庫標成手動安裝，之後 autoremove 不會清它們。
+- **降回上一版：第四輪 review 的 2 個問題。**（1）降回原本直接 `-y` 執行，沒有先展示相依變更；舊函式庫可能讓 apt 選擇移除依賴新版的應用程式，確認視窗卻沒說。現在降回和更新一樣走「apt-get -s 模擬 → 展示實際變更 → 確認」，模擬結果有移除就拒絕並列出是誰，真正執行時再加 `--no-remove` 雙重保險。（2）更新走 aptdaemon 時設定檔衝突一律保留現有版本，改用 apt-get 後沒有對應選項；服務的 stdin 是 /dev/null，dpkg 問不到人會中途失敗、留下未設定的套件。現在加 `--force-confdef --force-confold`，沿用同一政策。
 
 - **併發量測全部失敗仍記成成功**（外部 review 第二輪）。全敗改回 error 不寫歷史；部分失敗標「N/M 個請求失敗」、前端顯示失敗數、平均值防除零。
 - **快速切換分頁時舊的監控請求關掉新分頁的輪詢**。startMon 在等待硬體資料回來後檢查監控分頁是否仍顯示。

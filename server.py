@@ -25,6 +25,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import apt
+import apt_pkg
 import aptdaemon.client
 import aptdaemon.enums as aenums
 from gi.repository import GLib
@@ -169,6 +170,8 @@ MSG = {
         "rollback_hash_mismatch": "下載到的檔案與 apt 索引的 sha256 不符，不採用",
         "rollback_no_trusted_hash": "來源是 HTTP 而索引已無此版的雜湊可核對，不採用",
         "rollback_auth": "降回上一版需要 root，透過 pkexec 執行 apt-get（桌面會跳密碼視窗）",
+        "rollback_sim_failed": "無法模擬降回：{err}",
+        "rollback_would_remove": "降回會連帶移除 {pkgs}（它們需要新版）。這裡不替你拆掉別的軟體，所以不做",
         "bench_all_failed": "{n} 個併發請求全部失敗，沒有可記的成績",
         "bench_partial_failed": "{failed}/{n} 個請求失敗，數字只算成功的那幾個，不是完整成績",
         "requests_queued": "小於併發數，後面的請求在排隊。",
@@ -401,6 +404,8 @@ MSG = {
         "rollback_hash_mismatch": "the downloaded file does not match the sha256 in the apt index; not used",
         "rollback_no_trusted_hash": "the source is plain HTTP and the index no longer has a hash for this version to check against; not used",
         "rollback_auth": "Rolling back requires root; running apt-get through pkexec (a password dialog will appear on the desktop)",
+        "rollback_sim_failed": "Could not simulate the rollback: {err}",
+        "rollback_would_remove": "Rolling back would also remove {pkgs} (they need the newer version). This tool will not remove other software for you, so it stops here",
         "bench_all_failed": "All {n} concurrent requests failed; nothing to record",
         "bench_partial_failed": "{failed} of {n} requests failed; the numbers cover only the successful ones and are not a complete result",
         "requests_queued": "below the concurrency; later requests are queued.",
@@ -901,6 +906,48 @@ def rollback_deb_paths(job_id, name=None):
     return out
 
 
+# apt-get 對本機 .deb 的降版指令。--allow-downgrades 明講意圖；--no-remove 擋掉「為了降函式庫而移除依賴新版的應用程式」；
+# conffile 沿用更新時的政策：使用者改過的設定檔一律保留現有版本（服務的 stdin 是 /dev/null，dpkg 問不到人會直接失敗、留下未設定的套件）。
+ROLLBACK_APT = ["/usr/bin/apt-get", "install", "-y", "--allow-downgrades", "--no-remove",
+                "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold"]
+
+
+def rollback_simulate(paths):
+    """apt-get -s 模擬降回，回傳實際會被動到的套件（不需 root、不動系統）。
+    不加 --no-remove 是為了看清楚會移除誰；有移除就回 ok=False，因為降回不該順手拆掉別的應用程式。"""
+    cmd = ["/usr/bin/apt-get", "-s", "-o", "Debug::NoLocking=1", "install", "-y", "--allow-downgrades"] + paths
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=dict(os.environ, LC_ALL="C", LANG="C"))
+    except Exception as e:
+        return {"ok": False, "error": msg("rollback_sim_failed", LANG_DEFAULT, err=str(e)[:120])}
+    if r.returncode != 0:
+        err = "\n".join(l for l in (r.stderr + r.stdout).splitlines() if l.startswith("E:")) or f"rc={r.returncode}"
+        return {"ok": False, "error": msg("rollback_sim_failed", LANG_DEFAULT, err=err[:300])}
+    changes = []
+    for line in r.stdout.splitlines():
+        m = re.match(r"(Inst|Remv) (\S+?)(?::\S+)? (?:\[([^\]]*)\] )?(?:\(([^\s)]+))?", line)
+        if not m:
+            continue
+        kind, name, frm, to = m.groups()
+        if kind == "Remv":
+            action = "remove"
+        elif not frm:
+            action = "install"
+        elif apt_pkg.version_compare(to or "", frm) < 0:
+            action = "downgrade"
+        else:
+            action = "upgrade"
+        changes.append({"name": name, "action": action, "from": frm or "", "to": to or "", "requested": False})
+    kept = {os.path.basename(p).split("_", 1)[0] for p in paths}
+    for c in changes:
+        c["requested"] = c["name"] in kept
+    changes.sort(key=lambda c: (not c["requested"], c["action"], c["name"]))
+    removed = [c["name"] for c in changes if c["action"] == "remove"]
+    if removed:
+        return {"ok": False, "changes": changes, "error": msg("rollback_would_remove", LANG_DEFAULT, pkgs=", ".join(removed))}
+    return {"ok": True, "changes": changes}
+
+
 def list_updates():
     cache = apt.Cache()
     items = []
@@ -1298,7 +1345,7 @@ class Job:
                     self.state.update(status="error", error=msg("rollback_not_found", LANG_DEFAULT), finished=datetime.now().isoformat(timespec="seconds"))
                 return
             self._log(msg("rollback_auth", LANG_DEFAULT))
-            return self._run_subprocess(["pkexec", "/usr/bin/apt-get", "install", "-y", "--allow-downgrades"] + paths, packages)
+            return self._run_subprocess(["pkexec"] + ROLLBACK_APT + paths, packages)
         loop = GLib.MainLoop()
         try:
             client = aptdaemon.client.AptClient()
@@ -3945,8 +3992,12 @@ class Handler(BaseHTTPRequestHandler):
             job_id, name = str(data.get("job") or ""), str(data.get("name") or "")
             if not re.fullmatch(r"\d{8}T\d{6}", job_id) or (name and not re.fullmatch(r"[a-z0-9.+-]+", name)):
                 return self._json({"ok": False, "error": msg("rollback_not_found", LANG_DEFAULT)}, 400)
-            if not rollback_deb_paths(job_id, name or None):
+            paths = [fp for fp, _ in rollback_deb_paths(job_id, name or None)]
+            if not paths:
                 return self._json({"ok": False, "error": msg("rollback_not_found", LANG_DEFAULT)}, 404)
+            sim = rollback_simulate(paths)   # 降回也走「模擬 → 展示實際變更 → 確認」，會移除別的套件就不做
+            if data.get("simulate") or not sim["ok"]:
+                return self._json(sim, 200 if sim["ok"] else 400)
             if not JOB.start("rollback", [job_id, name]):
                 return self._json({"ok": False, "error": msg("job_running", LANG_DEFAULT)}, 409)
             return self._json({"ok": True})

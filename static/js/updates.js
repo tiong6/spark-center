@@ -125,14 +125,32 @@ async function loadRollback() {
     }
   }
   box.innerHTML = html + `</tbody></table>`;
+  // 降回和更新一樣走「模擬 → 展示實際變更 → 確認」：舊函式庫可能讓 apt 想移除依賴新版的應用程式，後端遇到會拒絕，這裡照實顯示原因
   box.querySelectorAll('button[data-rb-job]').forEach(b => b.onclick = async () => {
-    const all = b.dataset.rbName === '';
-    const q = all ? t("updates.rollback_all_confirm", {list: b.dataset.rbAll}) : t("updates.rollback_confirm", {name: b.dataset.rbName, new: b.dataset.rbNew, old: b.dataset.rbOld});
-    if (!confirm(q)) return;
+    const all = b.dataset.rbName === '', label = all ? b.dataset.rbAll : b.dataset.rbName;
     b.disabled = true;
-    const r = await api('/api/rollback', {job: b.dataset.rbJob, name: b.dataset.rbName});
-    if (!r.ok) { alert(r.error); b.disabled = false; return; }
-    startPolling(t("job.rollback_with_value", {value: all ? b.dataset.rbAll : b.dataset.rbName})); window.scrollTo({top: 0, behavior: 'smooth'});
+    const sim = await api('/api/rollback', {job: b.dataset.rbJob, name: b.dataset.rbName, simulate: true});
+    b.disabled = false;
+    const body = $('#mBody');
+    if (!sim.ok) {
+      let h = `<div class="panel notice danger">${esc(sim.error)}</div>`;
+      if (sim.changes) h += `<div class="chg">` + sim.changes.map(c => `<div class="${c.action==='remove'?'rm':(c.requested?'':'extra')}">${c.action.padEnd(9)} ${esc(c.name)} ${esc(c.from)}${c.to?' → '+esc(c.to):''}</div>`).join('') + `</div>`;
+      body.innerHTML = h; $('#mOk').classList.add('hide'); openModal(t("updates.cannot_proceed")); return;
+    }
+    const extra = sim.changes.filter(c => !c.requested);
+    let html = `<p>${all ? t("updates.rollback_all_confirm", {list: esc(b.dataset.rbAll)}) : t("updates.rollback_confirm", {name: esc(b.dataset.rbName), new: esc(b.dataset.rbNew), old: esc(b.dataset.rbOld)})}</p>`;
+    html += `<p>${t("updates.rollback_sim_summary", {n: sim.changes.length})}</p>`;
+    if (extra.length) html += `<div class="panel notice warn">${t("updates.packages_you_did_not_select_will", {v0: extra.length})}</div>`;
+    html += `<div class="chg">` + sim.changes.map(c => `<div class="${c.requested?'':'extra'}">${c.action.padEnd(9)} ${esc(c.name)} ${esc(c.from)}${c.to?' → '+esc(c.to):''}</div>`).join('') + `</div>`;
+    html += `<p class="muted" style="margin-top:12px">${t("updates.rollback_conffile_note")}</p>`;
+    body.innerHTML = html; $('#mOk').classList.remove('hide'); $('#mOk').textContent = t("common.confirm_rollback");
+    $('#mOk').onclick = async () => {
+      closeModal();
+      const r = await api('/api/rollback', {job: b.dataset.rbJob, name: b.dataset.rbName});
+      if (!r.ok) { alert(r.error); return; }
+      startPolling(t("job.rollback_with_value", {value: label})); window.scrollTo({top: 0, behavior: 'smooth'});
+    };
+    openModal(t("updates.confirm_changes"));
   });
 }
 async function load() {
@@ -166,7 +184,7 @@ $('#btnGo').onclick = async () => {
   if (extra.length) html += `<div class="panel notice warn">${t("updates.packages_you_did_not_select_will", {v0: extra.length})}</div>`;
   html += `<div class="chg">` + sim.changes.map(c => `<div class="${c.action==='remove'?'rm':(c.requested?'':'extra')}">${c.action.padEnd(9)} ${esc(c.name)} ${esc(c.from)}${c.to?' → '+esc(c.to):''}</div>`).join('') + `</div>`;
   html += `<p class="muted" style="margin-top:12px">${t("updates.after_confirmation_a_polkit_password_dialog")}<b>${t("updates.not")}</b>${t("updates.reboot_automatically")}</p>`;
-  body.innerHTML = html; $('#mOk').classList.remove('hide');
+  body.innerHTML = html; $('#mOk').classList.remove('hide'); $('#mOk').textContent = t("common.confirm_update");
   const pa = $('#pairAdd');
   if (pa) pa.onclick = () => { sim.pairing.missing.forEach(n => state.selected.add(n)); closeModal(); renderList(); $('#btnGo').click(); };
   $('#mOk').onclick = async () => {
