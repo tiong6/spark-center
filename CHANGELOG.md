@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-09-24
+
+*Updates tab: hides firmware sub-packages no loaded driver uses, gives apt sources readable names and colours.*
+
+### 變更
+
+- **本機用不到的 firmware 子套件折疊起來**。Ubuntu 24.04 的 `linux-firmware` 總包硬相依全部拆分出的子套件（amd-graphics、qualcomm、netronome……），所以沒有 AMD 顯卡的機器也會一直看到 `linux-firmware-amd-graphics` 的更新堆在清單裡。現在把「自動安裝、被 `linux-firmware` 相依拖入、且套件在 `/lib/firmware` 的檔案與所有已載入核心模組 `modinfo -F firmware` 宣告的清單交集為零」的子套件收進預設收合的區塊，仍可勾選升級。有交集的（如 Wi-Fi 用的 mediatek）留在主清單。`modinfo` 查不到驅動動態請求的檔案，畫面標成「依 modinfo 判定」而不是斷言無用。
+- **apt 來源用人看得懂的名稱**。廠商在 Release 檔的 `Origin` 欄位常填得看不懂：VS Code 填「code stable」、NodeSource 填「. nodistro」、OpenAI 乾脆不填（只好退到主機名 persistent.oaistatic.com）。加一張主機名對照表翻譯成 Microsoft（VS Code）、OpenAI（ChatGPT／Codex）、NodeSource（Node.js）等；沒對到的照舊退回 Origin，不硬猜。群組列旁仍顯示主機名與原始 Origin，方便對照 sources.list。應用程式分頁的來源欄同一份函式。
+- **來源群組加識別色**：Ubuntu 橘、NVIDIA 綠、Microsoft 藍為固定色，其他第三方來源依名稱從色盤穩定挑色。顏色填在群組列的勾選格，只做辨識，不代表重要程度。
+- 群組底下的套件內縮一階，讓來源與套件的層級看得出來。
+
 ## 2026-09-22
 
 *Fixes snap updates (they never worked), adds real download progress with MB, and restores the Hardware tab.*
