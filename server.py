@@ -9,6 +9,7 @@
 """
 import concurrent.futures
 import glob
+import hashlib
 import http.client
 import socket
 import gzip
@@ -707,6 +708,56 @@ def parse_desktop(path):
     return d
 
 
+# ---------- 應用程式圖示 ----------
+# .desktop 的 Icon= 是主題名稱或絕對路徑。主題名稱依 freedesktop 規則在圖示主題目錄找；這裡只索引 apps 類與 pixmaps，
+# 一次約 0.1 秒，快取 1 小時。前端拿到的是 /appicon/<token>，token 只對應索引裡的路徑，不能指定任意檔案。
+ICON_THEMES = ["Yaru-nvidia", "Yaru", "hicolor", "Adwaita", "Humanity"]
+ICON_ROOTS = [f"/usr/share/icons/{t}" for t in ICON_THEMES] + [
+    os.path.expanduser("~/.local/share/icons/hicolor"), "/var/lib/flatpak/exports/share/icons/hicolor", "/usr/share/pixmaps"]
+ICON_SIZE_PREF = {"64x64": 0, "48x48": 1, "128x128": 2, "scalable": 3, "256x256": 4, "96x96": 5, "32x32": 6, "512x512": 7, "24x24": 8, "16x16": 9}
+_ICON_INDEX = {"ts": 0, "idx": {}}
+_ICON_TOKENS = {}   # token → 檔案路徑（只放解析出來的）
+
+
+def _icon_index():
+    if time.time() - _ICON_INDEX["ts"] < 3600 and _ICON_INDEX["idx"]:
+        return _ICON_INDEX["idx"]
+    idx = {}
+    for ri, root in enumerate(ICON_ROOTS):
+        for dp, _, fns in os.walk(root):
+            parts = dp[len(root):].split("/")
+            size = next((x for x in parts if x in ICON_SIZE_PREF), None)
+            if root != "/usr/share/pixmaps" and size is None:
+                continue
+            for f in fns:
+                base, ext = os.path.splitext(f)
+                if ext not in (".png", ".svg"):
+                    continue
+                key = (0 if "apps" in parts or root == "/usr/share/pixmaps" else 1, ri, ICON_SIZE_PREF.get(size, 5), 0 if ext == ".png" else 1)
+                if base not in idx or key < idx[base][0]:
+                    idx[base] = (key, os.path.join(dp, f))
+    _ICON_INDEX.update(ts=time.time(), idx=idx)
+    return idx
+
+
+def icon_url(name):
+    """Icon= 值 → /appicon/<token>；找不到回 None（前端畫預設方塊，不假裝有圖）。"""
+    if not name:
+        return None
+    path = None
+    if name.startswith("/"):
+        if os.path.isfile(name) and os.path.splitext(name)[1] in (".png", ".svg"):
+            path = name
+    else:
+        hit = _icon_index().get(name) or _icon_index().get(os.path.splitext(name)[0])
+        path = hit[1] if hit else None
+    if not path:
+        return None
+    token = hashlib.sha1(path.encode()).hexdigest()[:16]
+    _ICON_TOKENS[token] = path
+    return f"/appicon/{token}"
+
+
 def _apt_desktop_owner_map():
     """dpkg 檔案清單 → {套件名: [desktop 路徑]}。純本機檔案，約 50ms。"""
     m = {}
@@ -736,10 +787,15 @@ def apps_apt(cache):
         if not entry:
             continue
         ap = cache[pkg]
+        try:   # dpkg 檔案清單的 mtime ＝ 最後一次安裝／升級時間；沒有就不填
+            installed_at = datetime.fromtimestamp(os.path.getmtime(f"/var/lib/dpkg/info/{pkg}.list")).isoformat(timespec="minutes")
+        except OSError:
+            installed_at = None
         out.append({
             "source": "apt", "id": pkg,
             "name": entry["name"], "name_zh": entry["name_zh"], "comment": entry["comment"],
-            "icon": entry["icon"], "categories": entry["categories"],
+            "icon": entry["icon"], "icon_url": icon_url(entry["icon"]), "categories": entry["categories"],
+            "size": ap.installed.installed_size or None, "installed_at": installed_at,
             "version": ap.installed.version,
             "candidate": ap.candidate.version if ap.is_upgradable else None,
             "origin": _group_name(_origin_of(ap.candidate or ap.installed)),
@@ -766,12 +822,20 @@ def apps_snap(check_updates):
                 parts = line.split()
                 if len(parts) >= 2:
                     updates[parts[0]] = parts[1]
+    meta = {}
+    try:   # snapd 的 REST API（socket 0666，不需 root）有安裝大小與日期；拿不到就留空
+        for sn in _snapd_get("/v2/snaps") or []:
+            meta[sn["name"]] = sn
+    except Exception:
+        pass
     out = []
     for line in txt.splitlines()[1:]:
         parts = line.split()
         if len(parts) < 5:
             continue
         name, ver, rev, tracking, publisher = parts[:5]
+        m = meta.get(name, {})
+        inst_at = (m.get("install-date") or "")[:16] or None
         notes = parts[5] if len(parts) > 5 else ""
         if "base" in notes or name.startswith("core") or name in ("bare", "snapd"):
             continue
@@ -781,7 +845,8 @@ def apps_snap(check_updates):
         out.append({
             "source": "snap", "id": name,
             "name": e.get("name") or name, "name_zh": e.get("name_zh", ""), "comment": e.get("comment", ""),
-            "icon": e.get("icon", ""), "categories": e.get("categories", ""),
+            "icon": e.get("icon", ""), "icon_url": icon_url(e.get("icon", "")) or (f"/snapicon/{name}" if m.get("icon") else None), "categories": e.get("categories", ""),
+            "size": m.get("installed-size"), "installed_at": inst_at,
             "version": ver, "candidate": updates.get(name),
             "origin": f"snap · {publisher.rstrip('*')} · {tracking}",
             "changelog": "snap",
@@ -791,7 +856,7 @@ def apps_snap(check_updates):
 
 
 def apps_flatpak(check_updates):
-    txt = _run(["flatpak", "list", "--app", "--columns=application,name,version,origin"])
+    txt = _run(["flatpak", "list", "--app", "--columns=application,name,version,origin,size,installation"])
     if txt is None:
         return None
     updates = {}
@@ -813,9 +878,18 @@ def apps_flatpak(check_updates):
         if len(parts) < 4:
             continue
         app, name, ver, origin = parts[:4]
+        size_txt = parts[4] if len(parts) > 4 else ""
+        inst = parts[5] if len(parts) > 5 else "system"
+        size = _parse_size(size_txt)
+        base = "/var/lib/flatpak/app" if inst == "system" else os.path.expanduser("~/.local/share/flatpak/app")
+        try:
+            inst_at = datetime.fromtimestamp(os.path.getmtime(os.path.join(base, app, "current", "active"))).isoformat(timespec="minutes")
+        except OSError:
+            inst_at = None
         out.append({
             "source": "flatpak", "id": app,
-            "name": name or app, "name_zh": "", "comment": "", "icon": "", "categories": "",
+            "name": name or app, "name_zh": "", "comment": "", "icon": app, "icon_url": icon_url(app), "categories": "",
+            "size": size, "installed_at": inst_at,
             "version": ver, "candidate": updates.get(app),
             "origin": f"flatpak · {origin}",
             "remote": origin,
@@ -823,6 +897,14 @@ def apps_flatpak(check_updates):
             "checked_updates": checked,
         })
     return out
+
+
+def _parse_size(txt):
+    """flatpak 印的 '83.6 MB'／'1.2 GB'（10 進位）→ bytes；解析不了回 None。"""
+    m = re.match(r"([\d.]+)\s*([kMG]?B)", txt or "")
+    if not m:
+        return None
+    return int(float(m.group(1)) * {"B": 1, "kB": 1e3, "MB": 1e6, "GB": 1e9}[m.group(2)])
 
 
 _APPS_CACHE = {"ts": 0, "data": None, "lock": threading.Lock()}
@@ -2862,6 +2944,39 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        elif path.startswith("/snapicon/"):
+            name = path[len("/snapicon/"):]
+            body, ctype = None, "image/png"
+            if re.fullmatch(r"[a-z0-9-]+", name):
+                try:
+                    c = _SnapdConn("localhost", timeout=5)
+                    c.request("GET", f"/v2/icons/{name}/icon", headers={"Host": "localhost"})
+                    r = c.getresponse()
+                    if r.status == 200:
+                        body, ctype = r.read(), r.getheader("Content-Type") or ctype
+                    c.close()
+                except Exception:
+                    body = None
+            if not body:
+                self.send_response(404); self.end_headers(); return
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "max-age=3600")
+            self.end_headers()
+            self.wfile.write(body)
+        elif path.startswith("/appicon/"):
+            fp = _ICON_TOKENS.get(path[len("/appicon/"):])
+            if not fp or not os.path.isfile(fp):
+                self.send_response(404); self.end_headers(); return
+            with open(fp, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml" if fp.endswith(".svg") else "image/png")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "max-age=3600")
             self.end_headers()
             self.wfile.write(body)
         elif path in ("/manifest.webmanifest", "/icon-256.png", "/icon-128.png", "/icon.svg"):

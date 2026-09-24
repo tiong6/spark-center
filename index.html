@@ -110,6 +110,12 @@
   .seglegend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
   .seglegend em { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
   .seglegend b { color: var(--text); font-weight: 500; }
+  /* 應用程式列：圖示＋名稱，像 Finder／Windows 設定的應用程式列表 */
+  .appcell { display: flex; align-items: center; gap: 12px; }
+  .appcell .appic { width: 36px; height: 36px; flex: none; border-radius: 8px; object-fit: contain; background: #0f1110; }
+  .appcell .appic.none { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 16px; font-weight: 700; border: 1px solid var(--line); }
+  .appcell .apptext { min-width: 0; }
+  .appcell .apptext .sub1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .stat { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 12px; }
   .stat div { min-width: 90px; } .stat b { font-size: 22px; display: block; line-height: 1.1; } .stat span { color: var(--muted); font-size: 12px; }
   .mon { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 18px; margin-bottom: 18px; }
@@ -337,7 +343,7 @@ const $ = s => document.querySelector(s);
 const state = { items: [], selected: new Set(), job: null, polling: null, apps: null, src: 'all', q: '' };
 const TITLES = { monitor: '監控', llm: '模型（LLM）', updates: '更新', apps: '應用程式', disk: '磁碟', hardware: '硬體', history: '歷史' };
 const DEFAULT_TAB = 'monitor';
-const fmtBytes = b => b == null ? '—' : b < 1048576 ? (b/1024).toFixed(0)+' KB' : (b/1048576).toFixed(1)+' MB';
+const fmtBytes = b => b == null ? '—' : b < 1048576 ? (b/1024).toFixed(0)+' KB' : b < 1073741824 ? (b/1048576).toFixed(1)+' MB' : (b/1073741824).toFixed(2)+' GB';
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 async function api(path, body) {
@@ -563,15 +569,18 @@ function renderApps() {
   const rows = j.items.filter(a => (state.src === 'all' || (state.src === 'upd' ? !!a.candidate : a.source === state.src)) &&
     (!q || [a.name, a.name_zh, a.id, a.comment].some(x => (x||'').toLowerCase().includes(q))));
   if (!rows.length) { $('#apps').innerHTML = `<div class="empty">沒有符合的應用程式。</div>`; return; }
-  let html = `<table><thead><tr><th style="width:24%">應用程式</th><th style="width:19%">識別</th><th style="width:13%">版本</th><th class="col-opt">來源</th><th style="width:130px">狀態</th><th style="width:124px"></th></tr></thead><tbody>`;
+  let html = `<table><thead><tr><th style="width:34%">應用程式</th><th style="width:12%">版本</th><th class="col-opt">來源</th><th style="width:84px">大小</th><th style="width:142px">安裝於</th><th style="width:110px">狀態</th><th style="width:124px"></th></tr></thead><tbody>`;
+  const initial = a => esc((a.name_zh || a.name || '?').trim().charAt(0).toUpperCase());
   for (const a of rows) {
     const status = a.candidate ? `<span class="to mono">→ ${esc(a.candidate)}</span>` :
       (a.source !== 'apt' && a.checked_updates === false) ? `<span class="tag">未能查詢</span>` : `<span class="tag ok">最新</span>`;
+    const ic = a.icon_url ? `<img class="appic" src="${esc(a.icon_url)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\'appic none\'>${initial(a)}</div>'">` : `<div class="appic none" title="找不到圖示${a.icon ? '：' + esc(a.icon) : ''}">${initial(a)}</div>`;
     html += `<tr>
-      <td><b>${esc(a.name_zh || a.name)}</b>${a.name_zh ? `<span class="sub1"> ${esc(a.name)}</span>` : ''}${a.comment ? `<div class="sub1">${esc(a.comment)}</div>` : ''}</td>
-      <td class="mono">${esc(a.id)}<span class="tag ${a.source}">${a.source}</span></td>
+      <td><div class="appcell">${ic}<div class="apptext"><b>${esc(a.name_zh || a.name)}</b>${a.name_zh ? `<span class="sub1"> ${esc(a.name)}</span>` : ''}<div class="sub1 mono" title="${esc(a.id)}">${esc(a.id)}<span class="tag ${a.source}">${a.source}</span></div>${a.comment ? `<div class="sub1" title="${esc(a.comment)}">${esc(a.comment)}</div>` : ''}</div></div></td>
       <td class="mono">${esc(a.version)}</td>
       <td class="col-opt sub1">${esc(a.origin)}</td>
+      <td class="sub1">${a.size ? fmtBytes(a.size) : '—'}</td>
+      <td class="sub1 mono" style="font-size:12px">${a.installed_at ? esc(a.installed_at.replace('T', ' ')) : '—'}</td>
       <td>${status}</td>
       <td>${a.candidate ? `<div class="rowbtns"><button class="small" data-cl="${a.source}" data-id="${esc(a.id)}" data-inst="${esc(a.version)}">說明</button>${a.source !== 'apt' ? `<button class="small primary" data-upd="${a.source}" data-id="${esc(a.id)}">更新</button>` : ''}</div>` : ''}</td></tr>`;
   }
