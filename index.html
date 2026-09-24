@@ -42,6 +42,9 @@
   button:hover { border-color: #555; }
   button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 700; }
   button.small { padding: 4px 10px; font-size: 12px; }
+  /* 按鈕內的小圖示：inline SVG，跟著文字顏色走，不用外部資源 */
+  button[data-act] { white-space: nowrap; }
+  button svg.ic { width: 14px; height: 14px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .rowbtns { display: flex; gap: 6px; justify-content: flex-end; }
   .rowbtns button { white-space: nowrap; }
   button:disabled { opacity: .45; cursor: not-allowed; }
@@ -612,6 +615,14 @@ function diskSegBar(d, L) {
     (overlap ? `<span class="sub1">分類加總比即時已用量多 ${GB(overlap)}（分類重疊或掃描時間差）</span>` : '') + `</div>`;
 }
 const ACT_LABEL = { apt_clean: '清 apt 快取', apt_autoremove: 'apt autoremove', docker_prune: '清 dangling 映像', npm_cache_clean: '清 npm 快取', trash_empty: '清空垃圾桶' };
+// 清理鈕圖示（16 格座標的 inline SVG）：垃圾桶、掃帚、方塊（映像）、封包
+const ICONS = {
+  trash: '<svg class="ic" viewBox="0 0 16 16"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4M6.5 7v4M9.5 7v4"/></svg>',
+  broom: '<svg class="ic" viewBox="0 0 16 16"><path d="M13.5 2.5 8 8M8 8 5.5 6.5 2.5 11l2.5 2.5 4.5-3zM4 10.5l2 2"/></svg>',
+  box: '<svg class="ic" viewBox="0 0 16 16"><path d="M8 2 13.5 5v6L8 14 2.5 11V5z M2.5 5 8 8l5.5-3M8 8v6"/></svg>',
+  pkg: '<svg class="ic" viewBox="0 0 16 16"><path d="M2.5 6.5h11v7h-11zM2.5 6.5 4 3h8l1.5 3.5M6.5 9.5h3"/></svg>',
+};
+const ACT_ICON = { apt_clean: 'pkg', apt_autoremove: 'pkg', docker_prune: 'box', npm_cache_clean: 'broom', trash_empty: 'trash' };
 async function loadDisk(force) {
   const j = await api('/api/disk' + (force ? '?force=1' : ''));
   if (!j.ok) { $('#diskCats').innerHTML = `<div class="empty">讀取失敗：${esc(j.error)}</div>`; return; }
@@ -625,9 +636,9 @@ async function loadDisk(force) {
   if (j.scanning) { if (!hw.diskTimer) hw.diskTimer = setInterval(() => loadDisk(), 5000); } else if (hw.diskTimer) { clearInterval(hw.diskTimer); hw.diskTimer = null; }
   if (!d) return;
   const cats = d.categories.slice().sort((a, b) => b.bytes - a.bytes);
-  let html = `<table><thead><tr><th>類別</th><th style="width:100px">大小</th><th>說明</th><th style="width:150px"></th></tr></thead><tbody>`;
+  let html = `<table><thead><tr><th>類別</th><th style="width:100px">大小</th><th>說明</th><th style="width:170px"></th></tr></thead><tbody>`;
   for (const c of cats) {
-    const act = c.action ? `<button class="small" data-act="${c.action}">${ACT_LABEL[c.action] || c.action}</button>` : '';
+    const act = c.action ? `<button class="small" data-act="${c.action}">${ICONS[ACT_ICON[c.action]] || ''}${ACT_LABEL[c.action] || c.action}</button>` : '';
     const more = c.items.length ? `<details><summary class="sub1">明細 ${c.items.length} 項</summary><table style="margin-top:6px">${c.items.map(i => `<tr><td class="mono" style="font-size:12px">${esc(i.name)}${i.note ? `<span class="sub1"> · ${esc(i.note)}</span>` : ''}${i.modified ? `<span class="sub1"> · ${esc(i.modified)}</span>` : ''}</td><td style="width:90px" class="sub1">${i.bytes ? GB(i.bytes) : ''}</td><td style="width:70px">${c.key === 'ollama' ? `<button class="small" data-olrm="${esc(i.name)}">刪除</button>` : ''}</td></tr>`).join('')}</table></details>` : '';
     html += `<tr><td><b>${esc(c.label)}</b>${more}</td><td class="mono">${c.bytes ? GB(c.bytes) : '—'}</td><td class="sub1">${esc(c.note)}</td><td>${act}</td></tr>`;
   }
