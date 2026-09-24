@@ -993,6 +993,24 @@ def npm_status(force=False):
         deps = json.loads(r.stdout or "{}").get("dependencies") or {}
         pk = {n: {"name": n, "current": v.get("version"), "latest": None, "outdated": False} for n, v in deps.items()}
         out["prefix"] = (_run([NPM_BIN, "prefix", "-g"], timeout=20) or "").strip() or None
+        # 描述、作者、原始碼倉庫從套件自己的 package.json 讀（不上網）。這些是套件自己宣稱的，npm 不驗證作者身分；
+        # 前端只照實顯示並註明來源，判斷交給使用者。
+        for n, e in pk.items():
+            e.update(description=None, author=None, repo=None, homepage=None, license=None)
+            try:
+                with open(os.path.join(out["prefix"] or "", "lib", "node_modules", n, "package.json"), encoding="utf-8") as f:
+                    meta = json.load(f)
+                a = meta.get("author"); a = a if isinstance(a, str) else (a or {}).get("name")
+                r = meta.get("repository"); r = r if isinstance(r, str) else (r or {}).get("url")
+                if r:
+                    r = re.sub(r"^git\+|\.git$", "", r); r = re.sub(r"^(git|ssh)://", "https://", r); r = re.sub(r"^git@github\.com:", "https://github.com/", r)
+                    if not r.startswith("http"):
+                        r = "https://github.com/" + r   # npm 簡寫 "owner/repo"
+                lic = meta.get("license"); lic = lic if isinstance(lic, str) else (lic or {}).get("type")
+                e.update(description=(meta.get("description") or "")[:140] or None, author=(re.sub(r"\s*[<(].*$", "", a) if a else None),
+                         repo=r, homepage=meta.get("homepage"), license=lic)
+            except Exception:
+                pass
     except Exception as e:
         out.update(error=msg('npm_query_failed', LANG_DEFAULT, err=str(e)[:120]))
         return out

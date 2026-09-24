@@ -116,9 +116,12 @@ async function loadNpm(force) {
   html += `<table><thead><tr><th style="width:34%">${t("updates.package")}</th><th style="width:16%">${t("updates.current_version_2")}</th><th style="width:16%">${t("updates.npm_latest")}</th><th>${t("updates.status")}</th><th style="width:120px"></th></tr></thead><tbody>`;
   for (const p of j.packages) {
     const st = p.outdated ? `<span class="tag sec">${t("updates.new_version", {v0: esc(p.latest)})}</span>` : j.outdated == null ? `<span class="tag">${t("updates.unknown_query_failed")}</span>` : `<span class="tag ok">${t("updates.up_to_date")}</span>`;
-    html += `<tr><td class="mono">${esc(p.name)}</td><td class="mono">${esc(p.current || '—')}</td><td class="mono">${esc(p.latest || '—')}</td><td>${st}</td><td>${p.outdated ? `<button class="small primary" data-npm="${esc(p.name)}">${t("common.update")}</button>` : ''}</td></tr>`;
+    // 名稱下面放描述、作者、倉庫：都是套件自己宣稱的，npm 不驗證，所以只照實顯示、附連結讓人自己看
+    const repoText = p.repo ? p.repo.replace(/^https?:\/\//, '') : null;
+    const who = [p.author ? esc(p.author) : null, repoText ? `<a href="${esc(p.repo)}" target="_blank" rel="noopener">${esc(repoText)}</a>` : (p.homepage ? `<a href="${esc(p.homepage)}" target="_blank" rel="noopener">${esc(p.homepage.replace(/^https?:\/\//, ''))}</a>` : null), p.license ? esc(p.license) : null].filter(Boolean).join(' · ');
+    html += `<tr><td><span class="mono">${esc(p.name)}</span>${p.description ? `<div class="sub1">${esc(p.description)}</div>` : ''}<div class="sub1">${who || t("updates.npm_no_meta")}</div></td><td class="mono">${esc(p.current || '—')}</td><td class="mono">${esc(p.latest || '—')}</td><td>${st}</td><td>${p.outdated ? `<button class="small primary" data-npm="${esc(p.name)}">${t("common.update")}</button>` : ''}</td></tr>`;
   }
-  box.innerHTML = html + `</tbody></table>`;
+  box.innerHTML = html + `</tbody></table><div class="sub1" style="margin-top:8px">${t("updates.npm_trust_note")}</div>`;
   box.querySelectorAll('button[data-npm]').forEach(b => b.onclick = () => npmUpdate([b.dataset.npm], b));
   $('#btnNpmUpdate').onclick = () => npmUpdate(j.packages.filter(p => p.outdated).map(p => p.name), $('#btnNpmUpdate'));
 }
