@@ -116,6 +116,10 @@
   .appcell .appic.none { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 16px; font-weight: 700; border: 1px solid var(--line); }
   .appcell .apptext { min-width: 0; }
   .appcell .apptext .sub1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 表格內的相對長度橫條（Windows 儲存體那種）：最大值滿格，其餘按比例 */
+  .hbar { height: 6px; background: #0f1110; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; margin-top: 5px; }
+  .hbar i { display: block; height: 100%; background: var(--accent); opacity: .85; }
+  .hbar.warn i { background: var(--warn); }
   .stat { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 12px; }
   .stat div { min-width: 90px; } .stat b { font-size: 22px; display: block; line-height: 1.1; } .stat span { color: var(--muted); font-size: 12px; }
   .mon { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 18px; margin-bottom: 18px; }
@@ -609,6 +613,8 @@ const SEG_GROUPS = [
   { key: 'logs', label: '日誌', color: '#5fc9c0', cats: ['journal'] },
   { key: 'trash', label: '垃圾桶', color: '#e08fa8', cats: ['trash', 'apt_autoremove'] },
 ];
+// 數字下面畫一條相對於清單最大值的橫條；max 為 0 或值缺就不畫
+const hbar = (bytes, max, cls='') => (bytes && max) ? `<div class="hbar ${cls}"><i style="width:${Math.max(1, bytes / max * 100).toFixed(1)}%"></i></div>` : '';
 function diskSegBar(d, L) {
   const by = Object.fromEntries(d.categories.map(c => [c.key, c.bytes || 0]));
   const used = L.total - L.free;
@@ -645,15 +651,17 @@ async function loadDisk(force) {
   if (j.scanning) { if (!hw.diskTimer) hw.diskTimer = setInterval(() => loadDisk(), 5000); } else if (hw.diskTimer) { clearInterval(hw.diskTimer); hw.diskTimer = null; }
   if (!d) return;
   const cats = d.categories.slice().sort((a, b) => b.bytes - a.bytes);
-  let html = `<table><thead><tr><th>類別</th><th style="width:100px">大小</th><th>說明</th><th style="width:170px"></th></tr></thead><tbody>`;
+  const catMax = Math.max(0, ...cats.map(c => c.bytes || 0));
+  let html = `<table><thead><tr><th>類別</th><th style="width:130px">大小</th><th>說明</th><th style="width:170px"></th></tr></thead><tbody>`;
   for (const c of cats) {
     const act = c.action ? `<button class="small" data-act="${c.action}">${ICONS[ACT_ICON[c.action]] || ''}${ACT_LABEL[c.action] || c.action}</button>` : '';
     const more = c.items.length ? `<details><summary class="sub1">明細 ${c.items.length} 項</summary><table style="margin-top:6px">${c.items.map(i => `<tr><td class="mono" style="font-size:12px">${esc(i.name)}${i.note ? `<span class="sub1"> · ${esc(i.note)}</span>` : ''}${i.modified ? `<span class="sub1"> · ${esc(i.modified)}</span>` : ''}</td><td style="width:90px" class="sub1">${i.bytes ? GB(i.bytes) : ''}</td><td style="width:70px">${c.key === 'ollama' ? `<button class="small" data-olrm="${esc(i.name)}">刪除</button>` : ''}</td></tr>`).join('')}</table></details>` : '';
-    html += `<tr><td><b>${esc(c.label)}</b>${more}</td><td class="mono">${c.bytes ? GB(c.bytes) : '—'}</td><td class="sub1">${esc(c.note)}</td><td>${act}</td></tr>`;
+    html += `<tr><td><b>${esc(c.label)}</b>${more}</td><td class="mono">${c.bytes ? GB(c.bytes) : '—'}${hbar(c.bytes, catMax)}</td><td class="sub1">${esc(c.note)}</td><td>${act}</td></tr>`;
   }
   $('#diskCats').innerHTML = html + `</tbody></table>`;
-  $('#diskHome').innerHTML = `<table><tbody>${d.home_top.map(h => `<tr><td class="mono">${esc(h.name)}</td><td style="width:90px" class="sub1">${GB(h.bytes)}</td></tr>`).join('')}</tbody></table>`;
-  $('#diskBig').innerHTML = d.big_files.length ? `<table><tbody>${d.big_files.map(b => `<tr><td class="mono" style="font-size:12px">${esc(b.path.replace(/^\/home\/[^/]+/, '~'))}</td><td style="width:80px" class="sub1">${GB(b.bytes)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">沒有</div>';
+  const homeMax = Math.max(0, ...d.home_top.map(h => h.bytes || 0)), bigMax = Math.max(0, ...d.big_files.map(b => b.bytes || 0));
+  $('#diskHome').innerHTML = `<table><tbody>${d.home_top.map(h => `<tr><td class="mono">${esc(h.name)}${hbar(h.bytes, homeMax)}</td><td style="width:90px" class="sub1">${GB(h.bytes)}</td></tr>`).join('')}</tbody></table>`;
+  $('#diskBig').innerHTML = d.big_files.length ? `<table><tbody>${d.big_files.map(b => `<tr><td class="mono" style="font-size:12px">${esc(b.path.replace(/^\/home\/[^/]+/, '~'))}${hbar(b.bytes, bigMax, 'warn')}</td><td style="width:80px" class="sub1">${GB(b.bytes)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">沒有</div>';
   $('#diskCats').querySelectorAll('button[data-act]').forEach(b => b.onclick = async () => {
     const act = b.dataset.act; const msg = { docker_prune: '只刪沒有 tag 的 dangling 映像與 build cache，不動有名字的映像和卷。', trash_empty: '垃圾桶內容會永久刪除。', apt_autoremove: '會移除不再需要的相依套件（含舊核心），桌面會跳密碼視窗。', apt_clean: '刪除已下載的 .deb 快取，之後需要時會重新下載。', npm_cache_clean: '清 npm 快取，下次 npm install 會重新下載。' }[act] || '';
     if (!confirm(`${ACT_LABEL[act]}\n${msg}\n確定？`)) return;
