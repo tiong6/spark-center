@@ -20,11 +20,11 @@ English interface captured on an ASUS Ascend GX10 with live system data.
 
 **Monitor** — memory, CPU, GPU, temperatures and network activity.
 
-![Spark Center Monitor tab in English, showing live gauges and activity charts](output/playwright/monitor-en.png)
+![Spark Center Monitor tab in English, showing live gauges and activity charts](docs/screenshots/monitor-en.png)
 
 **Updates** — package updates and firmware status. This machine had no pending updates when captured.
 
-![Spark Center Updates tab in English, showing no pending packages and the fwupd firmware inventory](output/playwright/updates-en.png)
+![Spark Center Updates tab in English, showing no pending packages and the fwupd firmware inventory](docs/screenshots/updates-en.png)
 
 ## What it does
 
