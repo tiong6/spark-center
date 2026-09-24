@@ -883,8 +883,15 @@ def rollback_prepare(names, log=lambda s: None, status=lambda s: None):
                 pass
             entry["reason"] = reason
             log(msg("rollback_not_kept", LANG_DEFAULT, name=name, old=inst.version, reason=reason))
+    def _sig(j):   # 同一組（套件、舊版、新版）就是同一個退路，留兩份沒意義（更新→降回→再更新會產生一模一樣的紀錄）
+        return frozenset((p.get("name"), p.get("old"), p.get("new")) for p in j.get("packages", []) if p.get("deb"))
     with _ROLLBACK_LOCK:
-        jobs = [j for j in _rollback_index_load() if j.get("id") != job_id]
+        jobs = []
+        for j in _rollback_index_load():
+            if j.get("id") == job_id or (_sig(j) and _sig(j) == _sig(rec)):
+                shutil.rmtree(os.path.join(ROLLBACK_DIR, j["id"]), ignore_errors=True)
+                continue
+            jobs.append(j)
         jobs.insert(0, rec)
         for old_job in jobs[ROLLBACK_KEEP:]:
             shutil.rmtree(os.path.join(ROLLBACK_DIR, old_job["id"]), ignore_errors=True)
