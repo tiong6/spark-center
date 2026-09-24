@@ -2598,7 +2598,8 @@ def disk_scan():
             cat("snap_home", "snap 應用資料（~/snap）", _du(sn), "Steam 遊戲、瀏覽器設定檔等；請在各應用內管理", None, _du_children(sn, 10))
         cat("flatpak", "flatpak（系統）", _du("/var/lib/flatpak"), "app＋runtime；未使用的 runtime 可用 flatpak uninstall --unused", None)
         cat("snapd", "snap（系統）", _du("/var/lib/snapd"), "snapd 預設保留舊版本 2 份", None)
-        cat("apt_cache", "apt 套件快取", _du("/var/cache/apt"), "下載過的 .deb，清掉無害", "apt_clean")
+        # 只量 archives：apt clean 清的就是這裡；同層的 pkgcache.bin／srcpkgcache.bin 是套件索引，清不掉也不該清
+        cat("apt_cache", "apt 套件快取", _du("/var/cache/apt/archives"), "下載過的 .deb，清掉無害", "apt_clean")
         ar = _apt_autoremovable()
         cat("apt_autoremove", "apt 可自動移除的套件", None, f"{len(ar)} 個不再需要的相依套件（含舊核心）" if ar else "沒有", "apt_autoremove" if ar else None, [{"name": n, "bytes": 0} for n in ar])
         cat("journal", "系統日誌 journal", _du("/var/log/journal"), "需 root 才能 vacuum，這裡不動", None)
