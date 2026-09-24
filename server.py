@@ -11,6 +11,7 @@ import concurrent.futures
 import glob
 import hashlib
 import http.client
+import shutil
 import socket
 import gzip
 import json
@@ -153,6 +154,18 @@ MSG = {
         "duplicate_note": "重複判定用名稱正規化（去掉 GGUF、instruct 等字尾）比對，是啟發式；同名不代表同一量化版本，刪之前自己確認。",
         "warming": "載入／暖機",
         "warm_failed": "暖機失敗",
+        "rollback_preparing": "保留舊版以便降回：{name} {old}",
+        "rollback_kept": "已保留 {name} {old}（{source}）",
+        "rollback_not_kept": "未保留 {name} {old}：{reason}",
+        "rollback_src_cache": "apt 快取",
+        "rollback_src_repo": "來源伺服器",
+        "rollback_src_launchpad": "Launchpad",
+        "rollback_no_source": "來源不保留舊版（ESM 需授權，或第三方倉庫已移除）",
+        "rollback_too_big": "{mb} MB 超過保留上限 {max} MB",
+        "rollback_fetch_failed": "下載失敗：{err}",
+        "rollback_bad_deb": "下載到的檔案不是預期的套件版本",
+        "rollback_not_installed": "套件未安裝，沒有舊版可留",
+        "rollback_not_found": "找不到該筆保留檔",
         "bench_all_failed": "{n} 個併發請求全部失敗，沒有可記的成績",
         "bench_partial_failed": "{failed}/{n} 個請求失敗，數字只算成功的那幾個，不是完整成績",
         "requests_queued": "小於併發數，後面的請求在排隊。",
@@ -370,6 +383,18 @@ MSG = {
         "duplicate_note": "Duplicate detection compares normalized names (removing suffixes such as GGUF and instruct) and is heuristic; matching names do not imply the same quantization. Verify before deleting.",
         "warming": "Loading / warming up",
         "warm_failed": "Warm-up failed",
+        "rollback_preparing": "Keeping the previous version for rollback: {name} {old}",
+        "rollback_kept": "Kept {name} {old} ({source})",
+        "rollback_not_kept": "Not kept {name} {old}: {reason}",
+        "rollback_src_cache": "apt cache",
+        "rollback_src_repo": "source repository",
+        "rollback_src_launchpad": "Launchpad",
+        "rollback_no_source": "the source does not keep old versions (ESM needs authentication, or the third-party repository removed it)",
+        "rollback_too_big": "{mb} MB exceeds the {max} MB limit",
+        "rollback_fetch_failed": "download failed: {err}",
+        "rollback_bad_deb": "the downloaded file is not the expected package version",
+        "rollback_not_installed": "package is not installed; nothing to keep",
+        "rollback_not_found": "that kept file was not found",
         "bench_all_failed": "All {n} concurrent requests failed; nothing to record",
         "bench_partial_failed": "{failed} of {n} requests failed; the numbers cover only the successful ones and are not a complete result",
         "requests_queued": "below the concurrency; later requests are queued.",
@@ -691,6 +716,133 @@ def _firmware_usage(pkg, cache):
             used += 1
     return {"auto": pkg.is_auto_installed, "pulled_by": pulled_by, "files": files, "used": used,
             "passive": pkg.is_auto_installed and used == 0 and files > 0}
+
+
+# ---------- 降回上一版：更新前把被換掉的舊版 .deb 留一份 ----------
+# 為什麼要自己留：Ubuntu 的來源只發布最新版，「清 apt 快取」又會把本機的舊 .deb 清掉；出事時找不到退路。
+# 來源順序：本機 apt 快取（免下載）→ 來源伺服器的 pool（Ubuntu 鏡像短期內、Microsoft 等長期保留）→ Launchpad（Ubuntu 官方套件永久保留）。
+# ESM 的 pool 要授權、第三方多半不留，這些誠實標「未保留」與原因。保留最近 5 次更新，每個檔案上限 150 MB。
+ROLLBACK_DIR = os.path.join(HERE, "data", "rollback")
+ROLLBACK_KEEP = 5
+ROLLBACK_MAX_MB = 150
+_ROLLBACK_LOCK = threading.Lock()
+
+
+def _rollback_index_load():
+    try:
+        with open(os.path.join(ROLLBACK_DIR, "index.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return []
+
+
+def _rollback_index_save(jobs):
+    os.makedirs(ROLLBACK_DIR, exist_ok=True)
+    tmp = os.path.join(ROLLBACK_DIR, "index.json.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(jobs, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, os.path.join(ROLLBACK_DIR, "index.json"))
+
+
+def _deb_matches(path, name, version):
+    out = _run(["dpkg-deb", "-f", path, "Package", "Version"], timeout=30) or ""
+    got = dict(line.split(": ", 1) for line in out.splitlines() if ": " in line)
+    return got.get("Package") == name and got.get("Version") == version
+
+
+def _fetch_file(url, dest, max_bytes):
+    """下載到 dest；先看 Content-Length 擋太大的；回 (ok, reason)。"""
+    req = urllib.request.Request(url, headers={"User-Agent": "spark-center"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        n = int(r.headers.get("Content-Length") or 0)
+        if n > max_bytes:
+            return False, ("too_big", n)
+        got = 0
+        with open(dest, "wb") as f:
+            while True:
+                chunk = r.read(1 << 20)
+                if not chunk:
+                    break
+                got += len(chunk)
+                if got > max_bytes:
+                    return False, ("too_big", got)
+                f.write(chunk)
+    return True, None
+
+
+def rollback_prepare(names, log=lambda s: None, status=lambda s: None):
+    """在升級前呼叫。回這次的紀錄（也已寫進 index）。任何一個套件失敗都不影響升級本身。"""
+    cache = apt.Cache()
+    job_id = datetime.now().strftime("%Y%m%dT%H%M%S")
+    job_dir = os.path.join(ROLLBACK_DIR, job_id)
+    os.makedirs(job_dir, exist_ok=True)
+    rec = {"id": job_id, "started": datetime.now().isoformat(timespec="seconds"), "packages": []}
+    max_bytes = ROLLBACK_MAX_MB * 1024 * 1024
+    for name in names:
+        pkg = cache.get(name)
+        entry = {"name": name, "old": None, "new": None, "arch": None, "deb": None, "source": None, "reason": None}
+        rec["packages"].append(entry)
+        if not pkg or not pkg.installed:
+            entry["reason"] = msg("rollback_not_installed", LANG_DEFAULT); continue
+        inst = pkg.installed
+        entry.update(old=inst.version, new=pkg.candidate.version if pkg.candidate else None, arch=inst.architecture)
+        status(msg("rollback_preparing", LANG_DEFAULT, name=name, old=inst.version))
+        fname = f"{name}_{inst.version.replace(':', '%3a')}_{inst.architecture}.deb"
+        dest = os.path.join(job_dir, fname)
+        # 1. 本機 apt 快取
+        cached = os.path.join("/var/cache/apt/archives", fname)
+        if os.path.isfile(cached) and _deb_matches(cached, name, inst.version):
+            shutil.copyfile(cached, dest); entry.update(deb=os.path.relpath(dest, ROLLBACK_DIR), source="cache")
+            log(msg("rollback_kept", LANG_DEFAULT, name=name, old=inst.version, source=msg("rollback_src_cache", LANG_DEFAULT))); continue
+        # 2. 來源伺服器的 pool；3. Launchpad（只有 Ubuntu 官方來源）
+        cands = []
+        try:
+            if inst.uri:
+                cands.append(("repo", inst.uri))
+        except Exception:
+            pass
+        orig = _origin_of(inst)
+        if (orig.get("site") or "").endswith("ubuntu.com") and "esm.ubuntu.com" not in (orig.get("site") or ""):
+            noepoch = inst.version.split(":", 1)[-1]
+            cands.append(("launchpad", f"https://launchpad.net/ubuntu/+archive/primary/+files/{name}_{noepoch}_{inst.architecture}.deb"))
+        reason = msg("rollback_no_source", LANG_DEFAULT)
+        for source, url in cands:
+            try:
+                ok, why = _fetch_file(url, dest, max_bytes)
+            except Exception as e:
+                reason = msg("rollback_fetch_failed", LANG_DEFAULT, err=str(e)[:80]); continue
+            if not ok:
+                reason = msg("rollback_too_big", LANG_DEFAULT, mb=round(why[1] / 1048576), max=ROLLBACK_MAX_MB); break
+            if not _deb_matches(dest, name, inst.version):
+                reason = msg("rollback_bad_deb", LANG_DEFAULT); continue
+            entry.update(deb=os.path.relpath(dest, ROLLBACK_DIR), source=source)
+            log(msg("rollback_kept", LANG_DEFAULT, name=name, old=inst.version, source=msg(f"rollback_src_{source}", LANG_DEFAULT))); break
+        if not entry["deb"]:
+            try:
+                os.remove(dest)
+            except OSError:
+                pass
+            entry["reason"] = reason
+            log(msg("rollback_not_kept", LANG_DEFAULT, name=name, old=inst.version, reason=reason))
+    with _ROLLBACK_LOCK:
+        jobs = [j for j in _rollback_index_load() if j.get("id") != job_id]
+        jobs.insert(0, rec)
+        for old_job in jobs[ROLLBACK_KEEP:]:
+            shutil.rmtree(os.path.join(ROLLBACK_DIR, old_job["id"]), ignore_errors=True)
+        jobs = jobs[:ROLLBACK_KEEP]
+        _rollback_index_save(jobs)
+    return rec
+
+
+def rollback_deb_path(job_id, name):
+    for j in _rollback_index_load():
+        if j.get("id") == job_id:
+            for p in j.get("packages", []):
+                if p.get("name") == name and p.get("deb"):
+                    fp = os.path.realpath(os.path.join(ROLLBACK_DIR, p["deb"]))
+                    if fp.startswith(os.path.realpath(ROLLBACK_DIR) + os.sep) and os.path.isfile(fp):
+                        return fp, p
+    return None, None
 
 
 def list_updates():
@@ -1073,10 +1225,22 @@ class Job:
             return self._run_subprocess(["flatpak", "update", "-y", "--noninteractive"] + packages, packages)
         if kind == "snap":
             return self._run_snap(packages)
+        if kind == "install":   # 升級前先把舊版留下來；失敗不影響升級
+            try:
+                with self.lock:
+                    self.state["status_text"] = msg("rollback_preparing", LANG_DEFAULT, name=", ".join(packages), old="")
+                rollback_prepare(packages, self._log, lambda txt: self.state.__setitem__("status_text", txt))
+            except Exception as e:
+                self._log("rollback prepare failed: " + str(e))
         loop = GLib.MainLoop()
         try:
             client = aptdaemon.client.AptClient()
-            if kind == "refresh":
+            if kind == "rollback":
+                fp, _ = rollback_deb_path(packages[0], packages[1])
+                if not fp:
+                    raise RuntimeError(msg("rollback_not_found", LANG_DEFAULT))
+                trans = client.install_file(fp)   # polkit org.debian.apt.install-file：跳密碼視窗
+            elif kind == "refresh":
                 trans = client.update_cache()
             elif kind == "aptclean":
                 trans = client.clean()                 # polkit org.debian.apt.clean：active session 免密碼
@@ -3595,6 +3759,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "max-age=86400")
             self.end_headers()
             self.wfile.write(body)
+        elif path == "/api/rollback":
+            self._json({"ok": True, "jobs": _rollback_index_load(), "keep": ROLLBACK_KEEP, "max_mb": ROLLBACK_MAX_MB})
         elif path == "/api/autostart":
             self._json(autostart_status())
         elif path == "/api/hardware":
@@ -3712,6 +3878,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(sim, 400)
             if not JOB.start("install", names):
                 return self._json({"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 409)
+            return self._json({"ok": True})
+        if path == "/api/rollback":
+            job_id, name = str(data.get("job") or ""), str(data.get("name") or "")
+            if not re.fullmatch(r"\d{8}T\d{6}", job_id) or not re.fullmatch(r"[a-z0-9.+-]+", name):
+                return self._json({"ok": False, "error": msg("rollback_not_found", LANG_DEFAULT)}, 400)
+            fp, _ = rollback_deb_path(job_id, name)
+            if not fp:
+                return self._json({"ok": False, "error": msg("rollback_not_found", LANG_DEFAULT)}, 404)
+            if not JOB.start("rollback", [job_id, name]):
+                return self._json({"ok": False, "error": msg("job_running", LANG_DEFAULT)}, 409)
             return self._json({"ok": True})
         if path == "/api/autostart":
             try:

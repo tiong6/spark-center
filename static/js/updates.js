@@ -103,8 +103,33 @@ async function loadFirmware(force) {
 $('#btnFwRefresh').onclick = async () => { $('#fwMeta').textContent = t("updates.querying_lvfs"); const r = await api('/api/disk/action', {action: 'fwupd_refresh'}); if (!r.ok) { alert(r.error); return; } startPolling(t("updates.fwupd_refresh_lvfs_metadata")); const w = setInterval(async () => { const jj = await api('/api/job'); if (jj.status !== 'running') { clearInterval(w); loadFirmware(true); } }, 1500); };
 $('#btnFwUpdate').onclick = async () => { if (!confirm(t("updates.install_all_available_firmware_updates_with"))) return; const r = await api('/api/disk/action', {action: 'fwupd_update'}); if (!r.ok) { alert(r.error); return; } startPolling(t("updates.fwupd_install_firmware_updates")); window.scrollTo({top: 0, behavior: 'smooth'}); };
 
+/* ---- 降回上一版：清單來自 data/rollback/index.json，每筆是一次更新工作 ---- */
+async function loadRollback() {
+  const box = $('#rollback'); if (!box) return;
+  const j = await api('/api/rollback');
+  if (!j.ok) { box.innerHTML = `<div class="empty">${esc(j.error)}</div>`; return; }
+  const jobs = (j.jobs || []).filter(x => (x.packages || []).length);
+  if (!jobs.length) { box.innerHTML = `<div class="empty">${t("updates.rollback_none")}</div>`; return; }
+  const src = { cache: t("updates.kept_from_cache"), repo: t("updates.kept_from_repo"), launchpad: t("updates.kept_from_launchpad") };
+  let html = `<table><thead><tr><th style="width:34%">${t("updates.package")}</th><th style="width:26%">${t("updates.version")}</th><th>${t("updates.status")}</th><th style="width:170px"></th></tr></thead><tbody>`;
+  for (const job of jobs) {
+    html += `<tr class="grp"><td colspan="4"><span class="gname" style="color:var(--muted)">${t("updates.updated_at")} ${esc(job.started.replace('T', ' '))}</span></td></tr>`;
+    for (const p of job.packages) {
+      const st = p.deb ? `<span class="tag ok">${esc(src[p.source] || p.source)}</span>` : `<span class="tag" title="${esc(p.reason || '')}">${t("updates.not_kept")}</span><span class="sub1"> ${esc(p.reason || '')}</span>`;
+      html += `<tr class="sub"><td></td><td class="mono">${esc(p.name)}<br><span class="sub1">${esc(p.old || '—')} → ${esc(p.new || '—')}</span></td><td>${st}</td><td>${p.deb ? `<button class="small" data-rb-job="${esc(job.id)}" data-rb-name="${esc(p.name)}" data-rb-old="${esc(p.old)}" data-rb-new="${esc(p.new || '')}">${t("updates.rollback_btn", {v0: esc(p.old)})}</button>` : ''}</td></tr>`;
+    }
+  }
+  box.innerHTML = html + `</tbody></table>`;
+  box.querySelectorAll('button[data-rb-job]').forEach(b => b.onclick = async () => {
+    if (!confirm(t("updates.rollback_confirm", {name: b.dataset.rbName, new: b.dataset.rbNew, old: b.dataset.rbOld}))) return;
+    b.disabled = true;
+    const r = await api('/api/rollback', {job: b.dataset.rbJob, name: b.dataset.rbName});
+    if (!r.ok) { alert(r.error); b.disabled = false; return; }
+    startPolling(t("job.rollback_with_value", {value: b.dataset.rbName})); window.scrollTo({top: 0, behavior: 'smooth'});
+  });
+}
 async function load() {
-  loadFirmware();
+  loadFirmware(); loadRollback();
   const j = await api('/api/updates');
   if (!j.ok) { $('#list').innerHTML = `<div class="panel notice danger">${t("updates.could_not_load_the_list", {v0: esc(j.error)})}</div>`; return; }
   const names = new Set(j.items.map(i => i.name));
@@ -157,7 +182,8 @@ function jobTitle(j) {   // 重新整理頁面或服務重啟後接回工作時�
   const pk = (j.packages || []).join(', ');
   return ({ refresh: t("job.refresh_apt_sources"), install: t("job.apt_install_with_value", {value: pk}), remove: t("job.apt_remove_with_value", {value: pk}),
             aptclean: t("job.clear_apt_cache"), snap: t("job.snap_update_with_value", {value: pk}), flatpak: t("job.flatpak_update_with_value", {value: pk}),
-            ollama_pull: 'ollama pull ' + pk, shell: t("job.system_action_with_value", {value: pk}) })[j.kind] || (t("job.job_with_value", {value: pk}));
+            ollama_pull: 'ollama pull ' + pk, shell: t("job.system_action_with_value", {value: pk}),
+            rollback: t("job.rollback_with_value", {value: (j.packages || [])[1] || pk}) })[j.kind] || (t("job.job_with_value", {value: pk}));
 }
 function startPolling(title) {
   const c = $('#jobcard'); c.className = 'panel notice';
