@@ -1,0 +1,20 @@
+name: Feature request
+description: Something the stock DGX Dashboard does not do that this tool should
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do, and what gets in the way today
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Where would the data come from
+      description: This tool never shows a number it cannot read from the system. If you know the command or file that has the value (`nvidia-smi`, `/sys/...`, `fwupdmgr`, snapd API...), say so; it turns a wish into something buildable.
+  - type: input
+    id: machine
+    attributes:
+      label: Machine
+      description: Output of `curl -s http://127.0.0.1:11001/api/machine`

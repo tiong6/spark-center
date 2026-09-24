@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: DGX Spark / GB10 forum thread
+    url: https://forums.developer.nvidia.com/t/spark-center-open-source-local-control-panel-for-dgx-spark-gb10-selective-apt-updates-no-forced-reboot-nvml-monitoring-fwupd-check/384218
+    about: General questions and discussion with other GB10 owners

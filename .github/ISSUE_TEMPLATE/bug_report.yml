@@ -1,0 +1,58 @@
+name: Bug report
+description: Something shows the wrong value, fails, or does not appear on your GB10 machine
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks. Spark Center has only been tested on one ASUS Ascent GX10, so reports from other GB10 machines are the most valuable thing you can send.
+        Please do not paste serial numbers, MAC addresses or your Wi-Fi name. The `/api/machine` output below does not contain them.
+  - type: input
+    id: machine
+    attributes:
+      label: Machine
+      description: Output of `curl -s http://127.0.0.1:11001/api/machine`
+      placeholder: '{"ok": true, "vendor": "ASUS", "product": "GX10", "family": "DGX Spark"}'
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: DGX OS / Ubuntu version
+      description: Output of `cat /etc/dgx-release 2>/dev/null; lsb_release -ds; uname -r`
+      placeholder: DGX OS 7.6.0 · Ubuntu 24.04.5 LTS · 7.0.0-1019-nvidia
+    validations:
+      required: true
+  - type: dropdown
+    id: tab
+    attributes:
+      label: Which tab
+      options: [Monitor, Models, Updates, Apps, Disk, Hardware, History, Top bar / general, Install script]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect
+      description: If a value is wrong, say what the real value is and how you know (e.g. `nvidia-smi`, `lsblk`, `fwupdmgr get-devices`).
+    validations:
+      required: true
+  - type: textarea
+    id: api
+    attributes:
+      label: Relevant API output
+      description: |
+        The tab's data comes from one of these; paste the one that matters (remove serials if you paste `/api/hardware`):
+        `/api/updates` `/api/apps` `/api/disk` `/api/hardware/live` `/api/llm` `/api/firmware` `/api/job`
+      render: json
+  - type: textarea
+    id: log
+    attributes:
+      label: Service log
+      description: Output of `journalctl --user -u spark-center -n 50 --no-pager`
+      render: text
+  - type: textarea
+    id: shot
+    attributes:
+      label: Screenshot
+      description: Drag an image here. Hide the Wi-Fi card first if it shows your network name.
