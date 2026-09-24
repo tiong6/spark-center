@@ -21,9 +21,9 @@ Spark Center replaces that button and adds the things people keep asking for on 
 | **Monitor** 監控 | DGX-style gauges and sparklines, sampled every 2 s: unified memory, CPU (overall or per-core with clocks), GPU via NVML, GPU temperature against the real NVML slowdown threshold, GPU power, NVMe temperature, per-interface throughput, and Wi-Fi quality (signal, MCS, retry rate, beacon loss, 24 h disconnects) with a channel analyser. Detects the **"GPU stuck at 611 MHz"** PD-controller failure and shows the cold-drain fix. |
 | **Models** 模型 | Ollama: load / unload with a keep-alive choice, pull with streaming progress, delete. Benchmarks that actually generate tokens — single request or 1/2/4/8 concurrent — with history kept server-side. Finds models duplicated across Ollama, LM Studio and Open WebUI's container volume. |
 | **Updates** 更新 | Pick the packages you want. A dependency simulation runs first and shows everything that will really be touched, including what your selection drags in. No forced reboot; it only reads `/var/run/reboot-required` and tells you. Packages are grouped by source with readable names and a colour per source (the raw apt `Origin` is still shown, since vendors fill it with things like `code stable` or `. nodistro`). Firmware sub-packages that Ubuntu's `linux-firmware` meta-package drags in but no loaded driver uses on this machine (AMD graphics, Qualcomm, Netronome…) are folded away, judged by intersecting the package's files with `modinfo -F firmware` of every loaded module; they do not light the tab's badge and *Select all* skips them. While downloading, the job bar shows bytes done / total, speed and ETA, because aptdaemon's percentage is not linear in bytes and sits at 1 % for a long time. Below it, a **firmware panel** reads fwupd directly, so a flash that reported success but did not change the version shows up as a mismatch. |
-| **Apps** 應用程式 | Every desktop application across apt, snap and flatpak with versions and origins. flatpak and snap updates are one click. snap updates show real byte-level progress read from snapd's API. |
-| **Disk** 磁碟 | What is eating space: models, Docker, snap data, caches, logs, big files. Cleanup actions are a fixed whitelist. Desktop notification at 90 %. |
-| **Hardware** 硬體 | A Windows-style inventory: rear-panel diagram with per-port USB-C mapping you can calibrate by plugging something in, DMI serial and memory modules, NVMe SMART health, USB device tree, Bluetooth, printers, PCI link speeds. |
+| **Apps** 應用程式 | Every desktop application across apt, snap and flatpak, with icons, versions, origins, installed size and install date. flatpak and snap updates are one click. snap updates show real byte-level progress read from snapd's API. |
+| **Disk** 磁碟 | A macOS-style segmented bar of what is eating space (models, Docker, app data, caches, logs, trash, other) with a legend, then the breakdown with relative bars: models, Docker, snap data, caches, logs, big files. Cleanup actions are a fixed whitelist. Desktop notification at 90 %. |
+| **Hardware** 硬體 | An "About this machine" header (model, chip, unified memory, storage, DGX OS, serial, BIOS), then a Windows-style inventory: rear-panel diagram with per-port USB-C mapping you can calibrate by plugging something in, DMI serial and memory modules, NVMe SMART health, USB device tree, Bluetooth, printers, PCI link speeds. |
 | **History** 歷史 | Recent apt transactions with who ran them. |
 
 ## Design rules
@@ -93,8 +93,8 @@ Ubuntu 24.04 / DGX OS 7.x on aarch64. 以下都是系統內建，不需要另外
 
 | 檔案 | 用途 |
 |---|---|
-| `server.py` | 後端，stdlib `http.server`，約 3100 行 |
-| `index.html` | 前端單檔，無外部資源，約 1100 行 |
+| `server.py` | 後端，stdlib `http.server`，約 3200 行 |
+| `index.html` | 前端單檔，無外部資源，約 1200 行 |
 | `install.sh` | 產生並安裝 systemd 單元與桌面捷徑 |
 | `spark-center.service.in`、`app/spark-center.desktop.in` | 路徑用 `@ROOT@` 的模板 |
 | `data/` | 執行時資料（孔位校準、量測歷史、硬體快照），已 git 忽略 |
