@@ -1097,32 +1097,39 @@ def npm_status(force=False):
                      newer=bool(want) and _semver_lt(want, v.get("current")))
         # npm 的選版只是「偏好」相容 engines 的版本：整個套件都不相容時仍會回不相容版，install 也只印警告。
         # 這裡對每個目標版查 engines.node，用 npm 附帶的 semver 核對目前 Node；不相容就標 blocked、不給更新鈕。
+        # 「裝回相容版」（newer）的目標也要核對，不然前端給了鈕、後端不認。
+        # npm view 失敗時退出碼非 0、stdout 是 {"error":{...}}：要和「成功查到但沒宣告 engines」分開，不能當成沒限制。
         checks = {}
         for e in pk.values():
-            if e["outdated"]:
+            if e["outdated"] or e.get("newer"):
                 try:
                     v = subprocess.run([NPM_BIN, "view", f"{e['name']}@{e['latest']}", "engines", "--json"], capture_output=True, text=True, timeout=30, env=_ENV_C)
-                    checks[e["name"]] = ((json.loads(v.stdout) if v.stdout.strip() else {}) or {}).get("node")
+                    body = json.loads(v.stdout) if v.stdout.strip() else {}
+                    if v.returncode != 0 or (isinstance(body, dict) and body.get("error")):
+                        raise RuntimeError(((body.get("error") or {}).get("code") if isinstance(body, dict) else None) or (v.stderr or "").strip()[:60] or f"rc={v.returncode}")
+                    checks[e["name"]] = (body or {}).get("node")
                 except Exception as ex:
                     checks[e["name"]] = f"?{str(ex)[:40]}"
+        if any(str(r).startswith("?") for r in checks.values()):
+            out["engines_partial"] = True   # 有查詢失敗的：這次結果不進快取，下次開頁再試
         if checks and out["node"]:
             sat = _node_semver_satisfies(out["node"], {n: r for n, r in checks.items() if r and not r.startswith("?")})
             for n, r in checks.items():
                 e = pk[n]
                 e["target_engines"] = r
                 if r and r.startswith("?"):
-                    e.update(outdated=False, blocked=True, blocked_reason=msg('npm_engine_unknown', LANG_DEFAULT))
+                    e.update(outdated=False, newer=False, blocked=True, blocked_reason=msg('npm_engine_unknown', LANG_DEFAULT))
                 elif r and sat.get(n) is False:
-                    e.update(outdated=False, blocked=True, blocked_reason=msg('npm_engine_blocked', LANG_DEFAULT, ver=e["latest"], need=r, node=out["node"]))
+                    e.update(outdated=False, newer=False, blocked=True, blocked_reason=msg('npm_engine_blocked', LANG_DEFAULT, ver=e["latest"], need=r, node=out["node"]))
                 elif r and sat.get(n) is None:
-                    e.update(outdated=False, blocked=True, blocked_reason=msg('npm_engine_unknown', LANG_DEFAULT))
+                    e.update(outdated=False, newer=False, blocked=True, blocked_reason=msg('npm_engine_unknown', LANG_DEFAULT))
         out["outdated"] = sum(1 for e in pk.values() if e["outdated"])
     except Exception as e:
         # 查不到新版不能變成「全部最新」：outdated 留 None，前端顯示「—」並掛紅字
         out.update(error=msg('npm_outdated_failed', LANG_DEFAULT, err=str(e)[:120]))
     out["packages"] = sorted(pk.values(), key=lambda e: (not e["outdated"], e["name"]))
     with _NPM["lock"]:
-        if not out["error"]:
+        if not out["error"] and not out.get("engines_partial"):
             _NPM.update(ts=time.time(), data=out)
     return out
 
@@ -1548,7 +1555,8 @@ class Job:
             except Exception as e:
                 self._log("rollback record failed: " + str(e))
             st = npm_status()
-            want = {e["name"]: e.get("latest") for e in st.get("packages", []) if e.get("outdated")}
+            # outdated（升級）與 newer（裝回相容版）都是經過 engines 核對的明確版本；blocked 的不在裡面
+            want = {e["name"]: e.get("latest") for e in st.get("packages", []) if (e.get("outdated") or e.get("newer")) and not e.get("blocked")}
             missing = [n for n in packages if not want.get(n)]
             if st.get("error") or missing:
                 # 目標版本查不到就停：退回 @latest 會裝到沒確認過、可能不相容的版本
