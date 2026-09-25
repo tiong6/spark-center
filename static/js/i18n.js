@@ -2,6 +2,7 @@ const STR = {
   "zh-TW": {
     "node.title": "Node 主版本升級",
     "node.expected": "預期 Node {version}；實際版本以切換後的 apt 索引為準。",
+    "node.helper_howto": "這是選用功能，不裝不影響其他更新。要啟用，看過 tools/node_source.py 後在終端機跑這三行（改過該檔要重跑）：",
     "node.completed": "上次從 {old} 升級，目前 {version}；可恢復保存的原版本。",
     "node.current": "已安裝 {version}；目前訂閱 Node {major} 來源。",
     "node.prepare": "準備升級至 Node {major}",
@@ -638,6 +639,7 @@ const STR = {
   "en": {
     "node.title": "Node major-version upgrade",
     "node.expected": "Expected Node {version}; the actual version is determined by the apt index after switching repositories.",
+    "node.helper_howto": "This is optional; other updates work without it. To enable it, review tools/node_source.py and run these lines in a terminal (repeat after that file changes):",
     "node.completed": "Last upgraded from {old}; currently {version}. The saved original version can be restored.",
     "node.current": "Installed {version}; subscribed to the Node {major} repository.",
     "node.prepare": "Prepare upgrade to Node {major}",

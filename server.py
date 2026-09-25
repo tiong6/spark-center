@@ -12,6 +12,7 @@ import glob
 import hashlib
 import http.client
 import shutil
+import shlex
 import socket
 import stat
 from pathlib import Path
@@ -1100,7 +1101,12 @@ def node_read(*args):
     if os.path.realpath(shutil.which('node') or '') != '/usr/bin/node':
         return {'ok': False, 'error': msg('node_source_unsupported', LANG_DEFAULT)}
     if not node_helper_ready():
-        return {'ok': False, 'error': msg('node_helper_unavailable', LANG_DEFAULT)}
+        # 把安裝指令連 repo 路徑一起給前端，使用者複製貼上就好，不必翻 README
+        return {'ok': False, 'error': msg('node_helper_unavailable', LANG_DEFAULT), 'helper_missing': True,
+                'install_cmds': [f'cd {shlex.quote(HERE)}',
+                                 'sudo install -d -o root -g root -m 0755 /usr/local/libexec/spark-center',
+                                 'sudo install -o root -g root -m 0755 tools/node_source.py /usr/local/libexec/spark-center/node_source.py',
+                                 'sudo install -o root -g root -m 0644 tools/spark-center-node-source.policy /usr/share/polkit-1/actions/io.github.tiong6.spark-center.node-source.policy']}
     r = subprocess.run(['/usr/bin/python3', '-I', NODE_HELPER, *args], capture_output=True,
                        text=True, timeout=90, env=_ENV_C)
     try:
