@@ -6,7 +6,15 @@
 
 ## 2026-09-25
 
-*Security and honesty fixes from an external code review: cross-site POST rejected, fwupd query failure no longer shown as "up to date", trash emptying covers hidden files and reports failure.*
+*Roll back an update from the same tab (real .deb kept before each install, sha256-checked, apt-simulated before restoring); npm global CLI tools (Claude Code, Gemini CLI, OpenClaw…) with author/repository shown, Node-engine compatibility checked, running processes detected and restartable; guided Node major-version upgrade through a root-owned helper with a polkit policy; SSH/NVIDIA Sync port forwarding; six rounds of external review fixes. Tested end to end on this GX10: curl update → roll back → update again; Node 22 → 24 with backup kept; OpenClaw gateway restarted after its update.*
+
+**今天的主題**（細節在下方各條）：
+1. **降回上一版**：更新前依模擬結果保留所有會被換掉的舊版 .deb（含相依帶入），核對 apt 索引 sha256；降回走 `pkexec apt-get install --allow-downgrades --no-remove`，先模擬再確認，會移除別的軟體就拒絕。真機跑過「更新 curl → 整組降回 → 驗證 → 裝回」。
+2. **npm 全域套件**：列出、更新、降回；顯示描述、作者、倉庫、授權與可信度說明；只裝與目前 Node 相容的版本（核對 engines，不退回 @latest）；偵測正在執行的程序，更新後給一鍵重啟，跑舊版檔案的程序常駐提醒。
+3. **Node 大版本升級**：依官方 LTS 表提示；準備（備份舊版、切 NodeSource 倉庫）→ 模擬確認安裝 → 可恢復；由管理員另裝的 root 擁有 helper 執行，配 polkit policy，密碼視窗寫明是 Spark Center。真機 22 → 24。
+4. **遠端**：POST 的 Host 檢查接受任意本機埠號，SSH -L 與 NVIDIA Sync 的 Custom 連線可用。
+5. **外部 review 六輪**：全部重現後修，見「修正」。
+
 
 ### 新增
 

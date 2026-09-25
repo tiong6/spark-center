@@ -2,6 +2,15 @@
 
 > 唯一接力棒；先看 git status 與 git log，這份是快照。
 
+## 現況（2026-09-25 收工）
+
+- 機器：Node 24.21.0（NodeSource node_24.x），22.23.3 的備份在 /var/lib/spark-center/node-source/；helper 與 polkit policy 已裝且與 repo 一致。OpenClaw 2026.9.6，gateway 已重啟跑新版。
+- 真機驗過：apt 降回整條路（curl）、npm 更新→降回（@playwright/cli）、Node 升級（但 install 那步是從 apt 清單裝的，helper 的「確認安裝」與「恢復原版本」兩段尚未實跑）、npm 程序偵測與一鍵重啟（openclaw-gateway.service）。
+- 外部 review（astra6）六輪問題全部修完；22 個隔離測試（tools/test_node_source.py）通過。
+- 固定成本：改了 tools/node_source.py 就要重跑 README 的 sudo install 那行，否則面板顯示「版本不符」停用。
+- 教訓：重啟服務前先看 /api/job 是否 idle；測「應被拒絕」的請求用隔離測試，不要打會啟動工作的真端點（曾因此觸發真的 apt 安裝）；git add 不用 -A。
+- 下一步候選：實跑 helper 的「恢復原版本」再升一次；CSS 8 個重複選擇器順手併掉；CI 等第一個外部 PR 再說。
+
 ## 最新 review 修正（2026-09-25）
 
 - 提權只執行 /usr/local/libexec/spark-center/node_source.py；逐層檢查 root 擁有、不可群組／其他使用者寫入、不可 symlink，且內容須與 repo 版本一致。**本機尚未安裝 helper，面板目前停用 Node 主版本操作並說明原因。** 安裝命令見 README 的選用 helper 小節；不會由 app 自行安裝。
