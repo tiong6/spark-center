@@ -130,7 +130,7 @@ async function loadNpm(force) {
     const repoText = p.repo ? p.repo.replace(/^https?:\/\//, '') : null;
     const who = [p.author ? esc(p.author) : null, repoText ? `<a href="${esc(p.repo)}" target="_blank" rel="noopener">${esc(repoText)}</a>` : (p.homepage ? `<a href="${esc(p.homepage)}" target="_blank" rel="noopener">${esc(p.homepage.replace(/^https?:\/\//, ''))}</a>` : null), p.license ? esc(p.license) : null].filter(Boolean).join(' · ');
     const stale = (p.running || []).filter(r => r.stale);
-    const runTag = (p.running || []).length ? `<span class="tag reboot" title="${esc((p.running || []).map(r => `PID ${r.pid}${r.unit ? ' · ' + r.unit : ''}`).join('\n'))}">${stale.length ? t("updates.npm_running_stale", {n: stale.length}) : t("updates.npm_running", {n: p.running.length})}</span>` : '';
+    const runTag = (p.running || []).length ? `<span class="tag${stale.length ? ' reboot' : ''}" title="${esc((p.running || []).map(r => `PID ${r.pid}${r.unit ? ' · ' + r.unit : ''}`).join('\n'))}">${stale.length ? t("updates.npm_running_stale", {n: stale.length}) : t("updates.npm_running", {n: p.running.length})}</span>` : '';
     // 跑的是更新前的舊版（程序比磁碟上的 package.json 舊）：面板常駐一顆重啟鈕，不靠工作卡片
     const staleUnits = [...new Set(stale.map(r => r.unit).filter(Boolean))];
     const staleBtns = stale.length ? `<div class="sub1" style="margin-top:4px">${t("updates.npm_stale_hint")} ${staleUnits.map(u => `<button class="small" data-restart="${esc(u)}">${t("updates.npm_restart_btn", {unit: esc(u)})}</button>`).join(' ')}${stale.some(r => !r.unit) ? ` ${esc(t("updates.npm_restart_manual"))}` : ''}</div>` : '';
