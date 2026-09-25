@@ -114,7 +114,7 @@ async function loadNpm(force) {
   let html = j.error ? `<div class="panel notice danger" style="margin-bottom:10px">${esc(j.error)}</div>` : '';
   // 有套件的可裝版被 Node 版本卡住（registry 最新版比 npm 認定可裝的新，或已裝版比可裝版新）→ 根源是 Node 太舊，提醒放最上面
   const held = j.packages.filter(p => p.newer || (p.dist_latest && p.latest && p.dist_latest !== p.latest));
-  if (held.length) html += `<div class="panel notice warn" style="margin-bottom:10px">${t("updates.npm_node_old", {node: esc(j.node || '—'), list: held.map(p => esc(p.name) + (p.engines_node ? ` (Node ${esc(p.engines_node)})` : '')).join('、')})}</div>`;
+  if (held.length) html += `<div class="panel notice warn" style="margin:12px 0 10px">${t("updates.npm_node_old", {node: esc(j.node || '—'), list: held.map(p => esc(p.name) + (p.engines_node ? ` (Node ${esc(p.engines_node)})` : '')).join('、')})}</div>`;
   if (!j.packages.length) { box.innerHTML = html + `<div class="empty">${t("updates.npm_none")}</div>`; return; }
   html += `<table><thead><tr><th style="width:34%">${t("updates.package")}</th><th style="width:16%">${t("updates.current_version_2")}</th><th style="width:16%" title="${t("updates.npm_latest_hint")}">${t("updates.npm_latest")}</th><th>${t("updates.status")}</th><th style="width:120px"></th></tr></thead><tbody>`;
   for (const p of j.packages) {
