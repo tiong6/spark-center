@@ -109,12 +109,18 @@ async function loadNpm(force) {
   const j = await api('/api/npm' + (force ? '?force=1' : ''));
   if (!j.ok || !j.available) { box.innerHTML = `<div class="empty">${esc(j.error || j.note || '—')}</div>`; $('#npmMeta').textContent = ''; $('#btnNpmUpdate').classList.add('hide'); return; }
   const q = v => v == null ? '—' : v;   // 查不到新版時顯示「—」，不顯示 0
-  $('#npmMeta').textContent = t("updates.npm_meta", {node: j.node || '—', npm: j.npm || '—', n: j.packages.length, o: q(j.outdated), prefix: j.prefix || '—', when: j.generated.replace('T', ' ')});
+  const ni = j.node_info || {};
+  // 不寫死版本號：現行 LTS 與支援期限來自 Node 官方版本表（查不到就「—」），套件要求的版本來自各自的 engines
+  $('#npmMeta').textContent = t("updates.npm_meta", {node: j.node || '—', end: ni.installed_end || '—', lts: ni.lts_version || '—', npm: j.npm || '—', n: j.packages.length, o: q(j.outdated), prefix: j.prefix || '—', when: j.generated.replace('T', ' ')});
   $('#btnNpmUpdate').classList.toggle('hide', !j.outdated);
   let html = j.error ? `<div class="panel notice danger" style="margin-bottom:10px">${esc(j.error)}</div>` : '';
+  if (ni.error) html += `<div class="sub1" style="margin-top:10px">${esc(ni.error)}</div>`;
   // 有套件的可裝版被 Node 版本卡住（registry 最新版比 npm 認定可裝的新，或已裝版比可裝版新）→ 根源是 Node 太舊，提醒放最上面
   const held = j.packages.filter(p => p.newer || (p.dist_latest && p.latest && p.dist_latest !== p.latest));
-  if (held.length) html += `<div class="panel notice warn" style="margin:12px 0 10px">${t("updates.npm_node_old", {node: esc(j.node || '—'), list: held.map(p => esc(p.name) + (p.engines_node ? ` (Node ${esc(p.engines_node)})` : '')).join('、')})}</div>`;
+  const reqMajor = Math.max(0, ...held.map(p => parseInt((p.engines_node || '').replace(/[^0-9.]/g, ' ').trim().split(/[\s.]/)[0]) || 0));
+  const instMajor = parseInt((j.node || '0').split('.')[0]) || 0;
+  if (held.length) html += `<div class="panel notice warn" style="margin:12px 0 10px">${t("updates.npm_node_old", {node: esc(j.node || '—'), list: held.map(p => esc(p.name) + (p.engines_node ? ` (Node ${esc(p.engines_node)})` : '')).join('、'), req: reqMajor || '—', lts: ni.lts_major || '—'})}</div>`;
+  else if (ni.lts_major && instMajor && instMajor < ni.lts_major) html += `<div class="sub1" style="margin:10px 0 6px">${t("updates.npm_node_older_lts", {major: instMajor, end: ni.installed_end || '—', lts: ni.lts_major})}</div>`;
   if (!j.packages.length) { box.innerHTML = html + `<div class="empty">${t("updates.npm_none")}</div>`; return; }
   html += `<table><thead><tr><th style="width:34%">${t("updates.package")}</th><th style="width:16%">${t("updates.current_version_2")}</th><th style="width:16%" title="${t("updates.npm_latest_hint")}">${t("updates.npm_latest")}</th><th>${t("updates.status")}</th><th style="width:120px"></th></tr></thead><tbody>`;
   for (const p of j.packages) {

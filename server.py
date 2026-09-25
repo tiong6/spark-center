@@ -172,6 +172,7 @@ MSG = {
         "rollback_auth": "降回上一版需要 root，透過 pkexec 執行 apt-get（桌面會跳密碼視窗）",
         "rollback_sim_failed": "無法模擬降回：{err}",
         "npm_missing": "找不到 npm，沒有全域套件可查",
+        "node_release_failed": "查不到 Node 官方版本表：{err}",
         "npm_query_failed": "npm ls -g 失敗：{err}",
         "npm_outdated_failed": "查不到新版（npm outdated 失敗，可能是連不上 registry）：{err}",
         "rollback_left_broken": "。dpkg 回報有套件未完成設定：請在終端機跑 sudo dpkg --configure -a 修復後，再重新整理更新清單",
@@ -411,6 +412,7 @@ MSG = {
         "rollback_auth": "Rolling back requires root; running apt-get through pkexec (a password dialog will appear on the desktop)",
         "rollback_sim_failed": "Could not simulate the rollback: {err}",
         "npm_missing": "npm not found; no global packages to check",
+        "node_release_failed": "Could not read the official Node release table: {err}",
         "npm_query_failed": "npm ls -g failed: {err}",
         "npm_outdated_failed": "Could not check for new versions (npm outdated failed, possibly no access to the registry): {err}",
         "rollback_left_broken": ". dpkg reports packages left unconfigured: run sudo dpkg --configure -a in a terminal to repair, then refresh the update list",
@@ -991,6 +993,35 @@ def _semver_lt(a, b):
     return bool(ka and kb and ka < kb)
 
 
+_NODE_REL = {"ts": 0, "data": None}
+
+
+def node_release_info(installed):
+    """Node 官方版本表：現行 LTS 是哪個大版本、已裝的大版本支援到何時。一天查一次；查不到回 error，欄位留 None（前端顯示「—」）。
+    為什麼要查：大版本升級不會出現在 apt 清單（NodeSource 每個大版本是不同倉庫），使用者不會自己去看。"""
+    if _NODE_REL["data"] and time.time() - _NODE_REL["ts"] < 86400:
+        d = dict(_NODE_REL["data"])
+    else:
+        d = {"lts_major": None, "lts_version": None, "installed_end": None, "lts_end": None, "error": None, "fetched": None}
+        try:
+            with urllib.request.urlopen(urllib.request.Request("https://nodejs.org/dist/index.json", headers={"User-Agent": "spark-center"}), timeout=15) as r:
+                idx = json.load(r)
+            lts = next((x for x in idx if x.get("lts")), None)
+            if lts:
+                d["lts_version"] = lts["version"].lstrip("v"); d["lts_major"] = int(d["lts_version"].split(".")[0])
+            with urllib.request.urlopen(urllib.request.Request("https://raw.githubusercontent.com/nodejs/Release/main/schedule.json", headers={"User-Agent": "spark-center"}), timeout=15) as r:
+                d["_schedule"] = {k.lstrip("v"): v.get("end") for k, v in json.load(r).items()}
+            d["fetched"] = datetime.now().isoformat(timespec="seconds")
+            _NODE_REL.update(ts=time.time(), data=d)
+        except Exception as e:
+            d["error"] = msg("node_release_failed", LANG_DEFAULT, err=str(e)[:80])
+    sched = d.pop("_schedule", {}) or {}
+    major = (installed or "").split(".")[0]
+    d["installed_end"] = sched.get(major)
+    d["lts_end"] = sched.get(str(d["lts_major"])) if d["lts_major"] else None
+    return d
+
+
 def npm_status(force=False):
     """npm ls -g（全部）＋ npm outdated -g（有新版的）。outdated 有新版時結束碼是 1，不能用 _run 的 0 判定。"""
     with _NPM["lock"]:
@@ -1002,6 +1033,7 @@ def npm_status(force=False):
            "generated": datetime.now().isoformat(timespec="seconds"), "prefix": None,
            "node": (_run(["node", "--version"], timeout=10) or "").strip().lstrip("v") or None,
            "npm": (_run([NPM_BIN, "--version"], timeout=20) or "").strip() or None}
+    out["node_info"] = node_release_info(out["node"])
     try:
         r = subprocess.run([NPM_BIN, "ls", "-g", "--depth=0", "--json"], capture_output=True, text=True, timeout=60, env=_ENV_C)
         deps = json.loads(r.stdout or "{}").get("dependencies") or {}
