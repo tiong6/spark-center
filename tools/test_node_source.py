@@ -242,5 +242,34 @@ class ApiTest(unittest.TestCase):
             self.assertTrue(impact[1]['unknown'])
 
 
+class EffectiveStateTest(unittest.TestCase):
+    """完成狀態只在 effective_state 判定：從 apt 清單裝完的算完成；半途的不算。"""
+    REPL = 'URIs: https://deb.nodesource.com/node_24.x\n'
+    ORIG = 'URIs: https://deb.nodesource.com/node_22.x\n'
+
+    def pkg(self, version, current=None, inst=None):
+        import apt_pkg
+        return Obj(installed=Obj(version=version),
+                   _pkg=Obj(current_state=apt_pkg.CURSTATE_INSTALLED if current is None else current,
+                            inst_state=apt_pkg.INSTSTATE_OK if inst is None else inst))
+
+    def base(self, phase='prepared'):
+        return {'phase': phase, 'original': self.ORIG, 'replacement': self.REPL, 'target': 24, 'old_version': '22.1.0-1nodesource1'}
+
+    def test_externally_completed_upgrade_counts_as_installed(self):
+        s = ns.effective_state(self.base(), self.pkg('24.1.0-1nodesource1'), self.REPL)
+        self.assertEqual((s['phase'], s['raw_phase'], s['external']), ('installed', 'prepared', True))
+
+    def test_half_configured_target_is_not_completed(self):
+        import apt_pkg
+        s = ns.effective_state(self.base('install_failed'), self.pkg('24.1.0-1nodesource1', current=apt_pkg.CURSTATE_HALF_CONFIGURED), self.REPL)
+        self.assertEqual(s['phase'], 'install_failed')
+
+    def test_running_install_and_old_version_stay_pending(self):
+        self.assertEqual(ns.effective_state(self.base('installing'), self.pkg('24.1.0-1nodesource1'), self.REPL)['phase'], 'installing')
+        self.assertEqual(ns.effective_state(self.base(), self.pkg('22.1.0-1nodesource1'), self.REPL)['phase'], 'prepared')
+        self.assertEqual(ns.effective_state(self.base(), self.pkg('24.1.0-1nodesource1'), self.ORIG)['phase'], 'prepared')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -1130,10 +1130,7 @@ def node_status():
     j['release_error'] = info.get('error')
     if not j.get('ok') and ver:
         j['major'] = int(ver.split('.')[0]) if ver.split('.')[0].isdigit() else None
-    st = j.get('state') if j.get('ok') else None
-    if st and st.get('phase') in ('prepared', 'installing', 'install_failed') and ver.startswith(f"{st.get('target')}."):
-        st['phase'] = 'installed'   # 目標版本已在（可能從 apt 清單裝的）：不再說「尚未安裝」，恢復入口照留
-        st['external'] = True
+    # 完成與否由 helper 的 effective_state 判定（status 回來的 state 已是有效狀態），這裡不再自己改
     return j
 
 
@@ -1294,15 +1291,27 @@ def rollback_npm_entries(job_id, name=None):
     return []
 
 
+_NODE_FLOW = {"ts": 0, "phase": None}
+
+
 def _node_flow_pending():
     """Node 主版本升級進行到一半（已換倉庫、還沒裝或裝失敗）時回 phase，否則 None。
-    這時 apt 清單也看得到 nodejs 24：從清單裝會讓升級流程的狀態對不上（真的發生過），所以清單裡的 nodejs 鎖住，只留一條路。"""
+    這時 apt 清單也看得到 nodejs 24：從清單裝會讓升級流程的狀態對不上（真的發生過），所以清單裡的 nodejs 鎖住，只留一條路。
+    判定交給 helper 的 effective_state（和面板、下一次升級的放行是同一個邏輯），結果快取 20 秒。"""
+    if time.time() - _NODE_FLOW["ts"] < 20:
+        return _NODE_FLOW["phase"]
+    ph = None
     try:
         with open('/var/lib/spark-center/node-source/state.json', encoding='utf-8') as f:
-            ph = json.load(f).get('phase')
-        return ph if ph in ('preparing', 'prepared', 'installing', 'install_failed') else None
+            raw = json.load(f).get('phase')
+        if raw in ('preparing', 'prepared', 'installing', 'install_failed'):
+            j = node_read('status')
+            st = (j.get('state') or {}) if j.get('ok') else {'phase': raw}
+            ph = st.get('phase') if st.get('phase') in ('preparing', 'prepared', 'installing', 'install_failed') else None
     except (OSError, ValueError):
-        return None
+        ph = None
+    _NODE_FLOW.update(ts=time.time(), phase=ph)
+    return ph
 
 
 def list_updates():
@@ -1567,6 +1576,7 @@ class Job:
             _FW["ts"] = 0
             _DASH_CACHE["ts"] = 0
             _NPM["ts"] = 0
+            _NODE_FLOW["ts"] = 0
 
     def _run_ollama_pull(self, model):
         req = urllib.request.Request(OLLAMA + "/api/pull", data=json.dumps({"name": model, "stream": True}).encode(), headers={"Content-Type": "application/json"})
@@ -1809,6 +1819,7 @@ class Job:
                 _FW["ts"] = 0
                 _DASH_CACHE["ts"] = 0
                 _NPM["ts"] = 0   # nodejs 從這條路裝過，Node 版本會變
+                _NODE_FLOW["ts"] = 0
                 loop.quit()
 
             trans.connect("status-changed", on_status)
@@ -4417,11 +4428,12 @@ class Handler(BaseHTTPRequestHandler):
             names = [n for n in data.get("packages", []) if isinstance(n, str)]
             if not names:
                 return self._json({"ok": False, "error": msg('no_pkgs', LANG_DEFAULT)}, 400)
-            if "nodejs" in names and _node_flow_pending():
-                return self._json({"ok": False, "error": msg('node_flow_locked', LANG_DEFAULT)}, 409)
             sim = simulate(names)
             if not sim["ok"]:
                 return self._json(sim, 400)
+            # 鎖看模擬的實際變更（含相依帶入、nodejs:arm64 這種架構限定名），不只看使用者送來的名字
+            if any(c["name"].split(":")[0] == "nodejs" for c in sim["changes"]) and _node_flow_pending():
+                return self._json({"ok": False, "error": msg('node_flow_locked', LANG_DEFAULT)}, 409)
             if not JOB.start("install", names):
                 return self._json({"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 409)
             return self._json({"ok": True})

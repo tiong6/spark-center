@@ -104,12 +104,35 @@ def installed():
     return p
 
 
+def fully_installed(p):
+    """dpkg 真的裝完設定完：unpacked／half-configured 都不算。"""
+    try:
+        return p._pkg.current_state == apt.apt_pkg.CURSTATE_INSTALLED and p._pkg.inst_state == apt.apt_pkg.INSTSTATE_OK
+    except AttributeError:
+        return False
+
+
+def effective_state(s, p, source_text):
+    """完成狀態只在這裡判定，status／preview／apt 鎖都用同一個結果。
+    來源已切到目標、目標版本已完整裝好（可能是從 apt 清單裝的，不是本流程裝的）→ 視為 installed，記 external。
+    半途（unpacked、設定失敗）不算完成，失敗提示要留著。"""
+    if not s:
+        return None
+    s = dict(s)
+    if (s.get('phase') in ('prepared', 'install_failed') and source_text == s.get('replacement')
+            and p.installed.version.startswith(str(s.get('target')) + '.') and fully_installed(p)):
+        s['raw_phase'] = s['phase']
+        s['phase'] = 'installed'
+        s['external'] = True
+    return s
+
+
 def status():
     text, major, arch = source_read()
     p = installed()
-    s = state_load()
+    s = effective_state(state_load(), p, text)
     return {'source': str(SOURCE), 'source_text': text, 'major': major, 'arch': arch,
-            'installed': p.installed.version, 'state': s}
+            'installed': p.installed.version, 'fully_installed': fully_installed(p), 'state': s}
 
 
 def verify_backup(s):
@@ -199,6 +222,7 @@ def mutate(action, target, token):
         if plan['token'] != token:
             fail('node_plan_changed')
         if action == 'prepare':
+            # effective_state 判定上一次已完成（含從 apt 清單裝完的），preview 才會放行到這裡；舊紀錄直接被新的取代
             old, sha = backup()   # 失敗就不碰來源；快取與來源都仍是舊的。
             if SOURCE.read_text() != plan['before']:
                 fail('node_source_changed')
