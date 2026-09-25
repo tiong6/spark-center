@@ -1,6 +1,8 @@
 const STR = {
   "zh-TW": {
     "node.title": "Node 主版本升級",
+    "node.expected": "預期 Node {version}；實際版本以切換後的 apt 索引為準。",
+    "node.completed": "上次從 {old} 升級，目前 {version}；可恢復保存的原版本。",
     "node.current": "已安裝 {version}；目前訂閱 Node {major} 來源。",
     "node.prepare": "準備升級至 Node {major}",
     "node.install": "檢查影響並安裝 Node {major}",
@@ -635,6 +637,8 @@ const STR = {
   },
   "en": {
     "node.title": "Node major-version upgrade",
+    "node.expected": "Expected Node {version}; the actual version is determined by the apt index after switching repositories.",
+    "node.completed": "Last upgraded from {old}; currently {version}. The saved original version can be restored.",
     "node.current": "Installed {version}; subscribed to the Node {major} repository.",
     "node.prepare": "Prepare upgrade to Node {major}",
     "node.install": "Check impact and install Node {major}",

@@ -128,6 +128,11 @@ def target_version(major):
     return v.version
 
 
+def simulation_changes(output):
+    # apt 的非 root NOTE 與下載摘要不是交易內容；保留套件、版本與順序。
+    return '\n'.join(line for line in output.splitlines() if re.match(r'^(Inst|Conf|Remv)\s', line))
+
+
 def preview(action, target):
     st = status()
     s = st['state']
@@ -159,7 +164,8 @@ def preview(action, target):
             plan['simulation'] = execute(APT + ['-s', 'install', '--allow-downgrades'] + args)
     else:
         fail('node_bad_action')
-    plan['token'] = digest(json.dumps(plan, sort_keys=True).encode())
+    canonical = dict(plan, simulation=simulation_changes(plan['simulation']))
+    plan['token'] = digest(json.dumps(canonical, sort_keys=True).encode())
     return plan
 
 
@@ -224,7 +230,7 @@ def mutate(action, target, token):
                     refresh()
                 if plan.get('args'):
                     # 來源恢復後再檢查一次，不允許解依賴時悄悄移除其他套件。
-                    if execute(APT + ['-s', 'install', '--allow-downgrades'] + plan['args']) != plan['simulation']:
+                    if simulation_changes(execute(APT + ['-s', 'install', '--allow-downgrades'] + plan['args'])) != simulation_changes(plan['simulation']):
                         fail('node_plan_changed')
                     execute(APT + ['install', '-y', '--allow-downgrades'] + plan['args'], capture=False)
                 if installed().installed.version != plan['version']:

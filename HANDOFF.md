@@ -2,6 +2,14 @@
 
 > 唯一接力棒；先看 git status 與 git log，這份是快照。
 
+## 最新 review 修正（2026-09-25）
+
+- 提權只執行 /usr/local/libexec/spark-center/node_source.py；逐層檢查 root 擁有、不可群組／其他使用者寫入、不可 symlink，且內容須與 repo 版本一致。**本機尚未安裝 helper，面板目前停用 Node 主版本操作並說明原因。** 安裝命令見 README 的選用 helper 小節；不會由 app 自行安裝。
+- token 與提權後再次模擬只比 Inst／Conf／Remv 行，完整模擬仍顯示給使用者。先前 15 個 mock 測試漏掉非 root NOTE 的差異，不能證明提權流程可完成。
+- 準備視窗補 expected_version（官方 LTS 表），實際版本以切換後 apt 為準。phase=installed 改灰字紀錄，保留恢復入口。
+- 新驗證：19 tests OK，包含真 apt-get -s --reinstall 的唯讀測試（NOTE present=True，實際 Inst／Conf 保留）、交易改變拒絕及 helper 信任檢查。靜態檢查 STR 633／MSG 253 對齊，仍有 8 個既有 CSS 警告。
+- Playwright 驗證未安裝 helper 的實際中英提示與無按鈕；注入資料驗證完整預期版本、成功狀態沒有 notice 黃框，七分頁通過。沒有實際安裝 helper 或升降 Node。
+
 ## 2026-09-25：NodeSource 主版本升級
 
 更新分頁的 npm 面板加入 Node 主版本流程，前端 static/js/node-source.js，後端 server.py，提權 helper tools/node_source.py。

@@ -8,7 +8,8 @@ async function loadNodeSource() {
     const target = pending ? s.target : j.target;
     const canInstall = pending && ['prepared', 'installing', 'install_failed'].includes(s.phase) && j.source_text === s.replacement && !j.installed.startsWith(s.target + '.');
     let html = `<b>${t('node.title')}</b><div class="sub1">${t('node.current', {version: esc(j.installed), major: j.major})}</div>`;
-    if (pending) html += `<div class="panel notice ${s.phase.endsWith('failed') ? 'danger' : 'warn'}" style="margin-top:10px">${t('node.phase_' + s.phase)}<div class="sub1">${t('node.saved', {version: esc(s.old_version)})}</div></div>`;
+    if (pending && s.phase === 'installed') html += `<div class="sub1">${t('node.completed', {old: esc(s.old_version), version: esc(j.installed)})}</div>`;
+    if (pending && s.phase !== 'installed') html += `<div class="panel notice ${s.phase.endsWith('failed') ? 'danger' : 'warn'}" style="margin-top:10px">${t('node.phase_' + s.phase)}<div class="sub1">${t('node.saved', {version: esc(s.old_version)})}</div></div>`;
     if (j.release_error) html += `<div class="sub1">${esc(j.release_error)}</div>`;
     html += '<div class="actions" style="margin-top:10px">';
     if ((!pending || s.phase === 'installed') && j.target > j.major) html += `<button class="small" data-node="prepare" data-target="${j.target}">${t('node.prepare', {major: j.target})}</button>`;
@@ -26,6 +27,7 @@ async function previewNodeSource(action, target, button) {
     const p = await api('/api/node/preview', {action, target});
     if (!p.ok) { alert(p.error); return; }
     let h = `<p>${t('node.confirm_' + action)}</p><p class="mono">${esc(p.source)}</p>`;
+    if (action === 'prepare') h += `<p>${t('node.expected', {version: esc(p.expected_version || '—')})}</p>`;
     if (p.before !== p.after) h += `<div class="sub1">${t('node.before')}</div><pre class="cl">${esc(p.before)}</pre><div class="sub1">${t('node.after')}</div><pre class="cl">${esc(p.after)}</pre>`;
     if (p.simulation) h += `<p>${t('node.simulation')}</p><pre class="cl">${esc(p.simulation)}</pre>`;
     if (p.impact.length) h += `<div class="panel notice danger">${t('node.impact')}<ul>${p.impact.map(x => `<li>${esc(x.name)}: ${x.unknown ? t('node.unknown') : esc(x.range)}</li>`).join('')}</ul></div>`;

@@ -93,6 +93,20 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(state['old_version'], '24.1.0-1nodesource1')
         self.assertIn('node_26.x', self.source.read_text())
 
+    def test_privilege_banner_does_not_change_token_but_transactions_do(self):
+        self.run_action('prepare')
+        self.simulation = 'NOTE: This is only a simulation!\n' + self.simulation
+        plan = ns.preview('install', 24)
+        self.simulation = self.simulation.split('\n', 1)[1]
+        self.assertEqual(ns.preview('install', 24)['token'], plan['token'])
+        self.simulation += 'Conf additional-package (1.0)\n'
+        self.assertNotEqual(ns.preview('install', 24)['token'], plan['token'])
+        with self.assertRaisesRegex(RuntimeError, 'node_plan_changed'):
+            ns.mutate('install', 24, plan['token'])
+        self.simulation = self.simulation.split('Conf additional-package')[0]
+        ns.mutate('install', 24, plan['token'])
+        self.assertEqual(ns.state_load()['phase'], 'installed')
+
     def test_preview_is_read_only_and_stale_confirmation_refused(self):
         plan = ns.preview('prepare', 24)
         self.assertFalse(self.store.exists())
@@ -171,7 +185,40 @@ class WorkflowTest(unittest.TestCase):
             ns.preview('restore', 24)
 
 
+class RealSimulationTest(unittest.TestCase):
+    def test_real_unprivileged_apt_output(self):
+        # 真 apt 唯讀模擬；--reinstall 讓已安裝版仍產生 Inst/Conf。
+        version = ns.installed().installed.version
+        output = ns.execute(ns.APT + ['-s', '--reinstall', 'install', 'nodejs=' + version])
+        changes = ns.simulation_changes(output)
+        self.assertIn('Inst nodejs ', changes)
+        self.assertIn('Conf nodejs ', changes)
+        self.assertNotIn('NOTE:', changes)
+        self.assertEqual(ns.simulation_changes(changes), changes)
+        print('Real apt simulation: NOTE present =', 'NOTE:' in output, '; transaction lines =', changes.splitlines())
+
+
 class ApiTest(unittest.TestCase):
+    def test_helper_trust_checks(self):
+        # 真正的 root-owned 系統檔可通過；使用者檔、symlink、版本不符不能。
+        trusted = str(Path(sys.executable).resolve())
+        with patch.object(server, 'NODE_HELPER', trusted), patch.object(server, 'NODE_HELPER_SOURCE', trusted):
+            self.assertTrue(server.node_helper_ready())
+        with tempfile.TemporaryDirectory() as tmp:
+            user_file = Path(tmp, 'helper.py'); user_file.write_text('test')
+            with patch.object(server, 'NODE_HELPER', str(user_file)), patch.object(server, 'NODE_HELPER_SOURCE', str(user_file)):
+                self.assertFalse(server.node_helper_ready())
+            with patch.object(server, 'NODE_HELPER', trusted), patch.object(server, 'NODE_HELPER_SOURCE', str(user_file)):
+                self.assertFalse(server.node_helper_ready())
+            link = Path(tmp, 'link'); link.symlink_to(trusted)
+            with patch.object(server, 'NODE_HELPER', str(link)):
+                self.assertFalse(server.node_helper_ready())
+
+    def test_unavailable_helper_never_executes(self):
+        with patch.object(server, 'node_helper_ready', return_value=False), patch.object(server.shutil, 'which', return_value='/usr/bin/node'), patch.object(server.subprocess, 'run') as run:
+            self.assertFalse(server.node_read('preview', 'install', '24')['ok'])
+            run.assert_not_called()
+
     def test_only_official_target_can_prepare(self):
         with patch.object(server, 'node_status', return_value={'ok': True, 'target': 24}), patch.object(server, 'node_read') as read:
             self.assertFalse(server.node_plan('prepare', 99)['ok'])

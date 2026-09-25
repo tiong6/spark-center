@@ -46,6 +46,19 @@ Installation is a separate **Check impact and install** action with an apt simul
 
 One major-upgrade backup (maximum 150 MiB) is kept under root-owned `/var/lib/spark-center/node-source/`; preparing a subsequent major upgrade replaces it. nvm, snap, custom or multiple NodeSource sources are not handled. No downloaded setup script is executed.
 
+### Optional: install the Node upgrade helper
+
+Node major upgrades require a separately installed, root-owned helper. The app refuses to run the repository copy with privilege. Without a matching installed helper, the panel explains that this feature is unavailable; other update features still work. The helper runs only on demand through pkexec, not as a background root service.
+
+After reviewing `tools/node_source.py`, run these commands from the repository directory. Repeat after changes to that file; installation does not switch repositories or install Node. The destination and all parent directories must be owned by root, not symlinks, and not writable by group or others.
+
+```sh
+sudo install -d -o root -g root -m 0755 /usr/local/libexec/spark-center
+sudo install -o root -g root -m 0644 tools/node_source.py /usr/local/libexec/spark-center/node_source.py
+```
+
+The preparation preview shows the expected upstream LTS version; the signed NodeSource apt index determines the actual install version. Successful upgrades appear as a neutral history line with a restore action.
+
 Validation: isolated workflow tests and live read-only API/browser checks cover this feature. The real privileged repository-switch/install/restore sequence has **not yet been exercised**.
 
 ## Design rules

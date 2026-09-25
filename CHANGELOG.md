@@ -19,6 +19,8 @@
 
 ### 修正
 
+- **Node 主版本升級 review 修正**：確認摘要與再次模擬比對只使用 Inst／Conf／Remv 交易行，排除非 root apt 模擬的 NOTE，避免提權後永遠被判定計畫改變。提權入口改為管理員另行安裝的 root-owned helper，拒絕可寫目錄、符號連結與不符版本；未安裝時停用並明示。準備視窗補上官方表的預期完整版本（以切換後 apt 索引為準），安裝成功改為灰字紀錄。真 apt 唯讀模擬與隔離／介面測試通過；尚未實測提權升降。
+
 - **POST 的 Host 檢查改成「本機位址、埠號不限」。** SSH 轉埠或 NVIDIA Sync 的 Custom 連線在遠端那台常用別的本機埠號，瀏覽器送來的 Host 是那個埠，原本會被 403。DNS rebinding 靠的是非本機主機名，放寬埠號不影響這道防線；curl 驗過 localhost:任意埠放行、evil.example 與 localhost.evil.com 仍擋、跨站 Origin 與 text/plain 仍擋。README 加「Remote access」一節。
 
 - **降回上一版：第三輪外部 review 的 4 個問題。**（1）原本走 aptdaemon 的 `install_file`，它最後跑 `DebPackage.check()`，預設拒絕比已安裝舊的版本（force=True 也一樣），所以按了根本降不回去；改成 pkexec 跑 `apt-get install -y --allow-downgrades <保留的 .deb>`，相依由 apt 解。（2）從來源伺服器（HTTP）或 Launchpad 下載的檔案原本只核對 Package/Version 欄位；現在核對 apt 索引裡該版本的 sha256，不符不採用；索引已無此版時只接受 Launchpad 的 HTTPS，並在面板標明「無法再核對雜湊」。（3）舊版從索引消失後，`installed.origins` 是空的，原本因此永遠不會試 Launchpad，而那正是需要備援的時候；改看該套件任一版本的來源。（4）原本只備份勾選的套件，漏掉相依帶動一起換掉的（例如只勾 curl 會一起升 libcurl4t64）；現在先模擬升級，依實際變更備份，面板標「相依帶入」，並多一顆「整組降回」，一次把整組交給 apt。真機實測（2026-09-25）：更新 curl → 整組降回 → curl 與 libcurl4t64 回到 10.13，dpkg 乾淨、無壞相依、curl 可用、libcurl4t64 的自動安裝標記保留；再裝回最新版。

@@ -13,6 +13,8 @@ import hashlib
 import http.client
 import shutil
 import socket
+import stat
+from pathlib import Path
 import gzip
 import json
 import os
@@ -42,6 +44,7 @@ APT_LISTS = "/var/lib/apt/lists"
 LANG_DEFAULT = "zh-TW"
 MSG = {
     "zh-TW": {
+    "node_helper_unavailable": "Node 升級 helper 未安裝、版本不符或權限不安全；請依 README 的選用安裝步驟由管理員安裝。",
     "node_source_unsupported": "不適用：需要單一標準 NodeSource 來源、既有簽章金鑰與 /usr/bin/node；nvm、snap 或自訂來源請自行管理。",
     "node_command_failed": "Node 操作失敗，請查看指令輸出；不代表已恢復。",
     "node_backup_invalid": "無法保存或驗證原 Node 套件（需要可信 SHA-256，且不超過 150 MB）；停止操作。",
@@ -297,6 +300,7 @@ MSG = {
         "trash_cleared": "已清空垃圾桶"
     },
     "en": {
+    "node_helper_unavailable": "Node upgrade helper is missing, outdated or has unsafe permissions. Ask an administrator to follow the optional helper installation steps in README.",
     "node_source_unsupported": "Not applicable: requires one standard NodeSource repository, its existing signing key and /usr/bin/node. Manage nvm, snap or custom repositories separately.",
     "node_command_failed": "Node operation failed; inspect command output. Restoration is not implied.",
     "node_backup_invalid": "Could not save or verify the original Node package (trusted SHA-256 and at most 150 MB required). Operation stopped.",
@@ -1068,7 +1072,23 @@ def _node_semver_satisfies(node_version, ranges):
     return {}
 
 
-NODE_HELPER = os.path.join(HERE, 'tools', 'node_source.py')
+NODE_HELPER_SOURCE = os.path.join(HERE, 'tools', 'node_source.py')
+NODE_HELPER = '/usr/local/libexec/spark-center/node_source.py'
+
+
+def node_helper_ready():
+    try:
+        p = Path(NODE_HELPER)
+        for item in (p, *p.parents):
+            st = item.lstat()
+            if st.st_uid != 0 or st.st_mode & 0o022 or stat.S_ISLNK(st.st_mode):
+                return False
+            if item == p and not stat.S_ISREG(st.st_mode):
+                return False
+        # 套件更新後必須由管理員重新安裝 helper，不偷偷升級提權程式。
+        return p.read_bytes() == Path(NODE_HELPER_SOURCE).read_bytes()
+    except OSError:
+        return False
 
 
 def node_error(detail):
@@ -1079,6 +1099,8 @@ def node_error(detail):
 def node_read(*args):
     if os.path.realpath(shutil.which('node') or '') != '/usr/bin/node':
         return {'ok': False, 'error': msg('node_source_unsupported', LANG_DEFAULT)}
+    if not node_helper_ready():
+        return {'ok': False, 'error': msg('node_helper_unavailable', LANG_DEFAULT)}
     r = subprocess.run(['/usr/bin/python3', '-I', NODE_HELPER, *args], capture_output=True,
                        text=True, timeout=90, env=_ENV_C)
     try:
@@ -1095,6 +1117,7 @@ def node_status():
     if j['ok']:
         info = node_release_info(j['installed'].split('-', 1)[0])
         j['target'] = info.get('lts_major')
+        j['expected_version'] = info.get('lts_version')
         j['release_error'] = info.get('error')
     return j
 
@@ -1139,7 +1162,8 @@ def node_plan(action, target):
     j = node_read('preview', action, str(target))
     if j.get('ok'):
         j['impact'] = node_npm_impact(j['version']) if action == 'restore' and j.get('args') else []
-        j['confirmation'] = hashlib.sha256(json.dumps([j['token'], j['impact']], sort_keys=True).encode()).hexdigest()
+        j['expected_version'] = current.get('expected_version') if action == 'prepare' else None
+        j['confirmation'] = hashlib.sha256(json.dumps([j['token'], j['impact'], j['expected_version']], sort_keys=True).encode()).hexdigest()
     return j
 
 
@@ -1650,6 +1674,10 @@ class Job:
                 self._log("rollback prepare failed: " + str(e))
         if kind == 'node_source':
             action, target, token = packages
+            if not node_helper_ready():
+                with self.lock:
+                    self.state.update(status='error', error=msg('node_helper_unavailable', LANG_DEFAULT), finished=datetime.now().isoformat(timespec='seconds'))
+                return
             self._run_subprocess(['pkexec', '/usr/bin/python3', '-I', NODE_HELPER, action, target, token], packages)
             with self.lock:
                 if self.state['status'] == 'error':
