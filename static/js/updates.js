@@ -40,13 +40,13 @@ function groupColor(name, site) {
 function renderList() {
   const box = $('#list');
   // 綠點與空狀態只看主清單：折疊起來的「本機用不到的 firmware 子套件」不算待辦
-  const active = state.items.filter(it => !(it.firmware && it.firmware.passive));
+  const active = state.items.filter(it => !(it.firmware && it.firmware.passive) && !it.node_flow);
   $('#dotUpd').classList.toggle('hide', active.length === 0);
   if (!state.items.length) { box.innerHTML = `<div class="empty">${t("updates.there_are_currently_no_upgradable_packages")}</div>`; updateGo(); return; }
   const THEAD = `<thead><tr><th style="width:36px"></th><th style="width:32%">${t("updates.package")}</th><th style="width:24%">${t("updates.version")}</th><th class="col-opt">${t("updates.description")}</th><th style="width:80px">${t("updates.size")}</th><th style="width:80px"></th></tr></thead>`;
   const row = it => `<tr class="sub">
-        <td><input type="checkbox" data-pkg="${esc(it.name)}" ${state.selected.has(it.name)?'checked':''}></td>
-        <td>${esc(it.name)}${state.newAfterRefresh && state.newAfterRefresh.has(it.name) ? `<span class="tag ok" title="${t("updates.new_after_refresh_hint")}">${t("updates.new_after_refresh")}</span>` : ''}${it.security?'<span class="tag sec">security</span>':''}${it.spark_core?`<span class="tag" style="color:#76b900;border-color:#4b6b1e" title="${t("updates.spark_os_nvidia_platform_packages_dashboard")}">${t("updates.spark_os_use_the_stock_dashboard")}</span>`:''}${it.reboot_hint?`<span class="tag reboot" title="${t("updates.based_on_the_package_name_estimated")}">${t("updates.usually_needs_reboot_estimated")}</span>`:''}${it.firmware && it.firmware.passive?`<span class="tag" title="${t("updates.none_of_the_loaded_kernel_modules", {v0: esc(it.firmware.pulled_by ? t("updates.pulled_in_as_a_dependency_of", {v0: it.firmware.pulled_by}) : t("updates.automatically_installed")), v1: it.firmware.files})}">${t("updates.no_local_driver_declares_use")}</span>`:''}</td>
+        <td><input type="checkbox" data-pkg="${esc(it.name)}" ${it.node_flow ? 'disabled' : (state.selected.has(it.name)?'checked':'')}></td>
+        <td>${esc(it.name)}${state.newAfterRefresh && state.newAfterRefresh.has(it.name) ? `<span class="tag ok" title="${t("updates.new_after_refresh_hint")}">${t("updates.new_after_refresh")}</span>` : ''}${it.node_flow?`<span class="tag" title="${t("updates.node_flow_hint")}">${t("updates.node_flow")}</span>`:''}${it.security?'<span class="tag sec">security</span>':''}${it.spark_core?`<span class="tag" style="color:#76b900;border-color:#4b6b1e" title="${t("updates.spark_os_nvidia_platform_packages_dashboard")}">${t("updates.spark_os_use_the_stock_dashboard")}</span>`:''}${it.reboot_hint?`<span class="tag reboot" title="${t("updates.based_on_the_package_name_estimated")}">${t("updates.usually_needs_reboot_estimated")}</span>`:''}${it.firmware && it.firmware.passive?`<span class="tag" title="${t("updates.none_of_the_loaded_kernel_modules", {v0: esc(it.firmware.pulled_by ? t("updates.pulled_in_as_a_dependency_of", {v0: it.firmware.pulled_by}) : t("updates.automatically_installed")), v1: it.firmware.files})}">${t("updates.no_local_driver_declares_use")}</span>`:''}</td>
         <td class="mono">${esc(it.installed)}<br><span class="to">→ ${esc(it.candidate)}</span></td>
         <td class="col-opt sub1">${esc(it.summary)}</td>
         <td class="sub1">${fmtBytes(it.size)}</td>
@@ -72,7 +72,7 @@ function renderList() {
   const det = box.querySelector('#passiveFw'); if (det) det.ontoggle = () => { state.passiveOpen = det.open; };
   box.querySelectorAll('input[data-passive]').forEach(cb => cb.onchange = () => { for (const it of passive) cb.checked ? state.selected.add(it.name) : state.selected.delete(it.name); renderList(); });
   box.querySelectorAll('input[data-pkg]').forEach(cb => cb.onchange = () => { cb.checked ? state.selected.add(cb.dataset.pkg) : state.selected.delete(cb.dataset.pkg); renderList(); });
-  box.querySelectorAll('input[data-group]').forEach(cb => cb.onchange = () => { for (const it of state.items) if (it.group === cb.dataset.group && !passive.includes(it)) cb.checked ? state.selected.add(it.name) : state.selected.delete(it.name); renderList(); });
+  box.querySelectorAll('input[data-group]').forEach(cb => cb.onchange = () => { for (const it of state.items) if (it.group === cb.dataset.group && !passive.includes(it) && !it.node_flow) cb.checked ? state.selected.add(it.name) : state.selected.delete(it.name); renderList(); });
   box.querySelectorAll('button[data-cl]').forEach(b => b.onclick = () => toggleChangelog(b, b.dataset.cl, b.dataset.id, b.dataset.inst));
   updateGo();
 }
@@ -255,7 +255,7 @@ $('#btnGo').onclick = async () => {
 };
 $('#btnRefresh').onclick = async () => { state.namesBeforeRefresh = new Set(state.items.map(i => i.name)); const r = await api('/api/refresh', {}); if (!r.ok) { alert(t("updates.could_not_start_with_value", {value: r.error})); return; } startPolling(t("job.refresh_apt_sources")); };
 // 全選只選主清單；折疊區的 firmware 子套件要升級就展開用它自己的群組勾選框
-$('#btnAll').onclick = () => { state.items.filter(i => !(i.firmware && i.firmware.passive)).forEach(i => state.selected.add(i.name)); renderList(); };
+$('#btnAll').onclick = () => { state.items.filter(i => !(i.firmware && i.firmware.passive) && !i.node_flow).forEach(i => state.selected.add(i.name)); renderList(); };
 $('#btnNone').onclick = () => { state.selected.clear(); renderList(); };
 function openModal(t) { $('#mTitle').textContent = t; $('#overlay').classList.add('open'); }
 function closeModal() { $('#overlay').classList.remove('open'); }

@@ -45,6 +45,7 @@ APT_LISTS = "/var/lib/apt/lists"
 LANG_DEFAULT = "zh-TW"
 MSG = {
     "zh-TW": {
+    "node_flow_locked": "nodejs 正由 Node 主版本升級流程處理，請到 npm 面板按「確認安裝」，或先「恢復原版本」。",
     "node_helper_unavailable": "Node 升級 helper 未安裝、版本不符或權限不安全；請依 README 的選用安裝步驟由管理員安裝。",
     "node_source_unsupported": "不適用：需要單一標準 NodeSource 來源、既有簽章金鑰與 /usr/bin/node；nvm、snap 或自訂來源請自行管理。",
     "node_command_failed": "Node 操作失敗，請查看指令輸出；不代表已恢復。",
@@ -301,6 +302,7 @@ MSG = {
         "trash_cleared": "已清空垃圾桶"
     },
     "en": {
+    "node_flow_locked": "nodejs is being handled by the Node major-upgrade flow; use 'Confirm install' on the npm panel, or restore the original version first.",
     "node_helper_unavailable": "Node upgrade helper is missing, outdated or has unsafe permissions. Ask an administrator to follow the optional helper installation steps in README.",
     "node_source_unsupported": "Not applicable: requires one standard NodeSource repository, its existing signing key and /usr/bin/node. Manage nvm, snap or custom repositories separately.",
     "node_command_failed": "Node operation failed; inspect command output. Restoration is not implied.",
@@ -1128,6 +1130,10 @@ def node_status():
     j['release_error'] = info.get('error')
     if not j.get('ok') and ver:
         j['major'] = int(ver.split('.')[0]) if ver.split('.')[0].isdigit() else None
+    st = j.get('state') if j.get('ok') else None
+    if st and st.get('phase') in ('prepared', 'installing', 'install_failed') and ver.startswith(f"{st.get('target')}."):
+        st['phase'] = 'installed'   # 目標版本已在（可能從 apt 清單裝的）：不再說「尚未安裝」，恢復入口照留
+        st['external'] = True
     return j
 
 
@@ -1288,8 +1294,20 @@ def rollback_npm_entries(job_id, name=None):
     return []
 
 
+def _node_flow_pending():
+    """Node 主版本升級進行到一半（已換倉庫、還沒裝或裝失敗）時回 phase，否則 None。
+    這時 apt 清單也看得到 nodejs 24：從清單裝會讓升級流程的狀態對不上（真的發生過），所以清單裡的 nodejs 鎖住，只留一條路。"""
+    try:
+        with open('/var/lib/spark-center/node-source/state.json', encoding='utf-8') as f:
+            ph = json.load(f).get('phase')
+        return ph if ph in ('preparing', 'prepared', 'installing', 'install_failed') else None
+    except (OSError, ValueError):
+        return None
+
+
 def list_updates():
     cache = apt.Cache()
+    node_flow = _node_flow_pending()
     items = []
     for pkg in cache:
         if not pkg.is_upgradable:
@@ -1310,6 +1328,7 @@ def list_updates():
             "reboot_hint": bool(REBOOT_HINT_RE.match(pkg.name)),
             "spark_core": bool(SPARK_CORE_RE.match(pkg.name)),
             "firmware": _firmware_usage(pkg, cache),
+            "node_flow": node_flow if pkg.name == "nodejs" and node_flow else None,
         })
     items.sort(key=lambda x: (x["group"], x["name"]))
     return items
@@ -1789,6 +1808,7 @@ class Job:
                 _APPS_CACHE["ts"] = 0
                 _FW["ts"] = 0
                 _DASH_CACHE["ts"] = 0
+                _NPM["ts"] = 0   # nodejs 從這條路裝過，Node 版本會變
                 loop.quit()
 
             trans.connect("status-changed", on_status)
@@ -4397,6 +4417,8 @@ class Handler(BaseHTTPRequestHandler):
             names = [n for n in data.get("packages", []) if isinstance(n, str)]
             if not names:
                 return self._json({"ok": False, "error": msg('no_pkgs', LANG_DEFAULT)}, 400)
+            if "nodejs" in names and _node_flow_pending():
+                return self._json({"ok": False, "error": msg('node_flow_locked', LANG_DEFAULT)}, 409)
             sim = simulate(names)
             if not sim["ok"]:
                 return self._json(sim, 400)
