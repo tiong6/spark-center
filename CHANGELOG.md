@@ -19,6 +19,7 @@
 
 ### 修正
 
+- **Node 升級的 polkit policy**：helper 改成可直接執行（shebang `python3 -I`），pkexec 直接跑它而不是 `pkexec python3 …`，配上 `tools/spark-center-node-source.policy`（action `io.github.tiong6.spark-center.node-source`，exec.path 指向安裝後的 helper，auth_admin 每次都要密碼）。密碼視窗因此寫「Spark Center 要切換 NodeSource 倉庫並安裝或恢復 Node.js」，不再是「要以 root 執行 python3」。README 安裝步驟多一行。
 - **Node 主版本升級 review 修正**：確認摘要與再次模擬比對只使用 Inst／Conf／Remv 交易行，排除非 root apt 模擬的 NOTE，避免提權後永遠被判定計畫改變。提權入口改為管理員另行安裝的 root-owned helper，拒絕可寫目錄、符號連結與不符版本；未安裝時停用並明示。準備視窗補上官方表的預期完整版本（以切換後 apt 索引為準），安裝成功改為灰字紀錄。真 apt 唯讀模擬與隔離／介面測試通過；尚未實測提權升降。
 
 - **POST 的 Host 檢查改成「本機位址、埠號不限」。** SSH 轉埠或 NVIDIA Sync 的 Custom 連線在遠端那台常用別的本機埠號，瀏覽器送來的 Host 是那個埠，原本會被 403。DNS rebinding 靠的是非本機主機名，放寬埠號不影響這道防線；curl 驗過 localhost:任意埠放行、evil.example 與 localhost.evil.com 仍擋、跨站 Origin 與 text/plain 仍擋。README 加「Remote access」一節。

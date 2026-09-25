@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Spark Center</vendor>
+  <vendor_url>https://github.com/tiong6/spark-center</vendor_url>
+  <action id="io.github.tiong6.spark-center.node-source">
+    <description>Switch the NodeSource repository and install or restore Node.js</description>
+    <description xml:lang="zh_TW">切換 NodeSource 倉庫並安裝或恢復 Node.js</description>
+    <message>Spark Center wants to switch the NodeSource repository and install or restore Node.js. Authentication is required.</message>
+    <message xml:lang="zh_TW">Spark Center 要切換 NodeSource 倉庫並安裝或恢復 Node.js，需要驗證身分。</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/spark-center/node_source.py</annotate>
+  </action>
+</policyconfig>

@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/python3 -I
 """固定 NodeSource 來源的兩階段升級。preview/status 唯讀；變更只由 pkexec 啟動。
 
 狀態與舊版放 root 擁有的目錄；不接受任意來源、路徑或 shell 指令。

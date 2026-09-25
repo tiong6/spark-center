@@ -1083,7 +1083,7 @@ def node_helper_ready():
             st = item.lstat()
             if st.st_uid != 0 or st.st_mode & 0o022 or stat.S_ISLNK(st.st_mode):
                 return False
-            if item == p and not stat.S_ISREG(st.st_mode):
+            if item == p and (not stat.S_ISREG(st.st_mode) or not st.st_mode & 0o100):   # 要能直接執行（pkexec 跑它本身）
                 return False
         # 套件更新後必須由管理員重新安裝 helper，不偷偷升級提權程式。
         return p.read_bytes() == Path(NODE_HELPER_SOURCE).read_bytes()
@@ -1678,7 +1678,9 @@ class Job:
                 with self.lock:
                     self.state.update(status='error', error=msg('node_helper_unavailable', LANG_DEFAULT), finished=datetime.now().isoformat(timespec='seconds'))
                 return
-            self._run_subprocess(['pkexec', '/usr/bin/python3', '-I', NODE_HELPER, action, target, token], packages)
+            # 直接執行 helper（shebang 是 python3 -I）而不是 pkexec python3：polkit 的 action 用 exec.path 對應程式路徑，
+            # 這樣密碼視窗才會顯示 policy 檔裡「Spark Center 要切換 NodeSource 倉庫…」，而不是「要以 root 執行 python3」。
+            self._run_subprocess(['pkexec', NODE_HELPER, action, target, token], packages)
             with self.lock:
                 if self.state['status'] == 'error':
                     detail = next((s.split('NODE_ERROR:', 1)[1] for s in reversed(self.state['log']) if 'NODE_ERROR:' in s), None)

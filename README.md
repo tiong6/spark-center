@@ -54,8 +54,11 @@ After reviewing `tools/node_source.py`, run these commands from the repository d
 
 ```sh
 sudo install -d -o root -g root -m 0755 /usr/local/libexec/spark-center
-sudo install -o root -g root -m 0644 tools/node_source.py /usr/local/libexec/spark-center/node_source.py
+sudo install -o root -g root -m 0755 tools/node_source.py /usr/local/libexec/spark-center/node_source.py
+sudo install -o root -g root -m 0644 tools/spark-center-node-source.policy /usr/share/polkit-1/actions/io.github.tiong6.spark-center.node-source.policy
 ```
+
+The third line installs a polkit policy so the password dialog says "Spark Center wants to switch the NodeSource repository and install or restore Node.js" instead of a generic "run a program as root". Each run asks for the password again; nothing is remembered.
 
 The preparation preview shows the expected upstream LTS version; the signed NodeSource apt index determines the actual install version. Successful upgrades appear as a neutral history line with a restore action.
 
