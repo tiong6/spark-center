@@ -1120,11 +1120,14 @@ def node_read(*args):
 
 def node_status():
     j = node_read('status')
-    if j['ok']:
-        info = node_release_info(j['installed'].split('-', 1)[0])
-        j['target'] = info.get('lts_major')
-        j['expected_version'] = info.get('lts_version')
-        j['release_error'] = info.get('error')
+    # helper 沒裝時也要知道「有沒有升級可做」：Node 已是現行 LTS 就整塊不顯示，不該為了一個用不到的功能叫人裝 helper
+    ver = j['installed'].split('-', 1)[0] if j.get('ok') else (_run(["node", "--version"], timeout=10) or "").strip().lstrip("v")
+    info = node_release_info(ver) if ver else {}
+    j['target'] = info.get('lts_major')
+    j['expected_version'] = info.get('lts_version')
+    j['release_error'] = info.get('error')
+    if not j.get('ok') and ver:
+        j['major'] = int(ver.split('.')[0]) if ver.split('.')[0].isdigit() else None
     return j
 
 

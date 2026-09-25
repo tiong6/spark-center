@@ -119,7 +119,8 @@ async function loadNpm(force) {
   const held = j.packages.filter(p => p.newer || p.blocked || (p.dist_latest && p.latest && p.dist_latest !== p.latest));
   const reqMajor = Math.max(0, ...held.map(p => parseInt(((p.blocked ? p.target_engines : p.engines_node) || '').replace(/[^0-9.]/g, ' ').trim().split(/[\s.]/)[0]) || 0));
   const instMajor = parseInt((j.node || '0').split('.')[0]) || 0;
-  if (held.length) html += `<div class="panel notice warn" style="margin:12px 0 10px">${t("updates.npm_node_old", {node: esc(j.node || '—'), list: held.map(p => esc(p.name) + ((p.blocked ? p.target_engines : p.engines_node) ? ` (Node ${esc(p.blocked ? p.target_engines : p.engines_node)})` : '')).join('、'), req: reqMajor || '—', lts: ni.lts_major || '—'})}</div>`;
+  // 黃框裡留一個位子給「Node 主版本升級」那塊：動作跟著原因走，放在套件表下面會看不到
+  if (held.length) html += `<div class="panel notice warn" style="margin:12px 0 10px">${t("updates.npm_node_old", {node: esc(j.node || '—'), list: held.map(p => esc(p.name) + ((p.blocked ? p.target_engines : p.engines_node) ? ` (Node ${esc(p.blocked ? p.target_engines : p.engines_node)})` : '')).join('、'), req: reqMajor || '—', lts: ni.lts_major || '—'})}<div id="nodeSlot" style="margin-top:10px"></div></div>`;
   else if (ni.lts_major && instMajor && instMajor < ni.lts_major) html += `<div class="sub1" style="margin:10px 0 6px">${t("updates.npm_node_older_lts", {major: instMajor, end: ni.installed_end || '—', lts: ni.lts_major})}</div>`;
   if (!j.packages.length) { box.innerHTML = html + `<div class="empty">${t("updates.npm_none")}</div>`; return; }
   html += `<table><thead><tr><th style="width:34%">${t("updates.package")}</th><th style="width:16%">${t("updates.current_version_2")}</th><th style="width:16%" title="${t("updates.npm_latest_hint")}">${t("updates.npm_latest")}</th><th>${t("updates.status")}</th><th style="width:120px"></th></tr></thead><tbody>`;
@@ -131,6 +132,8 @@ async function loadNpm(force) {
     html += `<tr><td><span class="mono">${esc(p.name)}</span>${p.description ? `<div class="sub1">${esc(p.description)}</div>` : ''}<div class="sub1">${who || t("updates.npm_no_meta")}</div></td><td class="mono">${esc(p.current || '—')}</td><td class="mono">${esc(p.latest || '—')}</td><td>${st}</td><td>${p.outdated ? `<button class="small primary" data-npm="${esc(p.name)}">${t("common.update")}</button>` : p.newer ? `<button class="small" data-npm="${esc(p.name)}" title="${t("updates.npm_newer_hint")}">${t("updates.npm_install_compat", {v0: esc(p.latest)})}</button>` : ''}</td></tr>`;
   }
   box.innerHTML = html + `</tbody></table><div class="sub1" style="margin-top:8px">${t("updates.npm_trust_note")}</div>`;
+  const slot = box.querySelector('#nodeSlot'), ns = $('#nodeSource');
+  if (slot && ns) slot.appendChild(ns);   // 搬 DOM 節點，loadNodeSource 之後不管先後都會渲染到它現在的位置
   box.querySelectorAll('button[data-npm]').forEach(b => b.onclick = () => npmUpdate([b.dataset.npm], b));
   $('#btnNpmUpdate').onclick = () => npmUpdate(j.packages.filter(p => p.outdated).map(p => p.name), $('#btnNpmUpdate'));
 }

@@ -3,13 +3,17 @@ async function loadNodeSource() {
   const box = $('#nodeSource');
   try {
     const j = await api('/api/node');
+    // 沒事可做就整塊不出現：Node 已是現行 LTS、又沒有進行到一半的紀錄時，不該占版面、更不該叫人裝 helper
+    const upgradeAvail = j.target && j.major && j.target > j.major;
     if (!j.ok) {
-      // helper 沒裝：把三行安裝指令直接秀出來（含這台的 repo 路徑），這是選用功能，其他更新不受影響
+      if (!(j.helper_missing && upgradeAvail)) { box.innerHTML = j.helper_missing ? '' : `<div class="sub1">${esc(j.error)}</div>`; return; }
+      // helper 沒裝但真的有升級可做：把三行安裝指令直接秀出來（含這台的 repo 路徑），這是選用功能，其他更新不受影響
       box.innerHTML = `<b>${t('node.title')}</b><div class="sub1" style="margin-top:4px">${esc(j.error)}</div>` +
-        (j.helper_missing ? `<div class="sub1" style="margin-top:8px">${t('node.helper_howto')}</div><pre class="cl">${j.install_cmds.map(esc).join('\n')}</pre>` : '');
+        `<div class="sub1" style="margin-top:8px">${t('node.helper_howto')}</div><pre class="cl">${j.install_cmds.map(esc).join('\n')}</pre>`;
       return;
     }
     const s = j.state, pending = s && s.phase !== 'restored';
+    if (!pending && !upgradeAvail) { box.innerHTML = ''; return; }
     const target = pending ? s.target : j.target;
     const canInstall = pending && ['prepared', 'installing', 'install_failed'].includes(s.phase) && j.source_text === s.replacement && !j.installed.startsWith(s.target + '.');
     let html = `<b>${t('node.title')}</b><div class="sub1">${t('node.current', {version: esc(j.installed), major: j.major})}</div>`;
