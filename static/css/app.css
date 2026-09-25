@@ -73,6 +73,12 @@
   .badge.remove, .badge.purge { border-color: #6b2a2a; color: #ff8a8a; }
   .pk { display: inline-block; font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: #0f1110; border: 1px solid #2c302e; border-radius: 4px; padding: 1px 6px; margin: 2px 4px 2px 0; }
   .sub1 { color: var(--muted); font-size: 12px; }
+  /* 唯讀模式：後端已把所有 POST 擋成 403，這裡只是把動作按鈕藏起來，讓人一眼看出「這個模式什麼都不會動」 */
+  .ro-badge { border: 1px solid var(--warn); color: var(--warn); border-radius: 999px; padding: 2px 10px; font-size: 12px; margin-right: 10px; }
+  .ro #btnRefresh, .ro #btnAll, .ro #btnNone, .ro #btnGo, .ro #btnFwRefresh, .ro #btnFwUpdate, .ro #btnNpmRefresh, .ro #btnNpmUpdate,
+  .ro #llmPullBtn, .ro #llmBenchBtn, .ro #btnCalib, .ro #btnCalibReset, .ro #mOk,
+  .ro [data-upd], .ro [data-unload], .ro [data-rm], .ro [data-olrm], .ro [data-load], .ro [data-act], .ro [data-npm], .ro [data-rb-job], .ro [data-node], .ro [data-restart],
+  .ro input[data-pkg], .ro input[data-group], .ro input[data-passive], .ro label:has(> #autostart) { display: none !important; }
   td a, .sub1 a { color: var(--accent); text-decoration: none; } td a:hover, .sub1 a:hover { text-decoration: underline; }   /* 內文連結：瀏覽器預設的深藍在深底上看不見 */
   /* 沒指定寬度的欄在窄視窗會被固定寬度的欄擠到一個字一行（來源欄 "snap.brave" 曾直排）：給寬度並截尾，完整值在 title */
   td.ell { max-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

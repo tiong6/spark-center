@@ -35,6 +35,8 @@ from gi.repository import GLib
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("SPARK_UPDATER_PORT", "11001"))
+# 唯讀模式：所有會改東西的 POST 一律 403，畫面藏掉動作按鈕。給第一次裝的人先跑一天確認它只讀，再打開更新功能。
+READONLY = os.environ.get("SPARK_CENTER_READONLY", "").strip().lower() in ("1", "true", "yes", "on")
 HERE = os.path.dirname(os.path.abspath(__file__))
 REBOOT_FLAG = "/var/run/reboot-required"
 REBOOT_PKGS = "/var/run/reboot-required.pkgs"
@@ -45,6 +47,7 @@ APT_LISTS = "/var/lib/apt/lists"
 LANG_DEFAULT = "zh-TW"
 MSG = {
     "zh-TW": {
+    "readonly_mode": "唯讀模式（SPARK_CENTER_READONLY=1）：這個服務不會改任何東西。要啟用更新等功能，拿掉這個環境變數後重啟服務。",
     "node_flow_locked": "nodejs 正由 Node 主版本升級流程處理，請到 npm 面板按「確認安裝」，或先「恢復原版本」。",
     "node_helper_unavailable": "Node 升級 helper 未安裝、版本不符或權限不安全；請依 README 的選用安裝步驟由管理員安裝。",
     "node_source_unsupported": "不適用：需要單一標準 NodeSource 來源、既有簽章金鑰與 /usr/bin/node；nvm、snap 或自訂來源請自行管理。",
@@ -304,6 +307,7 @@ MSG = {
         "trash_cleared": "已清空垃圾桶"
     },
     "en": {
+    "readonly_mode": "Read-only mode (SPARK_CENTER_READONLY=1): this service changes nothing. To enable updates and other actions, remove that environment variable and restart the service.",
     "node_flow_locked": "nodejs is being handled by the Node major-upgrade flow; use 'Confirm install' on the npm panel, or restore the original version first.",
     "node_helper_unavailable": "Node upgrade helper is missing, outdated or has unsafe permissions. Ask an administrator to follow the optional helper installation steps in README.",
     "node_source_unsupported": "Not applicable: requires one standard NodeSource repository, its existing signing key and /usr/bin/node. Manage nvm, snap or custom repositories separately.",
@@ -4334,7 +4338,7 @@ class Handler(BaseHTTPRequestHandler):
             vendor = re.sub(r"^ASUSTeK COMPUTER INC\.$", "ASUS", vendor, flags=re.I)
             vendor = re.sub(r"^(Dell Inc\.|HP Inc\.|Hewlett-Packard|Gigabyte Technology Co\., Ltd\.|Acer|NVIDIA)$",
                             lambda m: {"dell inc.": "Dell", "hp inc.": "HP", "hewlett-packard": "HP", "gigabyte technology co., ltd.": "GIGABYTE"}.get(m.group(1).lower(), m.group(1)), vendor, flags=re.I)
-            self._json({"ok": True, "vendor": vendor, "product": dmi("product_name"), "family": dmi("product_family")})
+            self._json({"readonly": READONLY, "ok": True, "vendor": vendor, "product": dmi("product_name"), "family": dmi("product_family")})
         elif path == "/api/dashboard":
             # DGX Dashboard 的網址：埠號照 /usr/bin/dgx-dashboard 的邏輯讀 ports.env，讀不到就 11000
             port = 11000
@@ -4488,6 +4492,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         self.lang = self._request_lang()
         path = self.path.split("?", 1)[0]
+        if READONLY:
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            return self._json({"ok": False, "error": msg("readonly_mode", self.lang)}, 403)
         why = self._origin_problem()
         if why:
             self.rfile.read(int(self.headers.get("Content-Length") or 0))

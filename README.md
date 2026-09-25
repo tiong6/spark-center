@@ -93,6 +93,38 @@ systemctl --user status spark-center     # 狀態
 journalctl --user -u spark-center -f     # 日誌
 ```
 
+### Try it read-only first
+
+If you would rather not hand a tool you have just met the ability to run apt, start it in read-only mode. Every request that would change anything is refused with HTTP 403 and the action buttons are hidden; monitoring, hardware, disk, history and the update *list* all still work, and a badge in the top bar says so.
+
+```sh
+systemctl --user edit spark-center        # add under [Service]:  Environment=SPARK_CENTER_READONLY=1
+systemctl --user restart spark-center
+```
+
+Run it like that for as long as you like. When you are ready for updates, remove the line and restart. Nothing else changes; it is the same code path with one switch.
+
+### What it touches on your system
+
+Everything `install.sh` writes lives in your home directory; nothing is installed as root:
+
+| Path | What | Written by |
+|---|---|---|
+| `~/.config/systemd/user/spark-center.service` | the user service | install.sh |
+| `~/.local/share/applications/spark-center.desktop`, `~/.local/share/icons/hicolor/*/apps/spark-center.*` | app-menu entry and icons | install.sh |
+| `<repo>/data/` | run-time data: measurement history, hardware snapshot, USB-C calibration, kept `.deb` files for roll-back | the service |
+| `~/.config/autostart/spark-center.desktop` | only if you tick *open at login* | the service |
+
+Everything that needs root goes through polkit and asks for your password each time (apt, snap, firmware, roll-back). Two things are optional and root-owned, and only exist if you run the documented `sudo` lines yourself: the two read-only sudoers rules, and the Node-upgrade helper with its polkit policy (plus its state under `/var/lib/spark-center/`).
+
+### Uninstall
+
+```sh
+./uninstall.sh
+```
+
+removes the user service, the app-menu entry, icons and the autostart entry, and prints the `sudo rm` lines for the optional root-owned pieces if you installed them. The repository directory, including `data/`, is left for you to delete.
+
 ## Remote access
 
 Spark Center listens on 127.0.0.1 only and has no login, on purpose. To use it from another machine, forward the port over SSH so the connection still arrives as local:
