@@ -158,4 +158,4 @@ Ubuntu 24.04 / DGX OS 7.x on aarch64. 以下都是系統內建，不需要另外
 
 ## License
 
-MIT — 見 [LICENSE](LICENSE)。與 NVIDIA、ASUS 無關，非官方工具。
+MIT, see [LICENSE](LICENSE). This is an independent, unofficial tool with no affiliation with NVIDIA or ASUS.
