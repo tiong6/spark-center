@@ -129,14 +129,24 @@ async function loadNpm(force) {
     // 名稱下面放描述、作者、倉庫：都是套件自己宣稱的，npm 不驗證，所以只照實顯示、附連結讓人自己看
     const repoText = p.repo ? p.repo.replace(/^https?:\/\//, '') : null;
     const who = [p.author ? esc(p.author) : null, repoText ? `<a href="${esc(p.repo)}" target="_blank" rel="noopener">${esc(repoText)}</a>` : (p.homepage ? `<a href="${esc(p.homepage)}" target="_blank" rel="noopener">${esc(p.homepage.replace(/^https?:\/\//, ''))}</a>` : null), p.license ? esc(p.license) : null].filter(Boolean).join(' · ');
-    const runTag = (p.running || []).length ? `<span class="tag reboot" title="${esc((p.running || []).map(r => `PID ${r.pid}${r.unit ? ' · ' + r.unit : ''}`).join('\n'))}">${t("updates.npm_running", {n: p.running.length})}</span>` : '';
-    html += `<tr><td><span class="mono">${esc(p.name)}</span>${runTag}${p.description ? `<div class="sub1">${esc(p.description)}</div>` : ''}<div class="sub1">${who || t("updates.npm_no_meta")}</div></td><td class="mono">${esc(p.current || '—')}</td><td class="mono">${esc(p.latest || '—')}</td><td>${st}</td><td>${p.outdated ? `<button class="small primary" data-npm="${esc(p.name)}">${t("common.update")}</button>` : p.newer ? `<button class="small" data-npm="${esc(p.name)}" title="${t("updates.npm_newer_hint")}">${t("updates.npm_install_compat", {v0: esc(p.latest)})}</button>` : ''}</td></tr>`;
+    const stale = (p.running || []).filter(r => r.stale);
+    const runTag = (p.running || []).length ? `<span class="tag reboot" title="${esc((p.running || []).map(r => `PID ${r.pid}${r.unit ? ' · ' + r.unit : ''}`).join('\n'))}">${stale.length ? t("updates.npm_running_stale", {n: stale.length}) : t("updates.npm_running", {n: p.running.length})}</span>` : '';
+    // 跑的是更新前的舊版（程序比磁碟上的 package.json 舊）：面板常駐一顆重啟鈕，不靠工作卡片
+    const staleUnits = [...new Set(stale.map(r => r.unit).filter(Boolean))];
+    const staleBtns = stale.length ? `<div class="sub1" style="margin-top:4px">${t("updates.npm_stale_hint")} ${staleUnits.map(u => `<button class="small" data-restart="${esc(u)}">${t("updates.npm_restart_btn", {unit: esc(u)})}</button>`).join(' ')}${stale.some(r => !r.unit) ? ` ${esc(t("updates.npm_restart_manual"))}` : ''}</div>` : '';
+    html += `<tr><td><span class="mono">${esc(p.name)}</span>${runTag}${p.description ? `<div class="sub1">${esc(p.description)}</div>` : ''}<div class="sub1">${who || t("updates.npm_no_meta")}</div>${staleBtns}</td><td class="mono">${esc(p.current || '—')}</td><td class="mono">${esc(p.latest || '—')}</td><td>${st}</td><td>${p.outdated ? `<button class="small primary" data-npm="${esc(p.name)}">${t("common.update")}</button>` : p.newer ? `<button class="small" data-npm="${esc(p.name)}" title="${t("updates.npm_newer_hint")}">${t("updates.npm_install_compat", {v0: esc(p.latest)})}</button>` : ''}</td></tr>`;
   }
   box.innerHTML = html + `</tbody></table><div class="sub1" style="margin-top:8px">${t("updates.npm_trust_note")}</div>`;
   state.npmPkgs = j.packages;
   const slot = box.querySelector('#nodeSlot'), ns = $('#nodeSource');
   if (slot && ns) slot.appendChild(ns);   // 搬 DOM 節點，loadNodeSource 之後不管先後都會渲染到它現在的位置
   box.querySelectorAll('button[data-npm]').forEach(b => b.onclick = () => npmUpdate([b.dataset.npm], b));
+  box.querySelectorAll('button[data-restart]').forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = t("updates.npm_restarting");
+    const r = await api('/api/npm/restart', {unit: b.dataset.restart});
+    if (!r.ok) { b.textContent = r.error; b.disabled = false; return; }
+    loadNpm(true);
+  });
   $('#btnNpmUpdate').onclick = () => npmUpdate(j.packages.filter(p => p.outdated).map(p => p.name), $('#btnNpmUpdate'));
 }
 async function npmUpdate(names, btn) {

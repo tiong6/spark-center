@@ -1060,7 +1060,15 @@ def npm_running(prefix, names):
         except OSError:
             pass
         cmd = " ".join(x.decode("utf-8", "replace") for x in argv if x)
-        out[hit].append({"pid": int(pid), "unit": unit, "cmd": cmd[:160]})
+        # 程序啟動時間（/proc/<pid> 目錄的 ctime）早於套件目前的 package.json → 記憶體裡跑的是更新前的舊版
+        stale = None
+        try:
+            started = os.stat(f"/proc/{pid}").st_ctime
+            installed_at = os.stat(os.path.join(base, hit, "package.json")).st_mtime
+            stale = started < installed_at
+        except OSError:
+            pass
+        out[hit].append({"pid": int(pid), "unit": unit, "cmd": cmd[:160], "stale": stale})
     return out
 
 
