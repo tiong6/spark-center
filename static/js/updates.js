@@ -116,15 +116,15 @@ async function loadNpm(force) {
   let html = j.error ? `<div class="panel notice danger" style="margin-bottom:10px">${esc(j.error)}</div>` : '';
   if (ni.error) html += `<div class="sub1" style="margin-top:10px">${esc(ni.error)}</div>`;
   // 有套件的可裝版被 Node 版本卡住（registry 最新版比 npm 認定可裝的新，或已裝版比可裝版新）→ 根源是 Node 太舊，提醒放最上面
-  const held = j.packages.filter(p => p.newer || (p.dist_latest && p.latest && p.dist_latest !== p.latest));
-  const reqMajor = Math.max(0, ...held.map(p => parseInt((p.engines_node || '').replace(/[^0-9.]/g, ' ').trim().split(/[\s.]/)[0]) || 0));
+  const held = j.packages.filter(p => p.newer || p.blocked || (p.dist_latest && p.latest && p.dist_latest !== p.latest));
+  const reqMajor = Math.max(0, ...held.map(p => parseInt(((p.blocked ? p.target_engines : p.engines_node) || '').replace(/[^0-9.]/g, ' ').trim().split(/[\s.]/)[0]) || 0));
   const instMajor = parseInt((j.node || '0').split('.')[0]) || 0;
-  if (held.length) html += `<div class="panel notice warn" style="margin:12px 0 10px">${t("updates.npm_node_old", {node: esc(j.node || '—'), list: held.map(p => esc(p.name) + (p.engines_node ? ` (Node ${esc(p.engines_node)})` : '')).join('、'), req: reqMajor || '—', lts: ni.lts_major || '—'})}</div>`;
+  if (held.length) html += `<div class="panel notice warn" style="margin:12px 0 10px">${t("updates.npm_node_old", {node: esc(j.node || '—'), list: held.map(p => esc(p.name) + ((p.blocked ? p.target_engines : p.engines_node) ? ` (Node ${esc(p.blocked ? p.target_engines : p.engines_node)})` : '')).join('、'), req: reqMajor || '—', lts: ni.lts_major || '—'})}</div>`;
   else if (ni.lts_major && instMajor && instMajor < ni.lts_major) html += `<div class="sub1" style="margin:10px 0 6px">${t("updates.npm_node_older_lts", {major: instMajor, end: ni.installed_end || '—', lts: ni.lts_major})}</div>`;
   if (!j.packages.length) { box.innerHTML = html + `<div class="empty">${t("updates.npm_none")}</div>`; return; }
   html += `<table><thead><tr><th style="width:34%">${t("updates.package")}</th><th style="width:16%">${t("updates.current_version_2")}</th><th style="width:16%" title="${t("updates.npm_latest_hint")}">${t("updates.npm_latest")}</th><th>${t("updates.status")}</th><th style="width:120px"></th></tr></thead><tbody>`;
   for (const p of j.packages) {
-    const st = p.outdated ? `<span class="tag sec">${t("updates.new_version", {v0: esc(p.latest)})}</span>` : p.newer ? `<span class="tag" title="${t("updates.npm_newer_hint")}">${t("updates.npm_newer", {v0: esc(p.latest)})}</span>` : j.outdated == null ? `<span class="tag">${t("updates.unknown_query_failed")}</span>` : `<span class="tag ok">${t("updates.up_to_date")}</span>`;
+    const st = p.outdated ? `<span class="tag sec">${t("updates.new_version", {v0: esc(p.latest)})}</span>` : p.blocked ? `<span class="tag" title="${esc(p.blocked_reason || '')}">${t("updates.npm_blocked", {v0: esc(p.latest)})}</span><span class="sub1"> ${esc(p.blocked_reason || '')}</span>` : p.newer ? `<span class="tag" title="${t("updates.npm_newer_hint")}">${t("updates.npm_newer", {v0: esc(p.latest)})}</span>` : j.outdated == null ? `<span class="tag">${t("updates.unknown_query_failed")}</span>` : `<span class="tag ok">${t("updates.up_to_date")}</span>`;
     // 名稱下面放描述、作者、倉庫：都是套件自己宣稱的，npm 不驗證，所以只照實顯示、附連結讓人自己看
     const repoText = p.repo ? p.repo.replace(/^https?:\/\//, '') : null;
     const who = [p.author ? esc(p.author) : null, repoText ? `<a href="${esc(p.repo)}" target="_blank" rel="noopener">${esc(repoText)}</a>` : (p.homepage ? `<a href="${esc(p.homepage)}" target="_blank" rel="noopener">${esc(p.homepage.replace(/^https?:\/\//, ''))}</a>` : null), p.license ? esc(p.license) : null].filter(Boolean).join(' · ');

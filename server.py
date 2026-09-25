@@ -173,6 +173,9 @@ MSG = {
         "rollback_sim_failed": "無法模擬降回：{err}",
         "npm_missing": "找不到 npm，沒有全域套件可查",
         "node_release_failed": "查不到 Node 官方版本表：{err}",
+        "npm_target_unknown": "查不到 {pkgs} 的目標版本，不更新（不會退回 @latest 亂裝）。{err}",
+        "npm_engine_blocked": "新版 {ver} 要求 Node {need}，你的是 {node}，不給更新",
+        "npm_engine_unknown": "查不到新版的 Node 需求，先不給更新",
         "npm_query_failed": "npm ls -g 失敗：{err}",
         "npm_outdated_failed": "查不到新版（npm outdated 失敗，可能是連不上 registry）：{err}",
         "rollback_left_broken": "。dpkg 回報有套件未完成設定：請在終端機跑 sudo dpkg --configure -a 修復後，再重新整理更新清單",
@@ -413,6 +416,9 @@ MSG = {
         "rollback_sim_failed": "Could not simulate the rollback: {err}",
         "npm_missing": "npm not found; no global packages to check",
         "node_release_failed": "Could not read the official Node release table: {err}",
+        "npm_target_unknown": "Could not determine the target version for {pkgs}; not updating (no silent fallback to @latest). {err}",
+        "npm_engine_blocked": "version {ver} requires Node {need}; yours is {node}, so no update is offered",
+        "npm_engine_unknown": "the new version's Node requirement could not be read; no update offered for now",
         "npm_query_failed": "npm ls -g failed: {err}",
         "npm_outdated_failed": "Could not check for new versions (npm outdated failed, possibly no access to the registry): {err}",
         "rollback_left_broken": ". dpkg reports packages left unconfigured: run sudo dpkg --configure -a in a terminal to repair, then refresh the update list",
@@ -1012,7 +1018,7 @@ def node_release_info(installed):
             with urllib.request.urlopen(urllib.request.Request("https://raw.githubusercontent.com/nodejs/Release/main/schedule.json", headers={"User-Agent": "spark-center"}), timeout=15) as r:
                 d["_schedule"] = {k.lstrip("v"): v.get("end") for k, v in json.load(r).items()}
             d["fetched"] = datetime.now().isoformat(timespec="seconds")
-            _NODE_REL.update(ts=time.time(), data=d)
+            _NODE_REL.update(ts=time.time(), data=dict(d))   # 存副本：下面的 pop 不能動到快取，否則第二次查就沒有時程了
         except Exception as e:
             d["error"] = msg("node_release_failed", LANG_DEFAULT, err=str(e)[:80])
     sched = d.pop("_schedule", {}) or {}
@@ -1020,6 +1026,22 @@ def node_release_info(installed):
     d["installed_end"] = sched.get(major)
     d["lts_end"] = sched.get(str(d["lts_major"])) if d["lts_major"] else None
     return d
+
+
+def _node_semver_satisfies(node_version, ranges):
+    """用 npm 自帶的 semver 判斷 node_version 是否符合各套件的 engines.node 範圍。回 {name: True/False}；跑不了回 {}（呼叫端當「不明」）。"""
+    if not ranges:
+        return {}
+    js = "const s=require(process.argv[1]);const r=JSON.parse(process.argv[3]);const o={};for(const k in r){try{o[k]=s.satisfies(process.argv[2],r[k])}catch(e){o[k]=null}}console.log(JSON.stringify(o))"
+    for sem in ("/usr/lib/node_modules/npm/node_modules/semver", os.path.join(os.path.dirname(os.path.realpath(NPM_BIN)), "..", "lib", "node_modules", "npm", "node_modules", "semver")):
+        if os.path.isdir(sem):
+            out = _run(["node", "-e", js, sem, node_version, json.dumps(ranges)], timeout=20)
+            if out:
+                try:
+                    return json.loads(out)
+                except ValueError:
+                    return {}
+    return {}
 
 
 def npm_status(force=False):
@@ -1073,6 +1095,27 @@ def npm_status(force=False):
             want = v.get("wanted") or v.get("latest")
             e.update(latest=want, dist_latest=v.get("latest"), outdated=bool(want) and _semver_lt(v.get("current"), want),
                      newer=bool(want) and _semver_lt(want, v.get("current")))
+        # npm 的選版只是「偏好」相容 engines 的版本：整個套件都不相容時仍會回不相容版，install 也只印警告。
+        # 這裡對每個目標版查 engines.node，用 npm 附帶的 semver 核對目前 Node；不相容就標 blocked、不給更新鈕。
+        checks = {}
+        for e in pk.values():
+            if e["outdated"]:
+                try:
+                    v = subprocess.run([NPM_BIN, "view", f"{e['name']}@{e['latest']}", "engines", "--json"], capture_output=True, text=True, timeout=30, env=_ENV_C)
+                    checks[e["name"]] = ((json.loads(v.stdout) if v.stdout.strip() else {}) or {}).get("node")
+                except Exception as ex:
+                    checks[e["name"]] = f"?{str(ex)[:40]}"
+        if checks and out["node"]:
+            sat = _node_semver_satisfies(out["node"], {n: r for n, r in checks.items() if r and not r.startswith("?")})
+            for n, r in checks.items():
+                e = pk[n]
+                e["target_engines"] = r
+                if r and r.startswith("?"):
+                    e.update(outdated=False, blocked=True, blocked_reason=msg('npm_engine_unknown', LANG_DEFAULT))
+                elif r and sat.get(n) is False:
+                    e.update(outdated=False, blocked=True, blocked_reason=msg('npm_engine_blocked', LANG_DEFAULT, ver=e["latest"], need=r, node=out["node"]))
+                elif r and sat.get(n) is None:
+                    e.update(outdated=False, blocked=True, blocked_reason=msg('npm_engine_unknown', LANG_DEFAULT))
         out["outdated"] = sum(1 for e in pk.values() if e["outdated"])
     except Exception as e:
         # 查不到新版不能變成「全部最新」：outdated 留 None，前端顯示「—」並掛紅字
@@ -1504,8 +1547,17 @@ class Job:
                 rollback_record_npm(packages)
             except Exception as e:
                 self._log("rollback record failed: " + str(e))
-            want = {e["name"]: e.get("latest") for e in npm_status().get("packages", [])}
-            return self._run_subprocess([NPM_BIN, "install", "-g"] + [f"{n}@{want.get(n) or 'latest'}" for n in packages], packages)
+            st = npm_status()
+            want = {e["name"]: e.get("latest") for e in st.get("packages", []) if e.get("outdated")}
+            missing = [n for n in packages if not want.get(n)]
+            if st.get("error") or missing:
+                # 目標版本查不到就停：退回 @latest 會裝到沒確認過、可能不相容的版本
+                with self.lock:
+                    self.state.update(status="error", error=msg("npm_target_unknown", LANG_DEFAULT, pkgs=", ".join(missing or packages), err=st.get("error") or ""),
+                                      finished=datetime.now().isoformat(timespec="seconds"))
+                return
+            # --engine-strict：npm 對 engines 不符預設只印警告照裝，這裡要它直接失敗
+            return self._run_subprocess([NPM_BIN, "install", "-g", "--engine-strict"] + [f"{n}@{want[n]}" for n in packages], packages)
         if kind == "rollback_npm":
             ents = rollback_npm_entries(packages[0], packages[1] or None)
             if not ents:
