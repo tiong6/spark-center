@@ -178,7 +178,9 @@ def preview(action, target):
                 fail('node_no_pending')
             verify_backup(s)
             plan['version'] = target_version(s['target'])
-            args = ['nodejs=' + plan['version']]
+            p = installed()
+            # 目標版本已解包但沒設定完：apt 會說「已是最新」什麼都不做，要 --reinstall 才會重跑 dpkg
+            args = (['--reinstall'] if p.installed.version == plan['version'] and not fully_installed(p) else []) + ['nodejs=' + plan['version']]
         else:
             plan['version'] = s['old_version']
             args = [verify_backup(s)] if st['installed'] != s['old_version'] else []

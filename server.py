@@ -1039,8 +1039,14 @@ def npm_running(prefix, names):
         except OSError:
             continue
         hit = None
-        for a in argv:
+        for a in argv[:8]:
             a = a.decode("utf-8", "replace")
+            # npm 的 bin 是符號連結（<prefix>/bin/openclaw → ../lib/node_modules/openclaw/…），cmdline 可能只留 bin 路徑，要解回真實路徑
+            if "/" in a and not a.startswith(base):
+                try:
+                    a = os.path.realpath(a)
+                except OSError:
+                    pass
             if a.startswith(base):
                 rest = a[len(base):]
                 name = rest.split("/")[0]
@@ -1237,7 +1243,14 @@ def npm_status(force=False):
     """npm ls -g（全部）＋ npm outdated -g（有新版的）。outdated 有新版時結束碼是 1，不能用 _run 的 0 判定。"""
     with _NPM["lock"]:
         if not force and _NPM["data"] and time.time() - _NPM["ts"] < NPM_TTL:
-            return _NPM["data"]
+            # 套件查詢可以快取 10 分鐘，程序狀態不行：重啟後 PID 就變了，要每次即時重掃
+            cached = dict(_NPM["data"])
+            try:
+                running = npm_running(cached.get("prefix"), [e["name"] for e in cached.get("packages", [])])
+                cached["packages"] = [dict(e, running=running.get(e["name"], [])) for e in cached["packages"]]
+            except Exception:
+                pass
+            return cached
     if not os.path.isfile(NPM_BIN):
         return {"ok": True, "available": False, "note": msg('npm_missing', LANG_DEFAULT)}
     out = {"ok": True, "available": True, "packages": [], "outdated": None, "error": None,

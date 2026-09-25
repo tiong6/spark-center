@@ -15,7 +15,8 @@ async function loadNodeSource() {
     const s = j.state, pending = s && s.phase !== 'restored';
     if (!pending && !upgradeAvail) { box.innerHTML = ''; return; }
     const target = pending ? s.target : j.target;
-    const canInstall = pending && ['prepared', 'installing', 'install_failed'].includes(s.phase) && j.source_text === s.replacement && !j.installed.startsWith(s.target + '.');
+    // 目標版本已在磁碟上但 dpkg 沒裝完（解包了、設定失敗）也要能重試；只有「完整裝好」才收掉安裝鈕（那時 effective_state 已把 phase 轉成 installed）
+    const canInstall = pending && ['prepared', 'installing', 'install_failed'].includes(s.phase) && j.source_text === s.replacement && !(j.installed.startsWith(s.target + '.') && j.fully_installed);
     let html = `<b>${t('node.title')}</b><div class="sub1">${t('node.current', {version: esc(j.installed), major: j.major})}</div>`;
     if (pending && s.phase === 'installed') html += `<div class="sub1">${t('node.completed', {old: esc(s.old_version), version: esc(j.installed)})}</div>`;
     if (pending && s.phase !== 'installed') html += `<div class="panel notice ${s.phase.endsWith('failed') ? 'danger' : 'warn'}" style="margin-top:10px">${t('node.phase_' + s.phase)}<div class="sub1">${t('node.saved', {version: esc(s.old_version)})}</div></div>`;
