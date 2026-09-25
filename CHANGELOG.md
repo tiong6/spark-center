@@ -10,6 +10,8 @@
 
 ### 新增
 
+- **NodeSource 主版本升級**：npm 面板可依官方 LTS 排程準備升級，先保存並核對舊版 SHA-256，再切換既有來源；另一次模擬與確認才安裝。支援取消準備與恢復來源／原 Node，回復前列出可能不相容的 npm 工具。只保留最近一次主版本備份，不處理 nvm、snap、自訂或多份來源。隔離流程測試與實際唯讀 API／介面驗證；尚未實測提權切換、安裝及恢復。
+
 - **npm 全域套件面板**（更新分頁）。Claude Code、Gemini CLI、OpenClaw 這類 CLI 工具是 `npm -g` 裝的，apt／snap／flatpak 都看不到。面板用 `npm ls -g` 列全部、`npm outdated -g` 標新版（查不到新版時顯示「—」並掛紅字，不顯示 0），單顆或整批更新；裝在使用者的 prefix，不需要密碼。更新前把「目前版 → 新版」記進降回索引（不留檔案，registry 保留所有版本），降回面板可重裝指定版號。真機驗證：@playwright/cli 0.1.5 → 0.1.21 → 降回 0.1.5。pip 與 Docker 映像刻意不做：系統 pip 套件歸 apt 管（PEP 668），venv 版本是專案鎖的，Docker pull 新映像不等於容器已更新。
 - **POST 的 Host 檢查放寬到任意本機埠號**，SSH 轉埠與 NVIDIA Sync 的 Custom 連線能用（實測 Sync 配的是 localhost:36027）。
 

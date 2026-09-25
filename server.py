@@ -42,6 +42,18 @@ APT_LISTS = "/var/lib/apt/lists"
 LANG_DEFAULT = "zh-TW"
 MSG = {
     "zh-TW": {
+    "node_source_unsupported": "不適用：需要單一標準 NodeSource 來源、既有簽章金鑰與 /usr/bin/node；nvm、snap 或自訂來源請自行管理。",
+    "node_command_failed": "Node 操作失敗，請查看指令輸出；不代表已恢復。",
+    "node_backup_invalid": "無法保存或驗證原 Node 套件（需要可信 SHA-256，且不超過 150 MB）；停止操作。",
+    "node_target_unavailable": "無法確認可信的目標 LTS／架構套件，停止操作。",
+    "node_pending": "尚有 Node 升級紀錄，請先完成安裝或恢復原版本。",
+    "node_no_pending": "目前沒有可執行此操作的 Node 升級紀錄，請重新整理。",
+    "node_source_changed": "NodeSource 設定已被其他操作更改，停止覆寫；請重新檢查。",
+    "node_bad_action": "無效的 Node 操作。",
+    "node_root_required": "此 Node 操作需要桌面授權。",
+    "node_plan_changed": "Node 狀態或模擬結果已改變，請重新檢查並確認。",
+    "node_version_mismatch": "安裝後的 Node 版本與預期不同，請查看工作記錄。",
+
         "unknown_source": "未知來源",
         "missing_modules": "你勾了核心，但沒有勾對應的 NVIDIA 簽章模組。兩者沒有相依關係，模擬不會提醒你。只升核心的話，重開機後會進到一個沒有簽章 GPU 驅動的系統，退回 DKMS 自簽又會被 Secure Boot 擋掉。",
         "missing_kernel": "你勾了 NVIDIA 簽章模組，但沒有勾對應的核心。模組是對著特定核心版本編譯的，沒有那個核心就用不到。",
@@ -285,6 +297,18 @@ MSG = {
         "trash_cleared": "已清空垃圾桶"
     },
     "en": {
+    "node_source_unsupported": "Not applicable: requires one standard NodeSource repository, its existing signing key and /usr/bin/node. Manage nvm, snap or custom repositories separately.",
+    "node_command_failed": "Node operation failed; inspect command output. Restoration is not implied.",
+    "node_backup_invalid": "Could not save or verify the original Node package (trusted SHA-256 and at most 150 MB required). Operation stopped.",
+    "node_target_unavailable": "A trusted target LTS/architecture package could not be confirmed; operation stopped.",
+    "node_pending": "A Node upgrade is already pending; finish installation or restore the original version first.",
+    "node_no_pending": "No Node upgrade record allows this action; refresh the page.",
+    "node_source_changed": "NodeSource configuration was changed by another operation; refusing to overwrite it. Recheck the configuration.",
+    "node_bad_action": "Invalid Node operation.",
+    "node_root_required": "This Node operation requires desktop authorization.",
+    "node_plan_changed": "Node state or the simulation changed; review and confirm again.",
+    "node_version_mismatch": "The installed Node version differs from the expected version; inspect the job log.",
+
         "unknown_source": "Unknown source",
         "missing_modules": "You selected the kernel without the matching NVIDIA signed modules. They have no dependency relationship, so simulation will not warn you. Upgrading only the kernel leaves the system without a signed GPU driver after reboot; falling back to self-signed DKMS modules will also be blocked by Secure Boot.",
         "missing_kernel": "You selected the NVIDIA signed modules without the matching kernel. These modules are built for a specific kernel version and cannot be used without it.",
@@ -1044,6 +1068,81 @@ def _node_semver_satisfies(node_version, ranges):
     return {}
 
 
+NODE_HELPER = os.path.join(HERE, 'tools', 'node_source.py')
+
+
+def node_error(detail):
+    key, _, extra = str(detail).partition(':')
+    return msg(key if key in MSG[LANG_DEFAULT] else 'node_command_failed', LANG_DEFAULT) + (': ' + extra if extra else '')
+
+
+def node_read(*args):
+    if os.path.realpath(shutil.which('node') or '') != '/usr/bin/node':
+        return {'ok': False, 'error': msg('node_source_unsupported', LANG_DEFAULT)}
+    r = subprocess.run(['/usr/bin/python3', '-I', NODE_HELPER, *args], capture_output=True,
+                       text=True, timeout=90, env=_ENV_C)
+    try:
+        j = json.loads(r.stdout)
+    except ValueError:
+        return {'ok': False, 'error': node_error(r.stderr)}
+    if not j.get('ok'):
+        j['error'] = node_error(j.get('error', ''))
+    return j
+
+
+def node_status():
+    j = node_read('status')
+    if j['ok']:
+        info = node_release_info(j['installed'].split('-', 1)[0])
+        j['target'] = info.get('lts_major')
+        j['release_error'] = info.get('error')
+    return j
+
+
+def node_npm_impact(version):
+    # 回退檢查只讀本機已安裝套件，不需要 registry 在線，也不把快取當成現值。
+    r = subprocess.run([NPM_BIN, 'ls', '-g', '--depth=0', '--json'], capture_output=True,
+                       text=True, timeout=60, env=_ENV_C)
+    try:
+        if r.returncode:
+            raise ValueError()
+        deps = json.loads(r.stdout).get('dependencies', {})
+        prefix = (_run([NPM_BIN, 'prefix', '-g'], timeout=20) or '').strip()
+        if not prefix:
+            raise ValueError()
+        ranges, unknown = {}, []
+        for name in deps:
+            try:
+                with open(os.path.join(prefix, 'lib', 'node_modules', name, 'package.json')) as f:
+                    meta = json.load(f)
+                constraint = (meta.get('engines') or {}).get('node')
+                if constraint:
+                    ranges[name] = constraint
+            except (OSError, ValueError, TypeError):
+                unknown.append(name)
+        results = _node_semver_satisfies(version.split('-', 1)[0], ranges)
+        return [{'name': n, 'range': ranges.get(n), 'unknown': n in unknown or results.get(n) is None}
+                for n in sorted(set(unknown) | {n for n in ranges if results.get(n) is not True})]
+    except (ValueError, TypeError):
+        return [{'name': 'npm', 'range': None, 'unknown': True}]
+
+
+def node_plan(action, target):
+    if action not in ('prepare', 'install', 'restore') or type(target) is not int:
+        return {'ok': False, 'error': msg('node_bad_action', LANG_DEFAULT)}
+    if action == 'prepare':
+        current = node_status()
+        if not current.get('ok'):
+            return current
+        if target != current.get('target'):
+            return {'ok': False, 'error': msg('node_target_unavailable', LANG_DEFAULT)}
+    j = node_read('preview', action, str(target))
+    if j.get('ok'):
+        j['impact'] = node_npm_impact(j['version']) if action == 'restore' and j.get('args') else []
+        j['confirmation'] = hashlib.sha256(json.dumps([j['token'], j['impact']], sort_keys=True).encode()).hexdigest()
+    return j
+
+
 def npm_status(force=False):
     """npm ls -g（全部）＋ npm outdated -g（有新版的）。outdated 有新版時結束碼是 1，不能用 _run 的 0 判定。"""
     with _NPM["lock"]:
@@ -1549,6 +1648,15 @@ class Job:
                 rollback_prepare(packages, self._log, lambda txt: self.state.__setitem__("status_text", txt))
             except Exception as e:
                 self._log("rollback prepare failed: " + str(e))
+        if kind == 'node_source':
+            action, target, token = packages
+            self._run_subprocess(['pkexec', '/usr/bin/python3', '-I', NODE_HELPER, action, target, token], packages)
+            with self.lock:
+                if self.state['status'] == 'error':
+                    detail = next((s.split('NODE_ERROR:', 1)[1] for s in reversed(self.state['log']) if 'NODE_ERROR:' in s), None)
+                    if detail:
+                        self.state['error'] = node_error(detail)
+            return
         if kind == "npm":
             try:
                 rollback_record_npm(packages)
@@ -4106,6 +4214,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "max-age=86400")
             self.end_headers()
             self.wfile.write(body)
+        elif path == '/api/node':
+            try:
+                self._json(node_status())
+            except Exception as e:
+                self._json({'ok': False, 'error': node_error(str(e))}, 500)
         elif path == "/api/npm":
             try:
                 self._json(npm_status(force="force=1" in (self.path.split("?", 1) + [""])[1]))
@@ -4251,6 +4364,19 @@ class Handler(BaseHTTPRequestHandler):
             if not JOB.start("install", names):
                 return self._json({"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 409)
             return self._json({"ok": True})
+        if path in ('/api/node/preview', '/api/node/action'):
+            try:
+                action, target = data.get('action'), data.get('target')
+                plan = node_plan(action, target)
+                if not plan.get('ok') or path.endswith('/preview'):
+                    return self._json(plan, 200 if plan.get('ok') else 400)
+                if data.get('confirmation') != plan['confirmation']:
+                    return self._json({'ok': False, 'error': msg('node_plan_changed', LANG_DEFAULT)}, 409)
+                if not JOB.start('node_source', [action, str(target), plan['token']]):
+                    return self._json({'ok': False, 'error': msg('job_running', LANG_DEFAULT)}, 409)
+                return self._json({'ok': True})
+            except Exception as e:
+                return self._json({'ok': False, 'error': node_error(str(e))}, 400)
         if path == "/api/npm/update":
             names = [n for n in data.get("names", []) if isinstance(n, str) and re.fullmatch(r"(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*", n)]
             if not names:

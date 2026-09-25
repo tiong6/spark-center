@@ -209,7 +209,7 @@ async function loadRollback() {
   });
 }
 async function load() {
-  loadFirmware(); loadNpm(); loadRollback();
+  loadFirmware(); loadNpm(); loadRollback(); loadNodeSource();
   const j = await api('/api/updates');
   if (!j.ok) { $('#list').innerHTML = `<div class="panel notice danger">${t("updates.could_not_load_the_list", {v0: esc(j.error)})}</div>`; return; }
   const names = new Set(j.items.map(i => i.name));
@@ -260,7 +260,7 @@ $('#mCancel').onclick = closeModal;
 
 function jobTitle(j) {   // 重新整理頁面或服務重啟後接回工作時，標題要對得上實際在做的事
   const pk = (j.packages || []).join(', ');
-  return ({ refresh: t("job.refresh_apt_sources"), install: t("job.apt_install_with_value", {value: pk}), remove: t("job.apt_remove_with_value", {value: pk}),
+  return ({ node_source: t('node.title'), refresh: t("job.refresh_apt_sources"), install: t("job.apt_install_with_value", {value: pk}), remove: t("job.apt_remove_with_value", {value: pk}),
             aptclean: t("job.clear_apt_cache"), snap: t("job.snap_update_with_value", {value: pk}), flatpak: t("job.flatpak_update_with_value", {value: pk}),
             ollama_pull: 'ollama pull ' + pk, shell: t("job.system_action_with_value", {value: pk}),
             npm: t("job.npm_update_with_value", {value: pk}),

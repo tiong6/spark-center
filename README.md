@@ -38,6 +38,16 @@ English interface captured on an ASUS Ascent GX10 with live system data.
 | **Hardware** 硬體 | An "About this machine" header (model, chip, unified memory, storage, DGX OS, serial, BIOS), then a Windows-style inventory: rear-panel diagram with per-port USB-C mapping you can calibrate by plugging something in, DMI serial and memory modules, NVMe SMART health, USB device tree, Bluetooth, printers, PCI link speeds. |
 | **History** 歷史 | Recent apt transactions with who ran them. |
 
+## Node major-version upgrades
+
+The npm panel offers the current LTS from the official Node release schedule for a standard NodeSource installation using `/usr/bin/node`. **Prepare upgrade** first downloads the installed `.deb`, verifies its SHA-256 against trusted apt metadata, saves the original repository, and switches the existing `nodesource.sources` using its existing signing key. It then refreshes and checks the target package. Preparation failure attempts to restore the original source; any recovery failure remains visible.
+
+Installation is a separate **Check impact and install** action with an apt simulation and desktop authorization. You can cancel preparation or restore the saved Node version and repository. Removal of other packages is prohibited. Restoration warns about incompatible installed npm tools; it does not restore those tools, project dependencies, or running services. Restart affected tools after installation.
+
+One major-upgrade backup (maximum 150 MiB) is kept under root-owned `/var/lib/spark-center/node-source/`; preparing a subsequent major upgrade replaces it. nvm, snap, custom or multiple NodeSource sources are not handled. No downloaded setup script is executed.
+
+Validation: isolated workflow tests and live read-only API/browser checks cover this feature. The real privileged repository-switch/install/restore sequence has **not yet been exercised**.
+
 ## Design rules
 
 These are deliberate, and they are why the tool exists:

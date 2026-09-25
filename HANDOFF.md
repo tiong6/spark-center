@@ -1,29 +1,31 @@
 # HANDOFF — 現在的接力棒
 
-> 唯一接力棒；下一位先看 `git status` 與 `git log`，不要把這份快照當成即時狀態。
+> 唯一接力棒；先看 git status 與 git log，這份是快照。
 
-2026-09-24 晚：介面中英雙語已由 Claude 審收通過並 commit／push（`1c960c9` 雙語本體，後一筆修儀表撞名與英文括號）。
-工作樹乾淨。`docs/WORKORDER-i18n.md` 已完成，留著當規格參考（術語表仍適用於之後新增的字串）。
+## 2026-09-25：NodeSource 主版本升級
 
-## 前端已拆檔（2026-09-24 深夜）
+更新分頁的 npm 面板加入 Node 主版本流程，前端 static/js/node-source.js，後端 server.py，提權 helper tools/node_source.py。
 
-index.html 只剩骨架；CSS 在 static/css/app.css，JS 在 static/js/ 依分頁 11 支，載入順序見 index.html 底部，不能亂
-（後面的檔案在載入時引用前面的頂層 const）。改完跑 `tools/check.sh`。CSS 有 8 處既有的重複選擇器定義，lint 只警告，改到時併掉。
+- GET /api/node 辨識標準單一 NodeSource deb822 來源、現有金鑰與服務使用的 /usr/bin/node，目標來自官方 Node LTS 表。
+- POST /api/node/preview 唯讀；POST /api/node/action 重新核對確認摘要，再透過現有 Job/pkexec 執行。prepare、install、restore 分開確認。
+- prepare 保存 apt 索引 SHA-256 驗證的原版 .deb 後切來源，刷新並確認可信目標；失敗嘗試恢復原來源，復原失敗有持久狀態可重試。
+- install/restore 先顯示 apt 模擬；實際執行禁止移除套件、保留設定檔。恢復前檢查本機全域 npm engines，警告不相容／未知者。
+- root 狀態與單份備份在 /var/lib/spark-center/node-source/，每檔上限 150 MiB。下次主版本升級取代前次備份，有明確告知；不還原 npm 工具或專案／服務。
 
-## 之後新增字串的規矩
+## 已驗證
 
-- 前端：字串進 static/js/i18n.js 的 `STR['zh-TW']` 與 `STR['en']` 兩邊都要有，用 `t('key', {vars})` 取；靜態 HTML 用 `data-i18n`。
-- 後端：可顯示字串進 `MSG` 兩邊，回應時 `_localized_response` 會翻；內部快取與 `data/` 維持中文。
-- 限定語不能翻軟；找不到對應翻譯就顯示原文，不編。
+- python3 tools/test_node_source.py：15 tests，OK。使用臨時來源與備份、替代 apt/提權呼叫，沒有改系統。
+- tools/check.sh：Python、12 支 JS、89 個 HTML id、中英 STR 631 與 MSG 252 keys 通過。8 個既有 CSS 重複選擇器仍只警告。
+- 先確認 /api/job idle 再重啟 spark-center user service。
+- 實際唯讀 API：Node 22.23.3-1nodesource1、目標 LTS 24；prepare 預覽正確；過期確認 409，非目標 LTS 400，job 保持 idle。
+- Playwright：中英文準備預覽、七分頁顯示正常；注入回復資料時顯示 apt 模擬與不相容 npm 警告。注入測試不是實機回復驗證。
 
-## 已知但沒動的
+## 尚未驗證／機器狀態
 
-- 英文模式下 aptdaemon 自己的狀態字串跟系統 locale 走（本機 zh_TW），工作紀錄裡可能夾中文，工單豁免。
-- `/api/hardware/rear` 的孔位校準備註是使用者當時輸入的中文，屬資料不翻。
-- 磁碟大檔案清單有真實中文檔名（Thunderbird 的「全部郵件」），屬資料不翻。
+**尚未實際跑 pkexec 切來源、安裝 Node、恢復 Node 的整條路。** 這次只實作與隔離／唯讀驗證，不能宣稱真機升降成功。機器仍是 Node v22.23.3，來源仍 node_22.x，未建立系統 Node 回復狀態。
 
-## 下一步（順位）
+## 原有待辦與慣例
 
-1. 英文介面截圖兩張已放進 README（監控、更新，`output/playwright/`）。2026-09-24 以實際服務擷取，已檢視圖片與驗證連結；更新分頁當時沒有待更新套件。 監控截圖已用 × 隱藏 Wi-Fi 與 Network 卡後重拍，確認英文畫面不含 SSID 與內網 IP；舊截圖仍存在 Git 歷史。
-2. 貼 NVIDIA 開發者論壇 DGX Spark 分類（文章草稿在 2026-09-24 對話裡，貼之前把「介面目前是繁中」那段刪掉）。
-3. 尚未做的對齊項：導覽列與卡片圖示、模型分頁每列動作收成滑過顯示、歷史分頁按天分組、淺色模式。
+英文監控／更新截圖已在 README；監控圖隱藏網路卡避免揭露 SSID/IP，舊圖仍存在 Git 歷史。論壇文章尚未發。
+前端字串進 i18n.js 的中英 STR，後端顯示訊息進中英 MSG。套件名、路徑、指令與使用者資料不翻。
+變更流程與 commit/push 慣例見 CLAUDE.md；此專案無建置步驟。
