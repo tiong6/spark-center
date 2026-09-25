@@ -189,6 +189,8 @@ MSG = {
         "rollback_auth": "降回上一版需要 root，透過 pkexec 執行 apt-get（桌面會跳密碼視窗）",
         "rollback_sim_failed": "無法模擬降回：{err}",
         "npm_missing": "找不到 npm，沒有全域套件可查",
+        "npm_restart_bad_unit": "{unit} 不是目前正在執行 npm 全域套件的 systemd 使用者服務，不重啟",
+        "npm_restart_failed": "重啟 {unit} 失敗：{err}",
         "node_release_failed": "查不到 Node 官方版本表：{err}",
         "npm_target_unknown": "查不到 {pkgs} 的目標版本，不更新（不會退回 @latest 亂裝）。{err}",
         "npm_engine_blocked": "新版 {ver} 要求 Node {need}，你的是 {node}，不給更新",
@@ -446,6 +448,8 @@ MSG = {
         "rollback_auth": "Rolling back requires root; running apt-get through pkexec (a password dialog will appear on the desktop)",
         "rollback_sim_failed": "Could not simulate the rollback: {err}",
         "npm_missing": "npm not found; no global packages to check",
+        "npm_restart_bad_unit": "{unit} is not a systemd user service currently running an npm global package; not restarting",
+        "npm_restart_failed": "Restarting {unit} failed: {err}",
         "node_release_failed": "Could not read the official Node release table: {err}",
         "npm_target_unknown": "Could not determine the target version for {pkgs}; not updating (no silent fallback to @latest). {err}",
         "npm_engine_blocked": "version {ver} requires Node {need}; yours is {node}, so no update is offered",
@@ -1018,6 +1022,48 @@ NPM_TTL = 600
 NPM_BIN = shutil.which("npm") or "/usr/bin/npm"
 
 
+def npm_running(prefix, names):
+    """哪些程序正在執行這些 npm 全域套件的檔案（掃 /proc/*/cmdline 找 <prefix>/lib/node_modules/<name>/）。
+    為什麼要看：npm install -g 直接覆蓋目錄，正在跑的程序之後才載入的模組會讀到新版，新舊混用會出錯，更新完要重啟。
+    同時從 cgroup 讀出它屬於哪個 systemd 使用者服務（app.slice/xxx.service），有的話可以一鍵重啟；沒有的只能提醒。"""
+    out = {n: [] for n in names}
+    if not prefix:
+        return out
+    base = os.path.join(prefix, "lib", "node_modules") + os.sep
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                argv = f.read().split(b"\0")
+        except OSError:
+            continue
+        hit = None
+        for a in argv:
+            a = a.decode("utf-8", "replace")
+            if a.startswith(base):
+                rest = a[len(base):]
+                name = rest.split("/")[0]
+                if name.startswith("@") and "/" in rest[len(name) + 1:] + "/":
+                    name = name + "/" + rest[len(name) + 1:].split("/")[0]
+                if name in out:
+                    hit = name; break
+        if not hit:
+            continue
+        unit = None
+        try:
+            with open(f"/proc/{pid}/cgroup", encoding="utf-8") as f:
+                cg = f.read().strip().split(":", 2)[-1]
+            last = cg.rsplit("/", 1)[-1]
+            if "/user@" in cg and last.endswith(".service"):
+                unit = last
+        except OSError:
+            pass
+        cmd = " ".join(x.decode("utf-8", "replace") for x in argv if x)
+        out[hit].append({"pid": int(pid), "unit": unit, "cmd": cmd[:160]})
+    return out
+
+
 def _semver_key(v):
     m = re.match(r"(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?", v or "")
     if not m:
@@ -1262,6 +1308,13 @@ def npm_status(force=False):
     except Exception as e:
         # 查不到新版不能變成「全部最新」：outdated 留 None，前端顯示「—」並掛紅字
         out.update(error=msg('npm_outdated_failed', LANG_DEFAULT, err=str(e)[:120]))
+    try:
+        running = npm_running(out["prefix"], list(pk))
+        for n, e in pk.items():
+            e["running"] = running.get(n, [])
+    except Exception:
+        for e in pk.values():
+            e["running"] = []
     out["packages"] = sorted(pk.values(), key=lambda e: (not e["outdated"], e["name"]))
     with _NPM["lock"]:
         if not out["error"] and not out.get("engines_partial"):
@@ -4450,6 +4503,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({'ok': True})
             except Exception as e:
                 return self._json({'ok': False, 'error': node_error(str(e))}, 400)
+        if path == "/api/npm/restart":
+            unit = str(data.get("unit") or "")
+            # 只准重啟「目前正在執行某個 npm 全域套件」的 systemd 使用者服務，名稱從即時掃描來，不接受任意單元
+            st = npm_status(force=True)
+            allowed = {r["unit"] for e in st.get("packages", []) for r in e.get("running", []) if r.get("unit")}
+            if not re.fullmatch(r"[A-Za-z0-9@._-]+\.service", unit) or unit not in allowed:
+                return self._json({"ok": False, "error": msg("npm_restart_bad_unit", LANG_DEFAULT, unit=unit)}, 400)
+            r = subprocess.run(["systemctl", "--user", "restart", unit], capture_output=True, text=True, timeout=90, env=_ENV_C)
+            if r.returncode != 0:
+                return self._json({"ok": False, "error": msg("npm_restart_failed", LANG_DEFAULT, unit=unit, err=(r.stderr or r.stdout).strip()[:200])}, 500)
+            _NPM["ts"] = 0
+            act = (_run(["systemctl", "--user", "is-active", unit], timeout=20) or "").strip()
+            return self._json({"ok": True, "unit": unit, "active": act})
         if path == "/api/npm/update":
             names = [n for n in data.get("names", []) if isinstance(n, str) and re.fullmatch(r"(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*", n)]
             if not names:

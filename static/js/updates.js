@@ -129,20 +129,44 @@ async function loadNpm(force) {
     // 名稱下面放描述、作者、倉庫：都是套件自己宣稱的，npm 不驗證，所以只照實顯示、附連結讓人自己看
     const repoText = p.repo ? p.repo.replace(/^https?:\/\//, '') : null;
     const who = [p.author ? esc(p.author) : null, repoText ? `<a href="${esc(p.repo)}" target="_blank" rel="noopener">${esc(repoText)}</a>` : (p.homepage ? `<a href="${esc(p.homepage)}" target="_blank" rel="noopener">${esc(p.homepage.replace(/^https?:\/\//, ''))}</a>` : null), p.license ? esc(p.license) : null].filter(Boolean).join(' · ');
-    html += `<tr><td><span class="mono">${esc(p.name)}</span>${p.description ? `<div class="sub1">${esc(p.description)}</div>` : ''}<div class="sub1">${who || t("updates.npm_no_meta")}</div></td><td class="mono">${esc(p.current || '—')}</td><td class="mono">${esc(p.latest || '—')}</td><td>${st}</td><td>${p.outdated ? `<button class="small primary" data-npm="${esc(p.name)}">${t("common.update")}</button>` : p.newer ? `<button class="small" data-npm="${esc(p.name)}" title="${t("updates.npm_newer_hint")}">${t("updates.npm_install_compat", {v0: esc(p.latest)})}</button>` : ''}</td></tr>`;
+    const runTag = (p.running || []).length ? `<span class="tag reboot" title="${esc((p.running || []).map(r => `PID ${r.pid}${r.unit ? ' · ' + r.unit : ''}`).join('\n'))}">${t("updates.npm_running", {n: p.running.length})}</span>` : '';
+    html += `<tr><td><span class="mono">${esc(p.name)}</span>${runTag}${p.description ? `<div class="sub1">${esc(p.description)}</div>` : ''}<div class="sub1">${who || t("updates.npm_no_meta")}</div></td><td class="mono">${esc(p.current || '—')}</td><td class="mono">${esc(p.latest || '—')}</td><td>${st}</td><td>${p.outdated ? `<button class="small primary" data-npm="${esc(p.name)}">${t("common.update")}</button>` : p.newer ? `<button class="small" data-npm="${esc(p.name)}" title="${t("updates.npm_newer_hint")}">${t("updates.npm_install_compat", {v0: esc(p.latest)})}</button>` : ''}</td></tr>`;
   }
   box.innerHTML = html + `</tbody></table><div class="sub1" style="margin-top:8px">${t("updates.npm_trust_note")}</div>`;
+  state.npmPkgs = j.packages;
   const slot = box.querySelector('#nodeSlot'), ns = $('#nodeSource');
   if (slot && ns) slot.appendChild(ns);   // 搬 DOM 節點，loadNodeSource 之後不管先後都會渲染到它現在的位置
   box.querySelectorAll('button[data-npm]').forEach(b => b.onclick = () => npmUpdate([b.dataset.npm], b));
   $('#btnNpmUpdate').onclick = () => npmUpdate(j.packages.filter(p => p.outdated).map(p => p.name), $('#btnNpmUpdate'));
 }
 async function npmUpdate(names, btn) {
-  if (!confirm(t("updates.npm_confirm", {list: names.join(', ')}))) return;
+  const running = (state.npmPkgs || []).filter(p => names.includes(p.name) && (p.running || []).length);
+  const extra = running.length ? '\n\n' + t("updates.npm_confirm_restart", {list: running.map(p => `${p.name}（${p.running.map(r => r.unit || ('PID ' + r.pid)).join('、')}）`).join('、')}) : '';
+  if (!confirm(t("updates.npm_confirm", {list: names.join(', ')}) + extra)) return;
   btn.disabled = true;
   const r = await api('/api/npm/update', {names});
   if (!r.ok) { alert(t("updates.could_not_start_with_value", {value: r.error})); btn.disabled = false; return; }
   startPolling(t("job.npm_update_with_value", {value: names.join(', ')})); window.scrollTo({top: 0, behavior: 'smooth'});
+}
+/* npm 更新完：還在跑舊版檔案的程序要重啟。systemd 使用者服務給一鍵重啟（不需密碼）；不是服務的只提醒 */
+async function offerNpmRestart(names) {
+  const j = await api('/api/npm?force=1');
+  if (!j.ok) return;
+  const hits = (j.packages || []).filter(p => names.includes(p.name) && (p.running || []).length);
+  if (!hits.length) return;
+  const box = document.createElement('div'); box.className = 'sub1'; box.style.marginTop = '8px';
+  let h = `<b>${t("updates.npm_restart_needed")}</b>`;
+  for (const p of hits) for (const r of p.running) {
+    h += `<div style="margin-top:4px">${esc(p.name)} · PID ${r.pid} · ${r.unit ? `<button class="small" data-restart="${esc(r.unit)}">${t("updates.npm_restart_btn", {unit: esc(r.unit)})}</button>` : esc(t("updates.npm_restart_manual"))}</div>`;
+  }
+  box.innerHTML = h; $('#jobactions').appendChild(box);
+  box.querySelectorAll('button[data-restart]').forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = t("updates.npm_restarting");
+    const r = await api('/api/npm/restart', {unit: b.dataset.restart});
+    b.textContent = r.ok ? t("updates.npm_restarted", {unit: b.dataset.restart, state: r.active}) : r.error;
+    if (!r.ok) b.disabled = false;
+    loadNpm(true);
+  });
 }
 $('#btnNpmRefresh').onclick = () => { $('#npmMeta').textContent = t("updates.npm_querying"); loadNpm(true); };
 
@@ -299,7 +323,9 @@ async function pollJob() {
     clearInterval(state.autoClose); state.autoClose = null;
     const closeCard = () => { clearInterval(state.autoClose); state.autoClose = null; $('#jobcard').classList.add('hide'); };
     $('#jobClose').onclick = closeCard;
-    if (j.status === 'done') {   // 成功的 15 秒後自動收起；失敗的留著，要讓人看到
+    let holdOpen = false;
+    if (j.status === 'done' && j.kind === 'npm') holdOpen = true, offerNpmRestart(j.packages || []);   // 有程序在跑舊版：給重啟鈕，卡片不自動收
+    if (j.status === 'done' && !holdOpen) {   // 成功的 15 秒後自動收起；失敗的留著，要讓人看到
       // 只在看得到的時候倒數：視窗在背景或滑鼠停在卡片上就暫停，更新跑完時人不在座位也不會錯過結果
       let n = 15; $('#jobClose').textContent = t("job.close_auto", {n});
       const card = $('#jobcard'); card.onmouseenter = () => { state.autoClosePaused = true; }; card.onmouseleave = () => { state.autoClosePaused = false; };
