@@ -1,48 +1,40 @@
 # HANDOFF — 現在的接力棒
 
-> 唯一接力棒；先看 git status 與 git log，這份是快照。
+> 唯一接力棒；先看 git status 與 git log，這份是快照（2026-09-25 中秋收工，main = origin/main，工作樹乾淨）。
 
-## 現況（2026-09-25 收工）
+## 現況
 
-- 機器：Node 24.21.0（NodeSource node_24.x），22.23.3 的備份在 /var/lib/spark-center/node-source/；helper 與 polkit policy 已裝且與 repo 一致。OpenClaw 2026.9.6，gateway 已重啟跑新版。
-- 真機驗過：apt 降回整條路（curl）、npm 更新→降回（@playwright/cli）、Node 升級（但 install 那步是從 apt 清單裝的，helper 的「確認安裝」與「恢復原版本」兩段尚未實跑）、npm 程序偵測與一鍵重啟（openclaw-gateway.service）。
-- 外部 review（astra6）六輪問題全部修完；22 個隔離測試（tools/test_node_source.py）通過。
-- 固定成本：改了 tools/node_source.py 就要重跑 README 的 sudo install 那行，否則面板顯示「版本不符」停用。
-- 教訓：重啟服務前先看 /api/job 是否 idle；測「應被拒絕」的請求用隔離測試，不要打會啟動工作的真端點（曾因此觸發真的 apt 安裝）；git add 不用 -A。
-- 下一步候選：實跑 helper 的「恢復原版本」再升一次；CSS 8 個重複選擇器順手併掉；CI 等第一個外部 PR 再說。
+- **機器**：ASUS Ascent GX10，DGX OS 7.6.0。Node 24.21.0（NodeSource node_24.x，今天從 22 升上來；22.23.3 的備份與狀態在 root 擁有的 /var/lib/spark-center/node-source/）。npm 11.19.0。OpenClaw 2026.9.6，gateway 服務已重啟跑新版。apt、fwupd 目前都沒有待裝更新。
+- **已裝的選用 root 項目**：/usr/local/libexec/spark-center/node_source.py（與 repo 一致）與 /usr/share/polkit-1/actions/io.github.tiong6.spark-center.node-source.policy；sudoers 兩條（dmidecode、nvme smart-log）。
+- **服務**：spark-center user service 正常，非唯讀模式。
+- **論壇**：Projects 區的介紹文 384218（有一位網友說會試用）；今天在支援區發了 384257「Three DGX Dashboard update problems」，等 NVIDIA 回覆。有人回了先貼給模型看再回。
 
-## 最新 review 修正（2026-09-25）
+## 今天做完的（38 個 commit，CHANGELOG 2026-09-25 有總覽）
 
-- 提權只執行 /usr/local/libexec/spark-center/node_source.py；逐層檢查 root 擁有、不可群組／其他使用者寫入、不可 symlink，且內容須與 repo 版本一致。**本機尚未安裝 helper，面板目前停用 Node 主版本操作並說明原因。** 安裝命令見 README 的選用 helper 小節；不會由 app 自行安裝。
-- token 與提權後再次模擬只比 Inst／Conf／Remv 行，完整模擬仍顯示給使用者。先前 15 個 mock 測試漏掉非 root NOTE 的差異，不能證明提權流程可完成。
-- 準備視窗補 expected_version（官方 LTS 表），實際版本以切換後 apt 為準。phase=installed 改灰字紀錄，保留恢復入口。
-- 新驗證：19 tests OK，包含真 apt-get -s --reinstall 的唯讀測試（NOTE present=True，實際 Inst／Conf 保留）、交易改變拒絕及 helper 信任檢查。靜態檢查 STR 633／MSG 253 對齊，仍有 8 個既有 CSS 警告。
-- Playwright 驗證未安裝 helper 的實際中英提示與無按鈕；注入資料驗證完整預期版本、成功狀態沒有 notice 黃框，七分頁通過。沒有實際安裝 helper 或升降 Node。
+1. 降回上一版：更新前依模擬結果保留舊版 .deb（含相依帶入）、核對索引 sha256；降回走 pkexec apt-get --allow-downgrades --no-remove，先模擬、會移除就拒絕；面板對照目前版本、去重、折疊。真機跑過 curl 更新→整組降回→裝回。
+2. npm 全域套件面板：列出／更新／降回；描述、作者、倉庫、授權；只裝 engines 相容版（npm 自帶 semver 核對，不退回 @latest）；執行中程序偵測（含 bin 符號連結）、跑舊版檔案標紅、systemd 使用者服務一鍵重啟。
+3. Node 大版本升級（astra6 實作、多輪 review 修正）：準備→模擬確認安裝→恢復；root 擁有 helper + polkit policy；完成判定在 helper 的 effective_state 一處；apt 清單在流程中鎖住 nodejs。
+4. 遠端：POST Host 檢查接受任意本機埠，NVIDIA Sync Custom（localhost:隨機埠）實測可用。README 有 Remote access。
+5. 唯讀模式 SPARK_CENTER_READONLY=1、uninstall.sh、README「它會碰你系統的什麼」。
+6. DGX Dashboard「Update Available」老問題查清：root 後台快照，`sudo systemctl restart dgx-dashboard-admin.service` 立即解。
 
-## 2026-09-25：NodeSource 主版本升級
+## 沒驗到的
 
-更新分頁的 npm 面板加入 Node 主版本流程，前端 static/js/node-source.js，後端 server.py，提權 helper tools/node_source.py。
+- Node helper 自己的「確認安裝」步驟（那次是從 apt 清單裝的）與「恢復原版本」。要驗：面板按「檢查影響並恢復原 Node 版本」→ 回 22 → 再升一次。
+- 降版中途失敗的 dpkg 修復提示（只有隔離測試）。
 
-- GET /api/node 辨識標準單一 NodeSource deb822 來源、現有金鑰與服務使用的 /usr/bin/node，目標來自官方 Node LTS 表。
-- POST /api/node/preview 唯讀；POST /api/node/action 重新核對確認摘要，再透過現有 Job/pkexec 執行。prepare、install、restore 分開確認。
-- prepare 保存 apt 索引 SHA-256 驗證的原版 .deb 後切來源，刷新並確認可信目標；失敗嘗試恢復原來源，復原失敗有持久狀態可重試。
-- install/restore 先顯示 apt 模擬；實際執行禁止移除套件、保留設定檔。恢復前檢查本機全域 npm engines，警告不相容／未知者。
-- root 狀態與單份備份在 /var/lib/spark-center/node-source/，每檔上限 150 MiB。下次主版本升級取代前次備份，有明確告知；不還原 npm 工具或專案／服務。
+## 固定成本與教訓
 
-## 已驗證
+- 改了 tools/node_source.py 就要重跑 README 的 `sudo install … node_source.py`，否則面板顯示「版本不符」停用。
+- 重啟服務前先看 `/api/job` 是 idle（曾在使用者更新中重啟，頁面卡住）。
+- 測「應被拒絕」的請求用隔離測試，不要打會啟動工作的真端點（曾因此啟動真的 apt 安裝、跳密碼視窗）。
+- `git add` 列檔名，不用 `-A`（曾把 data/rollback 的 .deb commit 進公開 repo；已移出追蹤並 .gitignore，歷史保留）。
+- MSG 表裡 astra6 加的鍵是 4 空格縮排，替換前先看實際縮排。
 
-- python3 tools/test_node_source.py：15 tests，OK。使用臨時來源與備份、替代 apt/提權呼叫，沒有改系統。
-- tools/check.sh：Python、12 支 JS、89 個 HTML id、中英 STR 631 與 MSG 252 keys 通過。8 個既有 CSS 重複選擇器仍只警告。
-- 先確認 /api/job idle 再重啟 spark-center user service。
-- 實際唯讀 API：Node 22.23.3-1nodesource1、目標 LTS 24；prepare 預覽正確；過期確認 409，非目標 LTS 400，job 保持 idle。
-- Playwright：中英文準備預覽、七分頁顯示正常；注入回復資料時顯示 apt 模擬與不相容 npm 警告。注入測試不是實機回復驗證。
+## 下一步候選（都不急）
 
-## 尚未驗證／機器狀態
-
-**尚未實際跑 pkexec 切來源、安裝 Node、恢復 Node 的整條路。** 這次只實作與隔離／唯讀驗證，不能宣稱真機升降成功。機器仍是 Node v22.23.3，來源仍 node_22.x，未建立系統 Node 回復狀態。
-
-## 原有待辦與慣例
-
-英文監控／更新截圖已在 README；監控圖隱藏網路卡避免揭露 SSID/IP，舊圖仍存在 Git 歷史。論壇文章尚未發。
-前端字串進 i18n.js 的中英 STR，後端顯示訊息進中英 MSG。套件名、路徑、指令與使用者資料不翻。
-變更流程與 commit/push 慣例見 CLAUDE.md；此專案無建置步驟。
+- 實跑 Node「恢復原版本」再升一次，把最後兩段補驗。
+- CSS 8 個重複選擇器順手併掉（check.sh 只警告）。
+- 論壇回覆後視情況更新 README 的 screenshots（用英文 UI、隱藏 Wi-Fi 卡）。
+- CI 等第一個外部 PR 再說（使用者決定）。
+- 沒有要做的：pip／Docker 映像更新（理由在 README）。
