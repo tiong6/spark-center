@@ -3435,6 +3435,7 @@ def lan_sweep():
         if net.num_addresses > 1024:
             continue
         targets += [str(h) for h in net.hosts()]
+    targets = sorted(set(targets), key=lambda ip: [int(x) for x in ip.split(".")])   # 有線＋無線同一網段時只掃一遍
     def ping(ip):
         try:
             subprocess.run(["ping", "-c", "1", "-W", "1", "-n", "-q", ip], capture_output=True, timeout=3)
