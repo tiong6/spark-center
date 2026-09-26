@@ -8,6 +8,10 @@
 
 *Monitor: network cards follow the live link state and show the link speed (e.g. "Wired · 10 Gb/s"), so a cable plugged in after start-up shows up within seconds instead of after the hourly hardware re-scan.*
 
+### 新增
+
+- **區網裝置**（硬體分頁新面板）：本機所在網段裡看得到的裝置。被動查、不掃描：ARP／NDP 鄰居表（最近講過話的，有 MAC 與 IEEE OUI 廠牌）＋ mDNS 瀏覽（會自報名字的，標「只在 mDNS 看到」、沒有 MAC）；名稱先問路由器 DNS 的 DHCP 主機名，再用 mDNS 反查；隨機化 MAC 標「私有位址」不猜廠牌。面板明講只含本機網段（VLAN），其他 VLAN 從這裡看不到、完整清單在路由器。快取 30 秒，重新掃描約 1 秒。真機：13 台（路由器、QNAP、iPhone、iPad、Apple TV、Dyson、Matter 裝置）。踩到 avahi 輸出夾非 UTF-8 位元組讓 text 解碼整段失敗，改位元組讀入寬鬆解碼。
+
 ### 修正
 
 - **插上網路線後監控頁沒有有線網路卡。** 介面清單來自硬體快取（1 小時），快取裡該介面還是 DOWN 就不畫。現在每 2 秒的即時資料一併帶連線狀態與 /sys 的連線速度；卡片顯示與否看即時狀態，快取說 DOWN 但即時 UP 時重讀一次硬體資料補 IP。卡片標題加連線速度（10 Gb/s、1 Gb/s、Mb/s）。Wi-Fi 關掉時卡片自動消失。真機：接上 10GbE 後標題「有線網路 · 10 Gb/s」。

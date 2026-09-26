@@ -3,7 +3,26 @@ async function showHardware() {      // 硬體分頁：靜態清單只渲染一�
   if (!hw.staticRendered) { renderHwStatic(); hw.staticRendered = true; }
   pollHw(true);
   pollPorts(); hw.portTimer = setInterval(pollPorts, 2000);
+  loadLan();
 }
+/* 區網裝置：只看得到本機所在網段（VLAN）裡最近有通訊的鄰居，被動查，不掃描。名字來源：反查 DNS（路由器的 DHCP 主機名）或 mDNS；查不到就「—」 */
+async function loadLan(force) {
+  const box = $('#lan'); if (!box) return;
+  const j = await api('/api/lan' + (force ? '?force=1' : ''));
+  if (!j.ok) { box.innerHTML = `<div class="empty">${esc(j.error)}</div>`; $('#lanMeta').textContent = ''; return; }
+  const subnets = Object.entries(j.subnets || {}).map(([d, s]) => `${s}（${d}）`).join('、') || '—';
+  $('#lanMeta').textContent = t("hw.lan_meta", {n: j.devices.length, subnets, when: j.generated.replace('T', ' ')});
+  if (!j.devices.length) { box.innerHTML = `<div class="empty">${t("hw.lan_none")}</div>`; return; }
+  let html = `<table><thead><tr><th style="width:16%">IP</th><th style="width:26%">${t("hw.lan_name")}</th><th style="width:24%">${t("hw.lan_vendor")}</th><th style="width:20%">MAC</th><th>${t("hw.lan_state")}</th></tr></thead><tbody>`;
+  for (const d of j.devices) {
+    const name = d.name || d.mdns || '—', alt = d.name && d.mdns && d.mdns !== d.name ? `<div class="sub1">mDNS: ${esc(d.mdns)}</div>` : '';
+    const vendor = d.private_mac ? `<span class="sub1" title="${t("hw.lan_private_mac_hint")}">${t("hw.lan_private_mac")}</span>` : esc(d.vendor || '—');
+    const st = d.state === 'reachable' ? `<span class="tag ok">${t("hw.lan_reachable")}</span>` : d.state === 'mdns' ? `<span class="tag" title="${t("hw.lan_mdns_only_hint")}">${t("hw.lan_mdns_only")}</span>` : `<span class="tag">${t("hw.lan_stale")}</span>`;
+    html += `<tr><td class="mono">${esc(d.ip || '—')}${d.ipv4.length > 1 ? `<div class="sub1 mono">${d.ipv4.slice(1).map(esc).join(', ')}</div>` : ''}</td><td>${esc(name)}${alt}</td><td>${vendor}</td><td class="mono sub1">${esc(d.mac || '—')}</td><td>${st}${d.ipv6 ? `<span class="sub1"> · IPv6 ×${d.ipv6}</span>` : ''}</td></tr>`;
+  }
+  box.innerHTML = html + `</tbody></table><div class="sub1" style="margin-top:8px">${t("hw.lan_note")}</div>`;
+}
+$('#btnLanReload').onclick = async () => { const b = $('#btnLanReload'); b.disabled = true; $('#lanMeta').textContent = t("hw.lan_scanning"); await loadLan(true); b.disabled = false; };
 $('#btnHwReload').onclick = async () => { const b = $('#btnHwReload'); b.disabled = true; b.textContent = t("updates.loading"); const j = await api('/api/hardware?force=1'); if (j.ok) { hw.static = j; renderHwStatic(); } b.disabled = false; b.textContent = t("hw.reload_hardware"); pollHw(true); pollPorts(); };
 /* ---- 後面板示意圖：USB-C 四孔（DP 輸出 + USB 裝置）、HDMI、10GbE、QSFP。
    實體孔 ↔ 控制器 的對應存在伺服器端（data/usbc-map.json），所有瀏覽器共用。

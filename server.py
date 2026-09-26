@@ -3313,6 +3313,116 @@ def _net_counters():
     return res
 
 
+# ---------- 區網裝置：本機所在網段裡最近有通訊的鄰居 ----------
+# 看得到的範圍要老實講：只有本機介面所在的 VLAN／網段；其他 VLAN 從這裡看不到，完整清單在路由器。
+# 方法是被動的：ARP／NDP 鄰居表（最近講過話的）＋ mDNS（會自報名字的）＋ 反查 DNS（路由器知道 DHCP 主機名）。不主動掃描。
+_LAN = {"ts": 0, "data": None, "lock": threading.Lock()}
+LAN_TTL = 30
+_OUI = {"loaded": False, "map": {}}
+
+
+def _oui_vendor(mac):
+    """IEEE OUI 表（ieee-data 套件）查廠牌；沒有那個檔就回 None。隨機化的私有位址（第二個 hex 位的 bit1）查不出廠牌，另外標。"""
+    if not _OUI["loaded"]:
+        _OUI["loaded"] = True
+        for path in ("/usr/share/ieee-data/oui.txt", "/var/lib/ieee-data/oui.txt"):
+            try:
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        if "(hex)" in line:
+                            k, _, v = line.partition("(hex)")
+                            _OUI["map"][k.strip().replace("-", ":").lower()] = v.strip()
+                break
+            except OSError:
+                continue
+    return _OUI["map"].get(mac[:8].lower())
+
+
+def lan_devices(force=False):
+    with _LAN["lock"]:
+        if not force and _LAN["data"] and time.time() - _LAN["ts"] < LAN_TTL:
+            return _LAN["data"]
+    import ipaddress
+    from concurrent.futures import ThreadPoolExecutor
+    subnets, my_ips = {}, set()
+    try:
+        for i in json.loads(_run(["ip", "-j", "addr"], timeout=10) or "[]"):
+            name = i.get("ifname", "")
+            if name == "lo" or not os.path.exists(f"/sys/class/net/{name}/device"):
+                continue   # 只算實體介面：docker／bridge／tailscale 的鄰居不是家裡的裝置
+            for a in i.get("addr_info", []):
+                if a.get("family") == "inet":
+                    subnets[name] = str(ipaddress.ip_network(f"{a['local']}/{a['prefixlen']}", strict=False)); my_ips.add(a["local"])
+    except (ValueError, KeyError):
+        pass
+    if not subnets:
+        return {"ok": True, "devices": [], "subnets": {}, "generated": datetime.now().isoformat(timespec="seconds")}
+    devs = {}
+    try:
+        for n in json.loads(_run(["ip", "-j", "neigh", "show"], timeout=10) or "[]"):
+            dev, mac, dst = n.get("dev"), (n.get("lladdr") or "").lower(), n.get("dst") or ""
+            if dev not in subnets or not mac or any(s in ("FAILED", "INCOMPLETE") for s in n.get("state", [])):
+                continue
+            d = devs.setdefault((dev, mac), {"dev": dev, "mac": mac, "ipv4": [], "ipv6": 0, "states": set()})
+            (d["ipv4"].append(dst) if ":" not in dst else d.__setitem__("ipv6", d["ipv6"] + 1))
+            d["states"].update(n.get("state", []))
+    except ValueError:
+        pass
+    # mDNS 一次瀏覽（4 秒）＋ 每個 IPv4 反查一次（各 2 秒），並行跑
+    mdns = {}
+    def browse():
+        try:
+            # 位元組讀入再寬鬆解碼：裝置自報的名字可能夾非 UTF-8 位元組，text=True 會整段解碼失敗、mDNS 結果全丟
+            out = subprocess.run(["timeout", "4", "avahi-browse", "-atrp"], capture_output=True, timeout=6, env=_ENV_C).stdout.decode("utf-8", "replace")
+        except Exception:
+            return
+        for line in out.splitlines():
+            f = line.split(";")
+            if len(f) >= 8 and f[0] == "=" and f[7]:
+                mdns.setdefault(f[7], f[6].removesuffix(".local"))
+    def rdns(ip):
+        # 先問路由器的 DNS（DHCP 主機名），沒有再用 mDNS 反查（iPhone 這類只回 mDNS）
+        for cmd in (["getent", "hosts", ip], ["avahi-resolve", "-a", ip]):
+            try:
+                out = subprocess.run(cmd, capture_output=True, text=True, timeout=2, env=_ENV_C).stdout.split()
+                if len(out) > 1 and out[1] != ip:
+                    return ip, out[1].removesuffix(".local")
+            except Exception:
+                pass
+        return ip, None
+    names = {}
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        fb = ex.submit(browse)
+        for ip, nm in ex.map(rdns, [ip for d in devs.values() for ip in d["ipv4"]]):
+            names[ip] = nm
+        fb.result()
+    out = []
+    for d in devs.values():
+        ip4 = sorted(d["ipv4"], key=lambda s: [int(x) for x in s.split(".")])
+        private = bool(int(d["mac"][:2], 16) & 0x02)
+        out.append({"dev": d["dev"], "mac": d["mac"], "ip": ip4[0] if ip4 else None, "ipv4": ip4, "ipv6": d["ipv6"],
+                    "name": next((names.get(ip) for ip in ip4 if names.get(ip)), None),
+                    "mdns": next((mdns.get(ip) for ip in ip4 if mdns.get(ip)), None),
+                    "vendor": None if private else _oui_vendor(d["mac"]), "private_mac": private,
+                    "state": "reachable" if "REACHABLE" in d["states"] or "DELAY" in d["states"] or "PROBE" in d["states"] else "stale"})
+    # 只在 mDNS 看得到、沒和本機講過話的裝置（Apple TV、智慧家電這類）：也是這個網段的真實裝置，列出來但標明來源、沒有 MAC
+    seen4 = {ip for d in out for ip in d["ipv4"]}
+    for ip, host in mdns.items():
+        if ":" in ip or ip in seen4 or ip in my_ips:
+            continue
+        try:
+            if not any(ipaddress.ip_address(ip) in ipaddress.ip_network(s) for s in subnets.values()):
+                continue
+        except ValueError:
+            continue
+        out.append({"dev": None, "mac": None, "ip": ip, "ipv4": [ip], "ipv6": 0, "name": None, "mdns": host, "vendor": None, "private_mac": False, "state": "mdns"})
+    out.sort(key=lambda x: ([int(p) for p in x["ip"].split(".")] if x["ip"] else [999]))
+    data = {"ok": True, "devices": out, "subnets": subnets, "generated": datetime.now().isoformat(timespec="seconds")}
+    with _LAN["lock"]:
+        _LAN.update(ts=time.time(), data=data)
+    return data
+
+
 def _root_usage():
     try:
         st = os.statvfs("/")
@@ -4402,6 +4512,11 @@ class Handler(BaseHTTPRequestHandler):
                 force = "force=1" in (self.path.split("?", 1) + [""])[1]
                 d = hardware_static(force=force)
                 self._json({"ok": True, **d, "cached_age_s": int(time.time() - _HW_CACHE["ts"])})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/lan":
+            try:
+                self._json(lan_devices(force="force=1" in (self.path.split("?", 1) + [""])[1]))
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/hardware/rear":
