@@ -12,6 +12,7 @@ async function loadLan(force) {
   if (!j.ok) { box.innerHTML = `<div class="empty">${esc(j.error)}</div>`; $('#lanMeta').textContent = ''; return; }
   const subnets = Object.entries(j.subnets || {}).map(([d, s]) => `${s}（${d}）`).join('、') || '—';
   $('#lanMeta').textContent = t("hw.lan_meta", {n: j.devices.length, subnets, when: j.generated.replace('T', ' ')});
+  $('#btnLanScan').classList.toggle('hide', j.sweep === false);   // 管理員關掉主動掃描（或唯讀模式）時不給按鈕
   if (!j.devices.length) { box.innerHTML = `<div class="empty">${t("hw.lan_none")}</div>`; return; }
   let html = `<table><thead><tr><th style="width:16%">IP</th><th style="width:26%">${t("hw.lan_name")}</th><th style="width:24%">${t("hw.lan_vendor")}</th><th style="width:20%">MAC</th><th>${t("hw.lan_state")}</th></tr></thead><tbody>`;
   for (const d of j.devices) {

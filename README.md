@@ -99,6 +99,7 @@ If you would rather not hand a tool you have just met the ability to run apt, st
 
 ```sh
 systemctl --user edit spark-center        # add under [Service]:  Environment=SPARK_CENTER_READONLY=1
+                                          # (SPARK_CENTER_NO_SWEEP=1 disables only the subnet-scan button)
 systemctl --user restart spark-center
 ```
 
@@ -156,7 +157,7 @@ Without them those panels say so on screen instead of showing blanks.
 
 - **It does not replace the Spark OS firmware OTA.** That path is NVIDIA's and closed. When `dgx-release`, `dgx-spark-ota-update-meta` or `linux-image-nvidia` appear in the update list, use the stock Dashboard for those.
 - It does not change router settings, kill your applications, or remove Docker volumes. Where something is risky it tells you and stops.
-- **It never scans a network on its own.** The subnet sweep is a button you press, sends one ping per address on this machine's subnet only, and is blocked in read-only mode. On a network that is not yours, ask before pressing it.
+- **It never scans a network on its own.** The subnet sweep is a button you press, sends one ping per address on this machine's subnet only, and is blocked in read-only mode. On a network that is not yours, ask before pressing it. To remove the button entirely (company networks, security policy), start the service with `SPARK_CENTER_NO_SWEEP=1`; the passive neighbour list keeps working.
 - **Rollback is per package, not a system restore.** It reinstalls the exact `.deb` that was replaced, after an apt simulation; it does not snapshot the filesystem, and it refuses when going back would remove other software. Tested end to end on a real security update (curl: update → roll back the set → verify → update again).
 - It lists only applications that have a desktop entry. Command-line tools and libraries are not in the Apps tab; they are in Updates.
 

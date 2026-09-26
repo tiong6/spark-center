@@ -37,6 +37,8 @@ HOST = "127.0.0.1"
 PORT = int(os.environ.get("SPARK_UPDATER_PORT", "11001"))
 # 唯讀模式：所有會改東西的 POST 一律 403，畫面藏掉動作按鈕。給第一次裝的人先跑一天確認它只讀，再打開更新功能。
 READONLY = os.environ.get("SPARK_CENTER_READONLY", "").strip().lower() in ("1", "true", "yes", "on")
+# 關掉「主動掃描網段」：公司或有資安規範的網路用。被動的鄰居表查詢不受影響。
+NO_SWEEP = os.environ.get("SPARK_CENTER_NO_SWEEP", "").strip().lower() in ("1", "true", "yes", "on")
 HERE = os.path.dirname(os.path.abspath(__file__))
 REBOOT_FLAG = "/var/run/reboot-required"
 REBOOT_PKGS = "/var/run/reboot-required.pkgs"
@@ -47,6 +49,7 @@ APT_LISTS = "/var/lib/apt/lists"
 LANG_DEFAULT = "zh-TW"
 MSG = {
     "zh-TW": {
+    "sweep_disabled": "主動掃描網段已停用（SPARK_CENTER_NO_SWEEP=1）。",
     "readonly_mode": "唯讀模式（SPARK_CENTER_READONLY=1）：這個服務不會改任何東西。要啟用更新等功能，拿掉這個環境變數後重啟服務。",
     "node_flow_locked": "nodejs 正由 Node 主版本升級流程處理，請到 npm 面板按「確認安裝」，或先「恢復原版本」。",
     "node_helper_unavailable": "Node 升級 helper 未安裝、版本不符或權限不安全；請依 README 的選用安裝步驟由管理員安裝。",
@@ -307,6 +310,7 @@ MSG = {
         "trash_cleared": "已清空垃圾桶"
     },
     "en": {
+    "sweep_disabled": "The subnet sweep is disabled (SPARK_CENTER_NO_SWEEP=1).",
     "readonly_mode": "Read-only mode (SPARK_CENTER_READONLY=1): this service changes nothing. To enable updates and other actions, remove that environment variable and restart the service.",
     "node_flow_locked": "nodejs is being handled by the Node major-upgrade flow; use 'Confirm install' on the npm panel, or restore the original version first.",
     "node_helper_unavailable": "Node upgrade helper is missing, outdated or has unsafe permissions. Ask an administrator to follow the optional helper installation steps in README.",
@@ -3417,7 +3421,7 @@ def lan_devices(force=False):
             continue
         out.append({"dev": None, "mac": None, "ip": ip, "ipv4": [ip], "ipv6": 0, "name": None, "mdns": host, "vendor": None, "private_mac": False, "state": "mdns"})
     out.sort(key=lambda x: ([int(p) for p in x["ip"].split(".")] if x["ip"] else [999]))
-    data = {"ok": True, "devices": out, "subnets": subnets, "generated": datetime.now().isoformat(timespec="seconds")}
+    data = {"ok": True, "devices": out, "subnets": subnets, "generated": datetime.now().isoformat(timespec="seconds"), "sweep": not NO_SWEEP and not READONLY}
     with _LAN["lock"]:
         _LAN.update(ts=time.time(), data=data)
     return data
@@ -4676,6 +4680,8 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._json({'ok': False, 'error': node_error(str(e))}, 400)
         if path == "/api/lan/scan":
+            if NO_SWEEP:
+                return self._json({"ok": False, "error": msg("sweep_disabled", self.lang)}, 403)
             try:
                 return self._json(lan_sweep())
             except Exception as e:
