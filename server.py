@@ -3423,6 +3423,29 @@ def lan_devices(force=False):
     return data
 
 
+def lan_sweep():
+    """主動掃一次：對本機所在網段每個位址 ping 一下（不需 root，ping 有 cap_net_raw）。
+    裝置就算不回 ICMP，網路卡也會回 ARP，鄰居表就有 MAC 了。只掃實體介面的網段，最多 1024 個位址，64 個並行，實測 254 個位址約 7 秒。
+    刻意做成要按的按鈕：對整個網段發封包在別人的網路上不禮貌；唯讀模式下是 POST 所以會被擋。"""
+    import ipaddress
+    from concurrent.futures import ThreadPoolExecutor
+    targets = []
+    for name, cidr in lan_devices().get("subnets", {}).items():
+        net = ipaddress.ip_network(cidr)
+        if net.num_addresses > 1024:
+            continue
+        targets += [str(h) for h in net.hosts()]
+    def ping(ip):
+        try:
+            subprocess.run(["ping", "-c", "1", "-W", "1", "-n", "-q", ip], capture_output=True, timeout=3)
+        except Exception:
+            pass
+    with ThreadPoolExecutor(max_workers=64) as ex:
+        list(ex.map(ping, targets))
+    time.sleep(0.3)
+    return {"ok": True, "pinged": len(targets), **lan_devices(force=True)}
+
+
 def _root_usage():
     try:
         st = os.statvfs("/")
@@ -4651,6 +4674,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({'ok': True})
             except Exception as e:
                 return self._json({'ok': False, 'error': node_error(str(e))}, 400)
+        if path == "/api/lan/scan":
+            try:
+                return self._json(lan_sweep())
+            except Exception as e:
+                return self._json({"ok": False, "error": str(e)}, 500)
         if path == "/api/npm/restart":
             unit = str(data.get("unit") or "")
             # 只准重啟「目前正在執行某個 npm 全域套件」的 systemd 使用者服務，名稱從即時掃描來，不接受任意單元

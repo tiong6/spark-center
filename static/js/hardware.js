@@ -22,6 +22,12 @@ async function loadLan(force) {
   }
   box.innerHTML = html + `</tbody></table><div class="sub1" style="margin-top:8px">${t("hw.lan_note")}</div>`;
 }
+$('#btnLanScan').onclick = async () => {
+  const b = $('#btnLanScan'); b.disabled = true; $('#lanMeta').textContent = t("hw.lan_sweeping");
+  const j = await api('/api/lan/scan', {});
+  if (!j.ok) { alert(j.error); b.disabled = false; return; }
+  await loadLan(); b.disabled = false;
+};
 $('#btnLanReload').onclick = async () => { const b = $('#btnLanReload'); b.disabled = true; $('#lanMeta').textContent = t("hw.lan_scanning"); await loadLan(true); b.disabled = false; };
 $('#btnHwReload').onclick = async () => { const b = $('#btnHwReload'); b.disabled = true; b.textContent = t("updates.loading"); const j = await api('/api/hardware?force=1'); if (j.ok) { hw.static = j; renderHwStatic(); } b.disabled = false; b.textContent = t("hw.reload_hardware"); pollHw(true); pollPorts(); };
 /* ---- 後面板示意圖：USB-C 四孔（DP 輸出 + USB 裝置）、HDMI、10GbE、QSFP。
