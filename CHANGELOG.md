@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-09-26
+
+*Monitor: network cards follow the live link state and show the link speed (e.g. "Wired · 10 Gb/s"), so a cable plugged in after start-up shows up within seconds instead of after the hourly hardware re-scan.*
+
+### 修正
+
+- **插上網路線後監控頁沒有有線網路卡。** 介面清單來自硬體快取（1 小時），快取裡該介面還是 DOWN 就不畫。現在每 2 秒的即時資料一併帶連線狀態與 /sys 的連線速度；卡片顯示與否看即時狀態，快取說 DOWN 但即時 UP 時重讀一次硬體資料補 IP。卡片標題加連線速度（10 Gb/s、1 Gb/s、Mb/s）。Wi-Fi 關掉時卡片自動消失。真機：接上 10GbE 後標題「有線網路 · 10 Gb/s」。
+
 ## 2026-09-25
 
 *Roll back an update from the same tab (real .deb kept before each install, sha256-checked, apt-simulated before restoring); npm global CLI tools (Claude Code, Gemini CLI, OpenClaw…) with author/repository shown, Node-engine compatibility checked, running processes detected and restartable; guided Node major-version upgrade through a root-owned helper with a polkit policy; SSH/NVIDIA Sync port forwarding; six rounds of external review fixes. Tested end to end on this GX10: curl update → roll back → update again; Node 22 → 24 with backup kept; OpenClaw gateway restarted after its update.*
