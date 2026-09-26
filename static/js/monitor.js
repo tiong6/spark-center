@@ -184,16 +184,22 @@ function renderMon(j, rerender) {
     hovers.push(['nvtemp', [{color: C_LINE, data: hw.hist.nvtemp || []}], v => v.toFixed(1) + ' °C']); }
   // 磁碟用量卡已移除：用量幾分鐘內不變，磁碟分頁與硬體分頁都有
   // 網路：每個有 IPv4 且非虛擬的介面，rx/tx 速率
-  const ifs = (S.network || []).filter(n => n.kind !== 'virtual' && n.state === 'UP');
+  // 狀態與速度看即時資料（j.net），介面清單（種類、IP）看硬體快取；快取說 DOWN 但即時說 UP（剛插上網路線）就重讀一次硬體資料拿 IP
+  const live = n => j.net[n.name] || {};
+  const ifs = (S.network || []).filter(n => n.kind !== 'virtual' && ((live(n).state || n.state) === 'UP' || live(n).state === 'up'));
+  const stale = ifs.filter(n => n.state !== 'UP' && !hw.netRefreshed);
+  if (stale.length) { hw.netRefreshed = true; api('/api/hardware?force=1').then(r => { if (r.ok) hw.static = r; }); }
   for (const n of ifs) {
     const c = j.net[n.name]; if (!c) continue;
+    const mbps = c.speed_mbps || n.speed_mbps;
+    const speedTxt = mbps ? (mbps >= 1000 ? ` · ${mbps / 1000} Gb/s` : ` · ${mbps} Mb/s`) : '';
     let rx = null, tx = null;
     if (prev && prev.net[n.name]) { const dt = sampleTime - prev.epoch; if (dt > 0) { rx = (c.rx - prev.net[n.name].rx) / dt; tx = (c.tx - prev.net[n.name].tx) / dt; } }
     if (rx != null) { pushHist('rx:' + n.name, sampleTime, rx); pushHist('tx:' + n.name, sampleTime, tx); }
     const rs = hw.hist['rx:' + n.name] || [], ts = hw.hist['tx:' + n.name] || [];
     const ymax = Math.max(1024, ...rs.map(d => d[1]), ...ts.map(d => d[1])) * 1.15;
     const ser = [{label: t("mon.download"), color: C_LINE, data: rs}, {label: t("mon.upload"), color: C_TX, data: ts}];
-    cards.push(monCard('net-' + n.name, n.kind === 'wifi' ? t("mon.network_wifi") : n.kind === 'ethernet' ? t("mon.network_wired") : t("mon.network", {v0: n.name}), t("mon.chart_scale_follows_the_interval_maximum", {v0: n.name, v1: n.ipv4.join(', ')}), tileLeft(rx == null ? '…' : '↓ ' + fmtRate(rx), rx == null ? t("mon.waiting_for_second_sample") : '↑ ' + fmtRate(tx)), ser, ymax, fmtRate, `<span><i style="background:${C_LINE}"></i>${t("mon.download_rx")}</span><span><i style="background:${C_TX}"></i>${t("mon.upload_tx")}</span>`));
+    cards.push(monCard('net-' + n.name, (n.kind === 'wifi' ? t("mon.network_wifi") : n.kind === 'ethernet' ? t("mon.network_wired") : t("mon.network", {v0: n.name})) + speedTxt, t("mon.chart_scale_follows_the_interval_maximum", {v0: n.name, v1: n.ipv4.join(', ')}), tileLeft(rx == null ? '…' : '↓ ' + fmtRate(rx), rx == null ? t("mon.waiting_for_second_sample") : '↑ ' + fmtRate(tx)), ser, ymax, fmtRate, `<span><i style="background:${C_LINE}"></i>${t("mon.download_rx")}</span><span><i style="background:${C_TX}"></i>${t("mon.upload_tx")}</span>`));
     hovers.push(['net-' + n.name, ser, fmtRate]);
   }
   // 版面自訂：順序與隱藏記在這個瀏覽器（localStorage），每次重繪都套用；拖曳中不重繪，免得卡片在手上被換掉

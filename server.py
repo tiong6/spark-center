@@ -3298,13 +3298,18 @@ def _cpu_topology():
 
 
 def _net_counters():
-    """/proc/net/dev 的累計位元組數；前端拿兩次取樣算每秒流量。"""
+    """/proc/net/dev 的累計位元組數；前端拿兩次取樣算每秒流量。
+    連線狀態與速度也在這裡即時讀（/sys 兩個檔，便宜）：介面清單本身在硬體快取裡一小時才更新，
+    插上網路線後監控頁要立刻看到卡片、看到 10 Gb/s，不能等快取。"""
     res = {}
     for line in (_read("/proc/net/dev") or "").splitlines()[2:]:
         name, _, rest = line.partition(":")
         f = rest.split()
         if len(f) >= 9:
-            res[name.strip()] = {"rx": int(f[0]), "tx": int(f[8])}
+            name = name.strip()
+            speed = _read(f"/sys/class/net/{name}/speed")
+            res[name] = {"rx": int(f[0]), "tx": int(f[8]), "state": (_read(f"/sys/class/net/{name}/operstate") or "").strip(),
+                         "speed_mbps": int(speed) if speed and speed.strip().lstrip("-").isdigit() and int(speed) > 0 else None}
     return res
 
 
