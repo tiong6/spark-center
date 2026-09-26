@@ -9,6 +9,7 @@ async function showHardware() {      // 硬體分頁：靜態清單只渲染一�
 async function loadLan(force) {
   const box = $('#lan'); if (!box) return;
   const j = await api('/api/lan' + (force ? '?force=1' : ''));
+  hw.lanLast = j;
   if (!j.ok) { box.innerHTML = `<div class="empty">${esc(j.error)}</div>`; $('#lanMeta').textContent = ''; return; }
   const subnets = Object.entries(j.subnets || {}).map(([d, s]) => `${s}（${d}）`).join('、') || '—';
   $('#lanMeta').textContent = t("hw.lan_meta", {n: j.devices.length, subnets, when: j.generated.replace('T', ' ')});
@@ -23,11 +24,19 @@ async function loadLan(force) {
   }
   box.innerHTML = html + `</tbody></table><div class="sub1" style="margin-top:8px">${t("hw.lan_note")}</div>`;
 }
-$('#btnLanScan').onclick = async () => {
-  const b = $('#btnLanScan'); b.disabled = true; $('#lanMeta').textContent = t("hw.lan_sweeping");
-  const j = await api('/api/lan/scan', {});
-  if (!j.ok) { alert(j.error); b.disabled = false; return; }
-  await loadLan(); b.disabled = false;
+// 兩段式：先說清楚會做什麼、範圍、在別人的網路要先問，按「我了解」才掃。決定權在知道脈絡的人手上。
+$('#btnLanScan').onclick = () => {
+  const j = hw.lanLast || {}; const subnets = Object.values(j.subnets || {}).join('、') || '—';
+  $('#mBody').innerHTML = `<p>${t("hw.lan_confirm_what", {subnets: esc(subnets)})}</p><ul style="margin:8px 0 0 18px;line-height:1.7"><li>${t("hw.lan_confirm_1")}</li><li>${t("hw.lan_confirm_2")}</li><li>${t("hw.lan_confirm_3")}</li></ul><p class="sub1" style="margin-top:10px">${t("hw.lan_confirm_note")}</p>`;
+  $('#mOk').classList.remove('hide'); $('#mOk').textContent = t("hw.lan_confirm_ok");
+  $('#mOk').onclick = async () => {
+    closeModal();
+    const b = $('#btnLanScan'); b.disabled = true; $('#lanMeta').textContent = t("hw.lan_sweeping");
+    const r = await api('/api/lan/scan', {});
+    if (!r.ok) { alert(r.error); b.disabled = false; return; }
+    await loadLan(); b.disabled = false;
+  };
+  openModal(t("hw.lan_scan"));
 };
 $('#btnLanReload').onclick = async () => { const b = $('#btnLanReload'); b.disabled = true; $('#lanMeta').textContent = t("hw.lan_scanning"); await loadLan(true); b.disabled = false; };
 $('#btnHwReload').onclick = async () => { const b = $('#btnHwReload'); b.disabled = true; b.textContent = t("updates.loading"); const j = await api('/api/hardware?force=1'); if (j.ok) { hw.static = j; renderHwStatic(); } b.disabled = false; b.textContent = t("hw.reload_hardware"); pollHw(true); pollPorts(); };
