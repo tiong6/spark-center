@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-09-28
+
+*FAQ tab: NVIDIA's official DGX Spark / GB10 FAQ, organised and bilingual, with a live "This machine" box where the answer depends on the hardware, and a daily check that says when NVIDIA has revised the original.*
+
+### 新增
+
+- **常見問題分頁**：整理 NVIDIA 團隊在論壇置頂維護的〈DGX Spark / GB10 FAQ〉（第 11 版，2026-08-04）18 題，分成初次設定、連線與遠端、統一記憶體、顯示器、軟體與開發、多機串接與高速網路、韌體與安全七組；中文翻譯摘要＋英文改寫，可搜尋、全部展開、指令一鍵複製。頂端註明來源與「以原文為準」，並說明原文以 DGX Spark 撰寫、OEM 機的外殼按鍵可能不同。
+- **本機框**（和 NVIDIA 原文分開畫、標明是 Spark Center 即時讀取）：ConnectX-7 熱插拔旗標檔在不在＋PCI 上有幾個 0x15b3 功能，只用這兩個事實判讀（不猜線有沒有插）；buff/cache 照 free 的算法（Buffers＋Cached＋SReclaimable，真機和 `free -b` 一致到位元組）；原文指令寫死的 Wi-Fi 介面名 wlP9s9 和這台的實際名稱比對；BIOS 密碼題依 DMI 製造商判斷是不是 OEM。讀不到的一律顯示「—（讀不到）」。
+- **原文改版偵測**：內容是抄進來的快照，NVIDIA 會改（CX7 那題就是 2026-01 後才加的）。`/api/faq/source` 一天問一次論壇的 post version，和本頁依據的版本比：相同打勾、較新就明講「本頁可能缺題」；連不上就說無法確認，失敗不快取。
+- 起因：使用者之前記下「lspci 看不到 ConnectX-7，原因不明」，答案其實就在這篇 FAQ（熱插拔省電，沒插 QSFP 線不通電）。
+- 驗證：headless Chrome 走 CDP，中英兩語系各跑一次（18 題、七組、本機框內容、搜尋命中／無結果／清空、全部展開收合、複製鈕、跳監控分頁、英文介面無中文、無 JS 錯誤）；隔離測試原文查詢失敗、旗標檔不存在、CX7 三種狀態、Wi-Fi 名稱不同、製造商讀不到；八個分頁點過一輪。
+
 ## 2026-09-26
 
 *Monitor: network cards follow the live link state and show the link speed (e.g. "Wired · 10 Gb/s"), so a cable plugged in after start-up shows up within seconds instead of after the hourly hardware re-scan.*

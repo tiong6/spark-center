@@ -4342,6 +4342,60 @@ def GB_(b):
 
 # ---------- HTTP ----------
 
+# ---------- 常見問題分頁：NVIDIA 官方 FAQ 的本機對照 ----------
+# 題目內容在前端（static/js/faq.js＋字串表）。這裡只給兩樣東西：這台機器實際是什麼狀態（給每題的「本機」框），
+# 以及原文有沒有改版——內容是抄進來的快照，NVIDIA 改版後頁面要說出來，不能繼續假裝是最新的。
+FAQ_TOPIC = 347344   # https://forums.developer.nvidia.com/t/dgx-spark-gb10-faq/347344
+CX7_HOTPLUG_FLAG = "/etc/nvidia/cx7-hotplug-enabled"
+_FAQ_SRC = {"ts": 0, "data": None}
+
+
+def faq_local():
+    """每題「本機」框要的事實；讀不到的欄位給 None，前端顯示「—」。"""
+    cx7 = None
+    try:
+        devs = os.listdir("/sys/bus/pci/devices")
+        # 0x15b3 = Mellanox/NVIDIA 網路（ConnectX-7）。熱插拔省電時沒插 QSFP 線就不上電，PCI 上一個都看不到
+        n = sum(1 for d in devs if (_read(f"/sys/bus/pci/devices/{d}/vendor") or "").lower() == "0x15b3")
+        cx7 = {"hotplug": os.path.exists(CX7_HOTPLUG_FLAG), "flag": CX7_HOTPLUG_FLAG, "visible": n}
+    except OSError:
+        pass
+    m = _meminfo()
+    mem = None
+    if m.get("MemTotal"):
+        # buff/cache 照 free(1) 的算法：Buffers + Cached + SReclaimable
+        mem = {"total": m["MemTotal"], "available": m.get("MemAvailable"),
+               "buff_cache": m.get("Buffers", 0) + m.get("Cached", 0) + m.get("SReclaimable", 0)}
+    wifi = None
+    iface = _wifi_iface()
+    if iface:
+        ips = []
+        try:
+            out = subprocess.run(["ip", "-j", "-4", "addr", "show", "dev", iface], capture_output=True, text=True, timeout=5).stdout
+            ips = [a["local"] for i in json.loads(out or "[]") for a in i.get("addr_info", []) if a.get("local")]
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            pass
+        wifi = {"name": iface, "state": _read(f"/sys/class/net/{iface}/operstate"), "ipv4": ips}
+    return {"ok": True, "cx7": cx7, "mem": mem, "wifi": wifi}
+
+
+def faq_source():
+    """原文的版本號與最後編輯日（Discourse 的 post version），成功的結果快取一天；失敗不快取、回 error，不假裝是最新。"""
+    if _FAQ_SRC["data"] and time.time() - _FAQ_SRC["ts"] < 86400:
+        return dict(_FAQ_SRC["data"])
+    d = {"ok": True, "version": None, "updated": None, "checked": None, "error": None}
+    try:
+        req = urllib.request.Request(f"https://forums.developer.nvidia.com/t/{FAQ_TOPIC}.json", headers={"User-Agent": "spark-center"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            post = json.load(r)["post_stream"]["posts"][0]
+        d.update(version=post.get("version"), updated=(post.get("updated_at") or "")[:10] or None,
+                 checked=datetime.now().isoformat(timespec="seconds"))
+        _FAQ_SRC.update(ts=time.time(), data=dict(d))
+    except Exception as e:
+        d["error"] = str(e)[:120]
+    return d
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "SparkCenter/0.2"
 
@@ -4605,6 +4659,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, **list_apps(force=force)})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/faq":
+            self._json(faq_local())
+        elif path == "/api/faq/source":
+            self._json(faq_source())
         elif path == "/api/changelog":
             from urllib.parse import parse_qs
             q = parse_qs((self.path.split("?", 1) + [""])[1])

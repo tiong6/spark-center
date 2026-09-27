@@ -249,3 +249,31 @@
   .rear .internal { grid-column: 1 / -1; }
   pre.raw { background: #0f1110; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 12px; max-height: 260px; overflow: auto; margin: 10px 0 0; white-space: pre-wrap; color: #c9cfc9; }
   @media (max-width: 720px) { main { padding: 28px 16px 60px; } h1 { font-size: 24px; } .col-opt { display: none; } }
+
+/* 常見問題：每題一列可展開，像系統設定的說明頁；「本機」框用左邊綠線和 NVIDIA 原文分開，指令區可一鍵複製 */
+.btnlink { border: 1px solid #3a3f3c; background: var(--surface2); color: var(--text); padding: 4px 10px; border-radius: 6px; font-size: 12px; text-decoration: none; white-space: nowrap; }
+.btnlink:hover { border-color: #555; }
+.faqbar { display: flex; gap: 10px; align-items: center; margin: 0 0 18px; }
+.faqbar input[type=search] { flex: 1; max-width: 420px; }
+.faq { border-top: 1px solid var(--line); }
+.panel-h + .faq { margin-top: 12px; }
+.faq summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 12px 2px; color: var(--text); font-weight: 600; font-size: 15px; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::before { content: ''; flex: none; width: 7px; height: 7px; margin: 0 4px 0 2px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform .15s; }
+.faq[open] summary::before { transform: rotate(45deg); }
+.faq summary:hover .fq { color: var(--accent); }
+.faq .fa { padding: 0 4px 16px 23px; font-size: 14px; max-width: 900px; }
+.faq .fa p { margin: 0 0 8px; }
+.faq .fa ol, .faq .fa ul { margin: 0 0 8px; padding-left: 22px; }
+.faq .fa li { margin: 3px 0; }
+.faq .fa h4 { margin: 12px 0 4px; font-size: 14px; }
+.faq .fa code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: #0f1110; border: 1px solid #2c302e; border-radius: 4px; padding: 0 5px; overflow-wrap: anywhere; }
+.fcmd { margin: 10px 0 0; }
+.fbox { display: flex; gap: 8px; align-items: flex-start; margin-top: 3px; }
+.fbox pre { flex: 1; margin: 0; background: #0a0c0b; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.flinks { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; margin-top: 12px; }
+.flinks a, .floc a { color: var(--accent); text-decoration: none; font-size: 13px; }
+.flinks a:hover, .floc a:hover { text-decoration: underline; }
+.floc { margin-top: 12px; background: var(--surface2); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 10px 14px; }
+.floc .kv { margin-top: 6px; grid-template-columns: 150px 1fr; font-size: 13px; }
+.fv.ok { color: var(--accent); } .fv.warn { color: var(--warn); }

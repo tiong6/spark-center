@@ -27,6 +27,7 @@
       <a data-tab="disk" data-i18n="tab.disk">磁碟<span id="dotDisk" class="dot hide" style="background:var(--danger)"></span></a>
       <a data-tab="hardware" data-i18n="tab.hardware">硬體</a>
       <a data-tab="history" data-i18n="tab.history">歷史</a>
+      <a data-tab="faq" data-i18n="tab.faq">常見問題</a>
     </nav>
   </div>
 
@@ -120,6 +121,16 @@
       <div id="hist"></div>
     </div>
   </section>
+
+  <section id="tab-faq" class="hide">
+    <div class="panel notice">
+      <div class="panel-h"><h2 data-i18n="faq.src_title">NVIDIA 官方 FAQ</h2><span class="sub" id="faqBased"></span><div class="actions"><a class="btnlink" id="faqOpen" target="_blank" rel="noopener" data-i18n="faq.src_open">開啟原文</a></div></div>
+      <div class="sub1" style="margin-top:8px" data-i18n="faq.src_note">整理自 NVIDIA 團隊在開發者論壇置頂維護的〈DGX Spark / GB10 FAQ〉。</div>
+      <div id="faqRemote" style="margin-top:8px; font-size:13px"></div>
+    </div>
+    <div class="faqbar"><input type="search" id="faqSearch" placeholder="搜尋問題或答案" data-i18n-placeholder="faq.search"><button id="faqToggle" class="small" data-i18n="faq.expand_all">全部展開</button></div>
+    <div id="faqList"></div>
+  </section>
 </main>
 
 <div id="overlay" class="overlay">
@@ -141,6 +152,7 @@
 <script src="/static/js/llm.js"></script>
 <script src="/static/js/hardware.js"></script>
 <script src="/static/js/monitor.js"></script>
+<script src="/static/js/faq.js"></script>
 <script src="/static/js/main.js"></script>
 </body>
 </html>
