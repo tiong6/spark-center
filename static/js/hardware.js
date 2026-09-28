@@ -3,6 +3,7 @@ async function showHardware() {      // 硬體分頁：靜態清單只渲染一�
   if (!hw.staticRendered) { renderHwStatic(); hw.staticRendered = true; }
   pollHw(true);
   pollPorts(); hw.portTimer = setInterval(pollPorts, 2000);
+  loadPrinters(); hw.prTimer = setInterval(loadPrinters, 30000);
   loadLan();
 }
 /* 區網裝置：只看得到本機所在網段（VLAN）裡最近有通訊的鄰居，被動查，不掃描。名字來源：反查 DNS（路由器的 DHCP 主機名）或 mDNS；查不到就「—」 */
@@ -39,7 +40,7 @@ $('#btnLanScan').onclick = () => {
   openModal(t("hw.lan_scan"));
 };
 $('#btnLanReload').onclick = async () => { const b = $('#btnLanReload'); b.disabled = true; $('#lanMeta').textContent = t("hw.lan_scanning"); await loadLan(true); b.disabled = false; };
-$('#btnHwReload').onclick = async () => { const b = $('#btnHwReload'); b.disabled = true; b.textContent = t("updates.loading"); const j = await api('/api/hardware?force=1'); if (j.ok) { hw.static = j; renderHwStatic(); } b.disabled = false; b.textContent = t("hw.reload_hardware"); pollHw(true); pollPorts(); };
+$('#btnHwReload').onclick = async () => { const b = $('#btnHwReload'); b.disabled = true; b.textContent = t("updates.loading"); const j = await api('/api/hardware?force=1'); if (j.ok) { hw.static = j; renderHwStatic(); } loadPrinters(true); b.disabled = false; b.textContent = t("hw.reload_hardware"); pollHw(true); pollPorts(); };
 /* ---- 後面板示意圖：USB-C 四孔（DP 輸出 + USB 裝置）、HDMI、10GbE、QSFP。
    實體孔 ↔ 控制器 的對應存在伺服器端（data/usbc-map.json），所有瀏覽器共用。
    slot 0 依規格是電源輸入孔；核心沒有 UCSI/typec，供電偵測不到，只能手動標記。 ---- */
@@ -108,7 +109,7 @@ async function pollRear() {
 async function pollPorts() { return pollRear(); }
 $('#btnCalib').onclick = () => { hw.calibMode = !hw.calibMode; hw.calibSlot = null; $('#btnCalib').textContent = hw.calibMode ? t("hw.finish_calibration") : t("hw.calibrate_ports"); pollRear(); };
 $('#btnCalibReset').onclick = async () => { if (!confirm(t("hw.clear_all_port_mappings_including_the"))) return; await api('/api/hardware/usbc-map', {reset: true}); hw.calibSlot = null; pollRear(); };
-function stopHw() { if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } if (hw.wifiTimer) { clearInterval(hw.wifiTimer); hw.wifiTimer = null; } if (hw.portTimer) { clearInterval(hw.portTimer); hw.portTimer = null; } if (hw.llmTimer) { clearInterval(hw.llmTimer); hw.llmTimer = null; } if (hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; } }
+function stopHw() { if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } if (hw.wifiTimer) { clearInterval(hw.wifiTimer); hw.wifiTimer = null; } if (hw.portTimer) { clearInterval(hw.portTimer); hw.portTimer = null; } if (hw.prTimer) { clearInterval(hw.prTimer); hw.prTimer = null; } if (hw.llmTimer) { clearInterval(hw.llmTimer); hw.llmTimer = null; } if (hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; } }
 function renderHwStatic() {
   const j = hw.static, S = j.system, C = j.cpu, G = j.gpu, D = j.dmi || {available:false};
   $('#hwNote').textContent = t("hw.static_data_is_cached_for_60_with_value", {value: t("hw.hardware_data_is_cached_for_1_with_value", {value: D.available ? t("hw.serial_numbers_and_memory_modules_come") : ''})}) + (D.available ? '' : ' ' + (D.note || ''));
@@ -199,10 +200,62 @@ function renderHwStatic() {
       (P.empty_ports.length ? `<div class="sub1" style="margin-top:10px">${t("hw.another_root_ports_have_no_connected", {v0: P.empty_ports.length, v1: P.empty_ports.map(e => t("hw.maximum", {v0: esc(e.slot), v1: genLbl(e.max_gen, e.max_width)})).join('、'), v2: P.empty_ports.some(e => e.max_gen === 5 && e.max_width === 4) ? (P.cx7_hotplug ? t("hw.the_two_empty_gen5_4_ports_hotplug") + ` <a href="#faq/cx7" data-faq="cx7">${t("hw.cx7_why")}</a>` : t("hw.the_two_empty_gen5_4_ports")) : ''})}</div>` : '') +
       `<details style="margin-top:8px"><summary class="sub1">${t("hw.raw_lspci_output")}</summary><pre class="raw">${esc((j.pci || []).join('\n'))}</pre></details>`
     : (j.pci ? `<pre class="raw">${esc(j.pci.join('\n'))}</pre>` : `<div class="empty">${t("hw.lspci_unavailable")}</div>`)) + `</div>`;
-  const PR = j.printers;
-  const printer = !PR ? '' : `<div class="panel"><div class="panel-h"><h2>${t("common.printer")}</h2><span class="sub">${t("hw.cups_sources_lpstat_driverless_mdns_usb", {v0: PR.cups_active ? t("hw.running") : t("hw.not_running")})}</span></div>` +
-    (PR.queues.length ? `<table><thead><tr><th>${t("hw.queue")}</th><th style="width:80px">${t("updates.status")}</th><th>${t("hw.connection")}</th></tr></thead><tbody>${PR.queues.map(q => `<tr><td><b>${esc(q.name)}</b>${q.default ? `<span class="tag ok">${t("hw.default")}</span>` : ''}</td><td><span class="tag ${q.state === 'idle' ? 'ok' : ''}">${esc(q.state)}</span></td><td class="mono sub1" style="font-size:11px">${esc(q.uri || '—')}</td></tr>`).join('')}</tbody></table><div class="sub1" style="margin-top:6px">${t("hw.queued_jobs", {v1: PR.jobs})}</div>` : `<div class="sub1" style="margin-top:8px">${t("hw.no_printers_configured_in_cups")}</div>`) +
-    (PR.discovered.length ? `<div style="margin-top:10px"><b>${t("hw.found_on_the_local_network_not")}</b><table><tbody>${PR.discovered.map(d => `<tr><td>${esc(d.name)}</td><td class="mono sub1" style="font-size:11px">${esc(d.uri)}</td></tr>`).join('')}</tbody></table><div class="sub1">${t("hw.use")}<span class="mono">${t("hw.lpadmin_p_name_e_v_uri")}</span>${t("hw.to_add_one_ipp_everywhere_requires")}</div></div>` : `<div class="sub1" style="margin-top:6px">${t("hw.no_printers_found_through_mdns_ipp")}</div>`) +
-    (PR.usb.length ? `<div class="sub1" style="margin-top:6px">${t("hw.usb_printers", {v0: PR.usb.map(u => esc((u.manufacturer ? u.manufacturer + ' ' : '') + u.name)).join('、')})}</div>` : `<div class="sub1">${t("hw.no_usb_printers_connected")}</div>`) + `</div>`;
+  const printer = `<div class="panel" id="hwPrinters"></div>`;   // 內容由 renderPrinters() 填（即時端點，不跟靜態快取）
   $('#hw').innerHTML = sys + cpu + mem + dimm + gpu + disks + nvmeHtml + net + bt + printer + sens + usb + pci;
+  renderPrinters();
+}
+/* 印表機：會開關機、會缺紙缺碳粉，所以不跟硬體靜態快取（1 小時＋快照）走——曾因此印表機開機後仍顯示「掃不到」。
+   進分頁問一次、之後每 30 秒（伺服器快取 15 秒）。狀態、警示、耗材量是印表機自己用 IPP 回報的；
+   CUPS 佇列的 idle 只代表佇列沒工作，不代表印表機在線，所以兩者分開寫。 */
+async function loadPrinters(force) {
+  const j = await api('/api/hardware/printers' + (force ? '?force=1' : ''));
+  hw.printers = j; renderPrinters();
+}
+const PR_REASON = ['toner-low', 'toner-empty', 'marker-supply-low', 'marker-supply-empty', 'marker-waste-almost-full', 'marker-waste-full', 'media-empty', 'media-low', 'media-needed', 'media-jam',
+  'door-open', 'cover-open', 'input-tray-missing', 'output-tray-missing', 'output-area-full', 'paused', 'offline', 'shutdown', 'connecting-to-device', 'other'];
+function prReason(r) {   // RFC 8011：-error／-warning／-report 字尾是嚴重度；沒字尾一律當 error
+  const m = r.match(/^(.*?)(?:-(error|warning|report))?$/), base = m[1], sev = m[2] || 'error';
+  const label = PR_REASON.includes(base) ? t("hw.pr_r_" + base.replace(/-/g, '_')) : `<span class="mono">${esc(r)}</span>`;
+  return `<span class="tag ${sev === 'error' ? 'bad' : sev === 'warning' ? 'warn' : ''}" title="${esc(r)}">${label}</span>`;
+}
+function prMarker(m) {
+  const color = /^#[0-9a-f]{6}$/i.test(m.color || '') ? m.color : 'var(--muted)', lv = m.level;
+  const known = typeof lv === 'number' && lv >= 0, low = known && typeof m.low === 'number' && lv <= m.low;
+  const pct = known ? `<span class="${low ? 'low' : ''}"${low ? ` title="${t("hw.pr_low", {v0: m.low})}"` : ''}>${Math.min(100, lv)}%</span>`
+    : lv === -3 ? `<span title="${t("hw.pr_level_some_hint")}">${t("hw.pr_level_some")}</span>`
+    : `<span title="${lv === -1 ? t("hw.pr_level_unavailable") : t("hw.pr_level_unknown")}">—</span>`;
+  return `<div><div class="nm"><i class="sw" style="background:${color}"></i><span>${esc(m.name || '—')}</span><span class="pct">${pct}</span></div>` +
+    (known ? `<div class="meter"><i style="width:${Math.min(100, lv)}%;background:${color}"></i></div>` : '') + `</div>`;   // 量不明不畫空條，空條看起來像用完
+}
+function prDevice(d, PR) {
+  const st = d.status || {}, err = st.error;
+  const stateTag = err === 'no_response' ? `<span class="tag bad">${t("hw.pr_no_response")}</span>`
+    : err ? '' : st.state ? `<span class="tag ${st.state === 'stopped' ? 'bad' : 'ok'}">${t("hw.pr_state_" + st.state)}</span>` : '';
+  const qs = PR.queues.filter(q => d.queues.includes(q.name));
+  const scheme = ((d.uri || '').match(/^([a-z0-9+.-]+):/i) || [])[1] || '—';
+  const why = err === 'no_response' ? t("hw.pr_no_response_hint") : err === 'no_ipptool' ? t("hw.pr_no_ipptool") : err === 'not_ipp' ? t("hw.pr_not_ipp", {v0: esc(scheme)}) : '';
+  const link = (u, k) => /^https?:\/\//i.test(u || '') ? `<a href="${esc(u)}" target="_blank" rel="noopener">${t(k)}</a>` : '';
+  const links = [link(st.more_info, "hw.pr_web"), link(st.supply_info, "hw.pr_supply_page")].filter(Boolean).join(' · ');
+  const qline = qs.map(q => `${t("hw.pr_queue", {v0: `<span class="mono">${esc(q.name)}</span>`})}${q.default ? `<span class="tag ok">${t("hw.default")}</span>` : ''} · ${t("hw.pr_queue_state", {v0: esc(q.state)})}${q.auto ? ' · ' + t("hw.pr_auto") : ''}`).join('<br>');
+  const cmd = `lpadmin -p ${esc((d.name || 'printer').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, ''))} -E -v '${esc(d.uri)}' -m everywhere`;
+  const unseen = !d.on_network && /\._ipps?\._tcp\.local/.test(d.uri || '');
+  return `<div class="pr-dev"><div class="pr-top"><div><b>${esc(d.name)}</b>${stateTag}${st.accepting === false ? `<span class="tag warn">${t("hw.pr_not_accepting")}</span>` : ''}${(st.reasons || []).map(prReason).join('')}` +
+    `<div class="sub1">${esc(st.model || d.model || '—')}</div></div>${links ? `<div class="links">${links}</div>` : ''}</div>` +
+    (st.message ? `<div class="sub1">${t("hw.pr_message", {v0: esc(st.message)})}</div>` : '') +
+    (why ? `<div class="sub1">${why}</div>` : '') +
+    (unseen ? `<div class="sub1">${t("hw.pr_not_on_network")}</div>` : '') +
+    ((st.markers || []).length ? `<div class="pr-sup">${st.markers.map(prMarker).join('')}</div>` : '') +
+    `<div class="sub1" style="margin-top:10px">${qs.length ? qline : t("hw.pr_not_added", {v0: `<span class="mono">${cmd}</span>`})}</div></div>`;
+}
+function renderPrinters() {
+  const box = $('#hwPrinters'); if (!box) return;
+  const PR = hw.printers;
+  const head = sub => `<div class="panel-h"><h2>${t("common.printer")}</h2><span class="sub">${sub}</span><div class="actions"><button id="btnPrReload" class="small">${t("hw.pr_refresh")}</button></div></div>`;
+  if (!PR) box.innerHTML = head(t("updates.loading"));
+  else if (!PR.ok) box.innerHTML = head('') + `<div class="empty">${t("apps.could_not_load", {v0: esc(PR.error)})}</div>`;
+  else box.innerHTML = head(t("hw.pr_sub", {v0: PR.cups_active ? t("hw.running") : t("hw.not_running"), v1: esc((PR.generated || '').slice(11))})) +
+    (PR.devices.length ? PR.devices.map(d => prDevice(d, PR)).join('') : `<div class="sub1" style="margin-top:8px">${t("hw.pr_none")}</div>`) +
+    (PR.jobs ? `<div class="sub1" style="margin-top:6px">${t("hw.queued_jobs", {v1: PR.jobs})}</div>` : '') +
+    (PR.usb.length ? `<div class="sub1" style="margin-top:6px">${t("hw.usb_printers", {v0: PR.usb.map(u => esc((u.manufacturer ? u.manufacturer + ' ' : '') + u.name)).join(t("common.list_sep"))})}</div>` : `<div class="sub1" style="margin-top:6px">${t("hw.no_usb_printers_connected")}</div>`);
+  $('#btnPrReload').onclick = async () => { const b = $('#btnPrReload'); b.disabled = true; await loadPrinters(true); };
 }

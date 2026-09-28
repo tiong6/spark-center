@@ -116,6 +116,16 @@
   .meter { height: 8px; background: #0f1110; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; margin-top: 4px; }
   .meter i { display: block; height: 100%; background: var(--accent); }
   .meter.warn i { background: var(--warn); } .meter.hot i { background: var(--danger); }
+  .tag.warn { color: var(--warn); border-color: var(--warn); } .tag.bad { color: var(--danger); border-color: var(--danger); }
+  /* 印表機：一台一區；耗材條用印表機回報的顏色，黑色在深底上看不到，所以條與色塊都描一圈淡邊 */
+  .pr-dev { padding: 16px 0 14px; border-bottom: 1px solid var(--line); } .pr-dev:last-of-type { border-bottom: 0; }
+  .pr-top { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; } .pr-top .links { margin-left: auto; font-size: 12px; }
+  .pr-top a { color: var(--info); }
+  .pr-sup { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px 24px; margin-top: 12px; }
+  .pr-sup .nm { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+  .pr-sup .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; box-shadow: 0 0 0 1px rgba(255,255,255,.35); }
+  .pr-sup .pct { margin-left: auto; font-variant-numeric: tabular-nums; } .pr-sup .pct .low { color: var(--warn); font-weight: 600; }
+  .pr-sup .meter i { box-shadow: inset 0 0 0 1px rgba(255,255,255,.3); border-radius: 999px; }
   /* 磁碟分段條（macOS 儲存空間那種）：每個分類一段、剩餘是深色，圖例在下 */
   .segbar { display: flex; height: 18px; border-radius: 6px; overflow: hidden; background: #0f1110; border: 1px solid var(--line); margin-top: 14px; }
   .segbar i { display: block; height: 100%; min-width: 0; border-right: 1px solid #111312; transition: filter .15s; }

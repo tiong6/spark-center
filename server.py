@@ -3029,10 +3029,79 @@ def _pci_devices():
             "empty_ports": [{"slot": b["slot"], "max_gen": b["max_gen"], "max_width": b["max_width"]} for b in empty]}
 
 
-# ---------- 印表機（CUPS 佇列 + 區網 IPP 探索 + USB）----------
+# ---------- 印表機（CUPS 佇列 + 區網 IPP 探索 + USB + 印表機自己回報的狀態）----------
+# 印表機會開關機、會缺紙缺碳粉，不能跟硬體靜態清單一起快取 1 小時（還存成快照）：曾因此印表機開機後頁面仍說「掃不到」。
+# 另開 /api/hardware/printers、短快取。狀態用 IPP 直接問印表機本身；CUPS 佇列的 idle 只代表佇列沒工作，不代表印表機在線。
+
+PRINTER_TTL = 15
+_PRINTERS = {"ts": 0, "data": None, "lock": threading.Lock()}
+IPP_STATE = {3: "idle", 4: "processing", 5: "stopped"}
+_IPP_STATUS_TEST = """{
+  NAME "printer status"
+  OPERATION Get-Printer-Attributes
+  GROUP operation-attributes-tag
+  ATTR charset attributes-charset utf-8
+  ATTR naturalLanguage attributes-natural-language en
+  ATTR uri printer-uri $uri
+  ATTR keyword requested-attributes printer-state,printer-state-reasons,printer-state-message,printer-is-accepting-jobs,queued-job-count,marker-names,marker-colors,marker-types,marker-levels,marker-low-levels,marker-high-levels,printer-make-and-model,printer-info,printer-more-info,printer-supply-info-uri
+  STATUS successful-ok
+}
+"""
+
+
+def _dnssd_name(uri):
+    """ipps://HP%20Color%20LaserJet%20M155nw%20(0194A6)._ipps._tcp.local/ → HP Color LaserJet M155nw (0194A6)；不是 DNS-SD 位址回 None。
+    同一台印表機會同時廣播 _ipp 與 _ipps，用服務名稱當身分才不會列兩次。"""
+    from urllib.parse import unquote
+    m = re.match(r"^ipps?://([^/]+?)\._ipps?\._tcp\.local\.?(?:/|$)", uri or "")
+    return unquote(m.group(1)) if m else None
+
+
+def _ipp_status(uri):
+    """IPP Get-Printer-Attributes 直接問印表機：狀態、警示、耗材量。問不到回 {"error": 原因}，前端照實說明，不猜。"""
+    if not uri or not re.match(r"^ipps?://", uri):
+        return {"error": "not_ipp"}
+    if not shutil.which("ipptool"):
+        return {"error": "no_ipptool"}
+    import plistlib
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".test") as f:
+        f.write(_IPP_STATUS_TEST)
+        f.flush()
+        try:
+            r = subprocess.run(["ipptool", "-T", "5", "-X", uri, f.name], capture_output=True, timeout=12, env=_ENV_C)
+        except (OSError, subprocess.TimeoutExpired):
+            return {"error": "no_response"}
+    try:
+        test = plistlib.loads(r.stdout)["Tests"][0]
+    except Exception:
+        return {"error": "no_response"}
+    a = {}
+    for g in test.get("ResponseAttributes") or []:
+        a.update(g)
+    if not test.get("Successful") or "printer-state" not in a:
+        return {"error": "no_response"}
+    lst = lambda v: v if isinstance(v, list) else ([] if v is None else [v])
+    names, colors, types, levels, lows, highs = (lst(a.get("marker-" + k)) for k in ("names", "colors", "types", "levels", "low-levels", "high-levels"))
+    at = lambda xs, i: xs[i] if i < len(xs) else None
+    return {
+        "state": IPP_STATE.get(a.get("printer-state")),
+        "reasons": [x for x in lst(a.get("printer-state-reasons")) if x and x != "none"],
+        "message": a.get("printer-state-message") or None,
+        "accepting": a.get("printer-is-accepting-jobs"),
+        "jobs": a.get("queued-job-count"),
+        "model": a.get("printer-make-and-model"),
+        "more_info": a.get("printer-more-info"),
+        "supply_info": a.get("printer-supply-info-uri"),
+        # IPP 規定 marker-levels 是百分比；-1 印表機不提供、-2 未知、-3 有剩但量不明（前端照這三種說，不當成 0）
+        "markers": [{"name": n, "color": at(colors, i), "type": at(types, i), "level": at(levels, i), "low": at(lows, i), "high": at(highs, i)}
+                    for i, n in enumerate(names)],
+    }
+
 
 def _printers():
-    res = {"cups_active": (_run(["systemctl", "is-active", "cups"], timeout=5) or "").strip() == "active", "queues": [], "discovered": [], "usb": []}
+    res = {"cups_active": (_run(["systemctl", "is-active", "cups"], timeout=5) or "").strip() == "active",
+           "queues": [], "devices": [], "usb": [], "jobs": None}
     lp = _run(["lpstat", "-p", "-d"], timeout=10) or ""
     for line in lp.splitlines():
         m = re.match(r"printer (\S+) is (\w+)", line)
@@ -3046,18 +3115,41 @@ def _printers():
     uris = dict(re.findall(r"device for (\S+): (\S+)", lv))
     for q in res["queues"]:
         q["uri"] = uris.get(q["name"])
-    jobs = _run(["lpstat", "-o"], timeout=10) or ""
-    res["jobs"] = len([l for l in jobs.splitlines() if l.strip()])
-    # 區網探索：driverless 列出 IPP Everywhere 印表機（mDNS），沒有就是空
+        # cups-browsed 自動建的佇列是 implicitclass://佇列名，真正的印表機位址在佇列選項 device-uri
+        q["auto"] = (q["uri"] or "").startswith("implicitclass://")
+        dev = None
+        if q["auto"]:
+            try:
+                opts = shlex.split(_run(["lpoptions", "-p", q["name"]], timeout=5) or "")
+                dev = next((o.split("=", 1)[1] for o in opts if o.startswith("device-uri=")), None)
+            except ValueError:
+                pass
+        q["device_uri"] = dev or q["uri"]
+    jobs = _run(["lpstat", "-o"], timeout=10)
+    if jobs is not None:
+        res["jobs"] = len([l for l in jobs.splitlines() if l.strip()])
+    # 實體印表機：佇列指向的＋區網 driverless（mDNS 上的 IPP Everywhere）找到的，依 DNS-SD 服務名稱合併
+    devices = {}
+    for q in res["queues"]:
+        name = _dnssd_name(q["device_uri"])
+        d = devices.setdefault(name or q["device_uri"] or q["name"], {"name": name or q["name"], "uri": q["device_uri"], "model": None, "queues": [], "on_network": False})
+        d["queues"].append(q["name"])
     dl = _run(["driverless", "list"], timeout=20) or ""
     for line in dl.splitlines():
-        if line.startswith("DEBUG"):
+        # "driverless:ipps://…/" en "HP" "HP ColorLaserJet M155-M156, driverless, cups-filters 2.0.0" "MFG:…"
+        m = re.match(r'^"([^"]+)"\s+\S+\s+"[^"]*"\s+"([^"]*)"', line)
+        uri, model = (m.group(1), m.group(2).split(",")[0].strip() or None) if m else (line.split()[0] if "://" in line and not line.startswith("DEBUG") else None, None)
+        if not uri:
             continue
-        m = re.match(r'"?(\S+)"?\s+\S+\s+"([^"]+)"', line)
-        if m:
-            res["discovered"].append({"uri": m.group(1), "name": m.group(2)})
-        elif line.strip() and "://" in line:
-            res["discovered"].append({"uri": line.split()[0], "name": line.strip()})
+        uri = uri[len("driverless:"):] if uri.startswith("driverless:") else uri
+        name = _dnssd_name(uri)
+        d = devices.setdefault(name or uri, {"name": name or uri, "uri": uri, "model": None, "queues": [], "on_network": False})
+        d["on_network"] = True
+        d["model"] = d["model"] or model
+    res["devices"] = list(devices.values())
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        for d, st in zip(res["devices"], ex.map(lambda d: _ipp_status(d["uri"]), res["devices"])):
+            d["status"] = st
     # USB 印表機：介面類別 07
     base = "/sys/bus/usb/devices"
     for i in os.listdir(base):
@@ -3065,6 +3157,15 @@ def _printers():
             dev = os.path.join(base, i.split(":")[0])
             res["usb"].append({"name": _read(os.path.join(dev, "product")) or i, "manufacturer": _read(os.path.join(dev, "manufacturer"))})
     return res
+
+
+def printers(force=False):
+    with _PRINTERS["lock"]:
+        if not force and _PRINTERS["data"] and time.time() - _PRINTERS["ts"] < PRINTER_TTL:
+            return _PRINTERS["data"]
+        data = {**_printers(), "generated": datetime.now().isoformat(timespec="seconds")}
+        _PRINTERS.update(ts=time.time(), data=data)
+        return data
 
 
 def _list_cmd(cmd):
@@ -3242,6 +3343,7 @@ def _hw_snapshot_load():
         with open(HW_SNAPSHOT) as f:
             d = json.load(f)
         if isinstance(d, dict) and d.get("generated"):
+            d.pop("printers", None)   # 舊版快照含印表機；印表機已改走即時端點，過期的不再供應
             _HW_CACHE.update(data=d, ts=os.path.getmtime(HW_SNAPSHOT))
     except (OSError, ValueError):
         pass
@@ -3274,7 +3376,6 @@ def hardware_static(force=False):
         "usb_tree": _usb_tree(),
         "pci": _list_cmd(["lspci"]),
         "pci_devices": _pci_devices(),
-        "printers": _printers(),
         "generated": datetime.now().isoformat(timespec="seconds"),
     }
     _HW_CACHE.update(ts=time.time(), data=data)
@@ -4609,6 +4710,11 @@ class Handler(BaseHTTPRequestHandler):
                 force = "force=1" in (self.path.split("?", 1) + [""])[1]
                 d = hardware_static(force=force)
                 self._json({"ok": True, **d, "cached_age_s": int(time.time() - _HW_CACHE["ts"])})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/hardware/printers":
+            try:
+                self._json({"ok": True, **printers(force="force=1" in (self.path.split("?", 1) + [""])[1])})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/lan":
