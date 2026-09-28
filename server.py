@@ -2919,6 +2919,34 @@ def usbc_map_save(d):
     os.replace(tmp, USBC_MAP_FILE)
 
 
+CX7_HOTPLUG_FLAG = "/etc/nvidia/cx7-hotplug-enabled"
+
+
+def cx7_state():
+    """ConnectX-7 的狀態，後面板、PCI 表與常見問題分頁共用這一份（以前後面板跑 lspci、FAQ 讀 /sys，兩套會分歧）。
+    2026-01 版起 CX7 預設熱插拔省電（旗標檔在就開）：沒插 QSFP 線就不上電，PCI 上一個 0x15b3 功能都看不到——
+    那是預期，不是壞。pci_functions 讀不到時是 None，前端顯示「—」。"""
+    try:
+        n = sum(1 for d in os.listdir("/sys/bus/pci/devices") if (_read(f"/sys/bus/pci/devices/{d}/vendor") or "").lower() == "0x15b3")
+    except OSError:
+        n = None
+    ifaces = []
+    try:
+        for i in os.listdir("/sys/class/net"):
+            drv = f"/sys/class/net/{i}/device/driver"
+            if os.path.exists(drv) and os.path.basename(os.path.realpath(drv)).startswith("mlx"):
+                ifaces.append(i)
+    except OSError:
+        pass
+    return {"hotplug": os.path.exists(CX7_HOTPLUG_FLAG), "flag": CX7_HOTPLUG_FLAG, "pci_functions": n,
+            "ifaces": sorted(ifaces), "driver_loaded": os.path.isdir("/sys/module/mlx5_core")}
+
+
+def _buff_cache(m):
+    """free(1) 的 buff/cache：Buffers + Cached + SReclaimable。監控卡與常見問題分頁共用這個算法。"""
+    return m.get("Buffers", 0) + m.get("Cached", 0) + m.get("SReclaimable", 0)
+
+
 def rear_panel():
     """後面板各孔的即時狀態。版面順序（左→右）依 ServeTheHome 評測：USB-C ×4（最左為 PD 電源輸入）、HDMI、10GbE、QSFP（ConnectX-7）。"""
     ports = usb_ports()
@@ -2933,8 +2961,6 @@ def rear_panel():
         net[i] = {"driver": drv, "state": _read(f"/sys/class/net/{i}/operstate"), "speed": _read(f"/sys/class/net/{i}/speed"),
                   "carrier": _read(f"/sys/class/net/{i}/carrier")}
     eth = next(((n, v) for n, v in net.items() if v["driver"].startswith("r81")), None)
-    mlx = [n for n, v in net.items() if v["driver"].startswith("mlx")]
-    mlx_pci = bool(_run(["lspci", "-d", "15b3:"], timeout=5))
     usbc = []
     for k in range(4):
         ctrl = f"NVDA8000:0{k}"
@@ -2946,7 +2972,7 @@ def rear_panel():
     return {
         "usbc": usbc, "hdmi": disp.get("HDMI-0"), "calib": usbc_map_load(),
         "eth10g": eth and {"iface": eth[0], **eth[1]},
-        "connectx7": {"pci_present": mlx_pci, "ifaces": mlx, "driver_loaded": os.path.isdir("/sys/module/mlx5_core")},
+        "connectx7": cx7_state(),
         "controllers": ports, "displays_available": bool(disp),
         "layout_source": msg('rear_layout', LANG_DEFAULT),
     }
@@ -2999,7 +3025,7 @@ def _pci_devices():
     # 空的根埠：橋接器底下沒有任何端點裝置（ConnectX-7 應該在這裡）
     used_domains = {d["slot"].split(":")[0] for d in devs}
     empty = [b for b in bridges if b["slot"].split(":")[0] not in used_domains]
-    return {"devices": devs, "bridges": len(bridges),
+    return {"devices": devs, "bridges": len(bridges), "cx7_hotplug": os.path.exists(CX7_HOTPLUG_FLAG),
             "empty_ports": [{"slot": b["slot"], "max_gen": b["max_gen"], "max_width": b["max_width"]} for b in empty]}
 
 
@@ -3602,7 +3628,7 @@ def hardware_live():
     load = (_read("/proc/loadavg") or "").split()[:3]
     up = _read("/proc/uptime")
     return {
-        "memory": {"total": mem.get("MemTotal"), "available": mem.get("MemAvailable"),
+        "memory": {"total": mem.get("MemTotal"), "available": mem.get("MemAvailable"), "buff_cache": _buff_cache(mem) if mem else None,
                    "swap_total": mem.get("SwapTotal"), "swap_free": mem.get("SwapFree")},
         "load": [float(x) for x in load] if len(load) == 3 else None,
         "uptime_s": float(up.split()[0]) if up else None,
@@ -4346,26 +4372,15 @@ def GB_(b):
 # 題目內容在前端（static/js/faq.js＋字串表）。這裡只給兩樣東西：這台機器實際是什麼狀態（給每題的「本機」框），
 # 以及原文有沒有改版——內容是抄進來的快照，NVIDIA 改版後頁面要說出來，不能繼續假裝是最新的。
 FAQ_TOPIC = 347344   # https://forums.developer.nvidia.com/t/dgx-spark-gb10-faq/347344
-CX7_HOTPLUG_FLAG = "/etc/nvidia/cx7-hotplug-enabled"
 _FAQ_SRC = {"ts": 0, "data": None}
 
 
 def faq_local():
     """每題「本機」框要的事實；讀不到的欄位給 None，前端顯示「—」。"""
-    cx7 = None
-    try:
-        devs = os.listdir("/sys/bus/pci/devices")
-        # 0x15b3 = Mellanox/NVIDIA 網路（ConnectX-7）。熱插拔省電時沒插 QSFP 線就不上電，PCI 上一個都看不到
-        n = sum(1 for d in devs if (_read(f"/sys/bus/pci/devices/{d}/vendor") or "").lower() == "0x15b3")
-        cx7 = {"hotplug": os.path.exists(CX7_HOTPLUG_FLAG), "flag": CX7_HOTPLUG_FLAG, "visible": n}
-    except OSError:
-        pass
     m = _meminfo()
     mem = None
     if m.get("MemTotal"):
-        # buff/cache 照 free(1) 的算法：Buffers + Cached + SReclaimable
-        mem = {"total": m["MemTotal"], "available": m.get("MemAvailable"),
-               "buff_cache": m.get("Buffers", 0) + m.get("Cached", 0) + m.get("SReclaimable", 0)}
+        mem = {"total": m["MemTotal"], "available": m.get("MemAvailable"), "buff_cache": _buff_cache(m)}
     wifi = None
     iface = _wifi_iface()
     if iface:
@@ -4376,7 +4391,7 @@ def faq_local():
         except (OSError, ValueError, subprocess.TimeoutExpired):
             pass
         wifi = {"name": iface, "state": _read(f"/sys/class/net/{iface}/operstate"), "ipv4": ips}
-    return {"ok": True, "cx7": cx7, "mem": mem, "wifi": wifi}
+    return {"ok": True, "cx7": cx7_state(), "mem": mem, "wifi": wifi}
 
 
 def faq_source():

@@ -96,12 +96,12 @@ function faqLocalRows(kind) {
   }
   if (!L || !L.ok) return na('faq.local_title');
   if (kind === 'cx7') {
-    const c = L.cx7;
-    if (!c) return na('faq.l.cx7_visible');
+    const c = L.cx7;   // 和硬體分頁後面板同一份（server.py cx7_state）
+    if (!c || c.pci_functions == null) return na('faq.l.cx7_visible');
     // 判讀只用兩個讀得到的事實（旗標檔、PCI 上有沒有 0x15b3），不猜線有沒有插：CX7 沒通電時從軟體看不到線
-    const [cls, key] = c.visible > 0 ? ['ok', 'faq.l.cx7_powered'] : c.hotplug ? ['ok', 'faq.l.cx7_expected'] : ['warn', 'faq.l.cx7_odd'];
+    const [cls, key] = c.pci_functions > 0 ? ['ok', 'faq.l.cx7_powered'] : c.hotplug ? ['ok', 'faq.l.cx7_expected'] : ['warn', 'faq.l.cx7_odd'];
     return row(t('faq.l.cx7_hotplug'), esc(t(c.hotplug ? 'faq.l.on_flag' : 'faq.l.off_flag', {path: c.flag})))
-      + row(t('faq.l.cx7_visible'), esc(t('faq.l.cx7_count', {n: c.visible})))
+      + row(t('faq.l.cx7_visible'), esc(t('faq.l.cx7_count', {n: c.pci_functions})))
       + row(t('faq.l.verdict'), `<span class="fv ${cls}">${esc(t(key))}</span>`);
   }
   if (kind === 'mem' || kind === 'cache') {
@@ -126,7 +126,12 @@ function faqLocalRows(kind) {
   return '';
 }
 
+/* 原文和本頁依據的版本不同（通常是 NVIDIA 改版了）：分頁標籤亮點，開頁時也查一次（main.js） */
+const faqRevised = s => !!(s && s.ok && !s.error && s.version && s.version !== FAQ_SOURCE.version);
+function renderFaqDot(s) { const d = $('#dotFaq'); d.classList.toggle('hide', !faqRevised(s)); d.title = t('faq.dot_hint'); }
+
 function renderFaqSource(s) {
+  renderFaqDot(s);
   const el = $('#faqRemote');
   if (!s) { el.innerHTML = `<span class="muted">${esc(t('faq.src_checking'))}</span>`; return; }
   if (!s.ok || s.error || !s.version) { el.innerHTML = `<span class="muted">${esc(t('faq.src_error', {err: s.error || '—'}))}</span>`; return; }
@@ -151,6 +156,22 @@ async function loadFaq() {
   [faq.local, faq.machine, faq.dash] = await Promise.all([api('/api/faq'), api('/api/machine'), api('/api/dashboard')]);
   for (const it of FAQ) if (it.local) { const el = document.getElementById('faqLoc-' + it.id); if (el) el.innerHTML = faqLocalRows(it.local); }
 }
+
+/* 直接開到某一題：網址 #faq/<id>，或任何分頁裡帶 data-faq="<id>" 的連結 */
+function openFaq(id) {
+  if ($('#tab-faq').classList.contains('hide')) showTab('faq');   // showTab 會同步建好題目
+  const d = [...document.querySelectorAll('#faqList details.faq')].find(e => e.dataset.id === id);
+  if (!d) return;
+  if ($('#faqSearch').value) { $('#faqSearch').value = ''; $('#faqSearch').dispatchEvent(new Event('input')); }   // 搜尋可能把它藏起來
+  d.open = true;
+  d.scrollIntoView({block: 'center'});
+  d.classList.add('flash'); setTimeout(() => d.classList.remove('flash'), 1600);
+  history.replaceState(null, '', '#faq/' + id);
+}
+document.addEventListener('click', e => {
+  const a = e.target.closest('[data-faq]');
+  if (a) { e.preventDefault(); openFaq(a.dataset.faq); }
+});
 
 $('#faqSearch').oninput = e => {
   const raw = e.target.value.trim(), q = raw.toLowerCase();

@@ -112,7 +112,9 @@ function renderMon(j, rerender) {
   // 記憶體
   const m = j.memory, used = m.total - m.available, mpct = used / m.total * 100;
   pushHist('mem', sampleTime, used);
-  cards.push(monCard('mem', t("mon.system_memory"), 'MemTotal − MemAvailable', gaugeLeft(mpct, GB(used), GB(m.total) + ' total'), [{key:'mem', color: C_LINE, data: hw.hist.mem}], m.total, GB));
+  // buff/cache 另列：FAQ 說「記憶體沒滿卻不足」先看這個；數字和常見問題分頁同一個算法（server.py _buff_cache）
+  const memLeg = m.buff_cache == null ? '' : `<span>${esc(t("mon.buff_cache", {v0: GB(m.buff_cache)}))}</span><a href="#faq/mem_issues" data-faq="mem_issues">${t("mon.mem_faq")}</a>`;
+  cards.push(monCard('mem', t("mon.system_memory"), 'MemTotal − MemAvailable', gaugeLeft(mpct, GB(used), GB(m.total) + ' total'), [{key:'mem', color: C_LINE, data: hw.hist.mem}], m.total, GB, memLeg));
   hovers.push(['mem', [{color: C_LINE, data: hw.hist.mem}], GB]);
   // CPU：兩次 /proc/stat 的差（總和＋每核）
   let cpct = null, corePct = [];

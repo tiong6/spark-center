@@ -277,3 +277,6 @@
 .floc { margin-top: 12px; background: var(--surface2); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 10px 14px; }
 .floc .kv { margin-top: 6px; grid-template-columns: 150px 1fr; font-size: 13px; }
 .fv.ok { color: var(--accent); } .fv.warn { color: var(--warn); }
+.faq.flash { background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 8px; transition: background .6s; }
+.legend a, .slot .st a { color: var(--accent); text-decoration: none; }
+.legend a:hover, .slot .st a:hover { text-decoration: underline; }

@@ -298,7 +298,6 @@ const STR = {
     "hw.not_detected": "未偵測到",
     "hw.mlx5_driver": "mlx5 驅動{v3}",
     "hw.device_present_no_interface": "有裝置，無介面",
-    "hw.connectx_7_not_found_by_lspci": "lspci 未見 ConnectX-7",
     "hw.not_loaded": "未載入",
     "hw.controllers_with_connected_devices_but_no": "尚未對應到孔位、但有接東西的控制器：{v0}。用「校準孔位」對上去。",
     "hw.display_3": "螢幕",
@@ -792,7 +791,15 @@ const STR = {
     "faq.rdma.q": "DGX Spark 支援 GPUDirect RDMA 嗎？",
     "faq.rdma.a": "不支援。DGX Spark 的 SoC 是統一記憶體架構。為了效能，iGPU 的 CUDA context 透過 pinned device memory 配置器（例如 `cudaMalloc`）取得的系統記憶體，CPU 和 PCI Express 裝置等 I/O 周邊都無法一致地（coherently）存取。\n因此不支援 GPUDirect RDMA，以它為基礎的直接 I/O 機制也都不能用，例如 nvidia-peermem（DOCA-Host 用）、dma-buf、GDRCopy。\n符合規範的應用程式應該在程式裡查詢平台能力，例如 `CU_DEVICE_ATTRIBUTE_GPU_DIRECT_RDMA_SUPPORTED`（對應 nv-p2p 核心 API）或 `CU_DEVICE_ATTRIBUTE_DMA_BUF_SUPPORT`（對應 dma-buf），再改走適當的替代路徑。\n例如用 ib verbs 函式庫的 Linux RDMA 程式，建議用 `cudaHostAlloc` 配置通訊緩衝區，再用 `ibv_reg_mr` 註冊。",
     "faq.bios_pw.q": "忘了 BIOS／UEFI 管理員密碼，怎麼重設？",
-    "faq.bios_pw.a": "沒有官方支援的重設方法。這是刻意設計的安全功能，用來防止未經授權的存取。\n忘記密碼也不在 NVIDIA 的換貨政策範圍內。OEM 機型請直接聯絡製造商，他們可能有針對自家硬體的處理方式。"
+    "faq.bios_pw.a": "沒有官方支援的重設方法。這是刻意設計的安全功能，用來防止未經授權的存取。\n忘記密碼也不在 NVIDIA 的換貨政策範圍內。OEM 機型請直接聯絡製造商，他們可能有針對自家硬體的處理方式。",
+    "hw.cx7_hotplug_idle": "熱插拔省電：插上 QSFP 線才通電",
+    "hw.cx7_hotplug_short": "熱插拔省電中",
+    "hw.cx7_not_on_pci": "PCI 上看不到（熱插拔已關閉）",
+    "hw.cx7_why": "說明",
+    "hw.the_two_empty_gen5_4_ports_hotplug": "兩個 Gen5 ×4 空埠正是 ConnectX-7 網卡在 DGX Spark 上的接法（兩條 Gen5 ×4）。這台開著 CX7 熱插拔省電（沒插 QSFP 線就不通電），和這裡看不到裝置相符。",
+    "mon.buff_cache": "buff/cache {v0}（可回收的部分已算進可用）",
+    "mon.mem_faq": "記憶體沒滿卻不足？",
+    "faq.dot_hint": "NVIDIA 已改版原文，本頁可能缺題"
   },
   "en": {
     "node.title": "Node major-version upgrade",
@@ -1093,7 +1100,6 @@ const STR = {
     "hw.not_detected": "Not detected",
     "hw.mlx5_driver": "mlx5 driver {v3}",
     "hw.device_present_no_interface": "Device present, no interface",
-    "hw.connectx_7_not_found_by_lspci": "ConnectX-7 not found by lspci",
     "hw.not_loaded": "Not loaded",
     "hw.controllers_with_connected_devices_but_no": "Controllers with connected devices but no mapped port: {v0}. Use “Calibrate ports” to map them.",
     "hw.display_3": "Display",
@@ -1587,7 +1593,15 @@ const STR = {
     "faq.rdma.q": "Is GPUDirect RDMA supported on DGX Spark?",
     "faq.rdma.a": "No. The DGX Spark SoC has a unified memory architecture. For performance, system memory returned by the pinned device memory allocators (such as `cudaMalloc`) for CUDA contexts on the iGPU cannot be accessed coherently by the CPU or by I/O peripherals such as PCI Express devices.\nSo GPUDirect RDMA is not supported, and the direct-I/O mechanisms built on it, such as nvidia-peermem (for DOCA-Host), dma-buf and GDRCopy, do not work.\nA compliant application should query the platform's capabilities at run time, e.g. `CU_DEVICE_ATTRIBUTE_GPU_DIRECT_RDMA_SUPPORTED` (for the nv-p2p kernel APIs) or `CU_DEVICE_ATTRIBUTE_DMA_BUF_SUPPORT` (for dma-buf), and fall back accordingly.\nFor example, Linux RDMA applications using the ib verbs library should allocate communication buffers with `cudaHostAlloc` and register them with `ibv_reg_mr`.",
     "faq.bios_pw.q": "I lost my BIOS/UEFI administrator password. How do I reset it?",
-    "faq.bios_pw.a": "There is no supported way to reset it; the security feature is working as designed to prevent unauthorized access.\nLost or forgotten passwords are not covered by NVIDIA's exchange policy. For OEM models, contact the manufacturer directly; they may have options specific to their hardware."
+    "faq.bios_pw.a": "There is no supported way to reset it; the security feature is working as designed to prevent unauthorized access.\nLost or forgotten passwords are not covered by NVIDIA's exchange policy. For OEM models, contact the manufacturer directly; they may have options specific to their hardware.",
+    "hw.cx7_hotplug_idle": "Hotplug power saving: powers on when a QSFP cable is plugged in",
+    "hw.cx7_hotplug_short": "Hotplug standby",
+    "hw.cx7_not_on_pci": "Not on PCI (hotplug off)",
+    "hw.cx7_why": "Why",
+    "hw.the_two_empty_gen5_4_ports_hotplug": "The two empty Gen5 ×4 ports match the ConnectX-7 connection in DGX Spark (two Gen5 ×4 links). CX7 hotplug power saving is on here (no power until a QSFP cable is plugged in), which is consistent with nothing showing up there.",
+    "mon.buff_cache": "buff/cache {v0} (the reclaimable part already counts as available)",
+    "mon.mem_faq": "Out of memory before it's full?",
+    "faq.dot_hint": "NVIDIA has revised the original; this page may be missing questions"
   }
 };
 let LANG = (() => { try { return localStorage.getItem('spark-center.lang'); } catch (e) {} return null; })()
