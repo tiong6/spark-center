@@ -218,10 +218,13 @@ function prReason(r) {   // RFC 8011：-error／-warning／-report 字尾是嚴�
   const label = PR_REASON.includes(base) ? t("hw.pr_r_" + base.replace(/-/g, '_')) : `<span class="mono">${esc(r)}</span>`;
   return `<span class="tag ${sev === 'error' ? 'bad' : sev === 'warning' ? 'warn' : ''}" title="${esc(r)}">${label}</span>`;
 }
-function prMarker(m) {
+function prMarker(m, emptyReported) {
   const color = /^#[0-9a-f]{6}$/i.test(m.color || '') ? m.color : 'var(--muted)', lv = m.level;
-  const known = typeof lv === 'number' && lv >= 0, low = known && typeof m.low === 'number' && lv <= m.low;
-  const pct = known ? `<span class="${low ? 'low' : ''}"${low ? ` title="${t("hw.pr_low", {v0: m.low})}"` : ''}>${Math.min(100, lv)}%</span>`
+  // 報 0 卻沒報「用完」：有的印表機量低於「嚴重不足」後就不再估百分比，IPP 一律給 0（HP M155nw 實測：IPP 報 0，自家耗材頁寫「--%／嚴重不足」、照樣能印）。
+  // 所以說「極低」、不畫空條，不說成 0%
+  const vlow = lv === 0 && !emptyReported;
+  const known = typeof lv === 'number' && lv >= 0 && !vlow, low = known && typeof m.low === 'number' && lv <= m.low;
+  const pct = vlow ? `<span class="low" title="${t("hw.pr_level_vlow_hint")}">${t("hw.pr_level_vlow")}</span>` : known ? `<span class="${low ? 'low' : ''}"${low ? ` title="${t("hw.pr_low", {v0: m.low})}"` : ''}>${Math.min(100, lv)}%</span>`
     : lv === -3 ? `<span title="${t("hw.pr_level_some_hint")}">${t("hw.pr_level_some")}</span>`
     : `<span title="${lv === -1 ? t("hw.pr_level_unavailable") : t("hw.pr_level_unknown")}">—</span>`;
   return `<div><div class="nm"><i class="sw" style="background:${color}"></i><span>${esc(m.name || '—')}</span><span class="pct">${pct}</span></div>` +
@@ -244,7 +247,7 @@ function prDevice(d, PR) {
     (st.message ? `<div class="sub1">${t("hw.pr_message", {v0: esc(st.message)})}</div>` : '') +
     (why ? `<div class="sub1">${why}</div>` : '') +
     (unseen ? `<div class="sub1">${t("hw.pr_not_on_network")}</div>` : '') +
-    ((st.markers || []).length ? `<div class="pr-sup">${st.markers.map(prMarker).join('')}</div>` : '') +
+    ((st.markers || []).length ? `<div class="pr-sup">${st.markers.map(m => prMarker(m, (st.reasons || []).some(r => /^(toner|marker-supply)-empty/.test(r)))).join('')}</div>` : '') +
     `<div class="sub1" style="margin-top:10px">${qs.length ? qline : t("hw.pr_not_added", {v0: `<span class="mono">${cmd}</span>`})}</div></div>`;
 }
 function renderPrinters() {
