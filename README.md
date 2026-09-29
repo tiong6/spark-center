@@ -3,8 +3,7 @@
 **A local control panel for NVIDIA GB10 machines** — DGX Spark, ASUS Ascent GX10, and the Dell / HP / Gigabyte / Acer variants.
 Updates, monitoring, LLM management, disk analysis and a hardware inventory, in one page that binds to `127.0.0.1` and never reboots your machine on its own.
 
-> UI is bilingual: English and Traditional Chinese. It follows the browser language and a 中 / EN switch in the top bar overrides it.
-> 介面中英雙語，跟瀏覽器語言走，頂欄可切換。
+> The UI is bilingual (English and Traditional Chinese): it follows the browser language, and the 中 / EN switch in the top bar overrides it.
 
 ---
 
@@ -30,14 +29,14 @@ English interface captured on an ASUS Ascent GX10 with live system data.
 
 | Tab | What you get |
 |---|---|
-| **Monitor** 監控 | DGX-style gauges and sparklines, sampled every 2 s: unified memory, CPU (overall or per-core with clocks), GPU via NVML, GPU temperature against the real NVML slowdown threshold, GPU power, NVMe temperature, per-interface throughput with the negotiated link speed in the card title (a 10GbE cable plugged in later appears within seconds), and Wi-Fi quality (signal, MCS, retry rate, beacon loss, 24 h disconnects) with a channel analyser. Detects the **"GPU stuck at 611 MHz"** PD-controller failure and shows the cold-drain fix. |
-| **Models** 模型 | Ollama: load / unload with a keep-alive choice, pull with streaming progress, delete. Benchmarks that actually generate tokens — single request or 1/2/4/8 concurrent — with history kept server-side. Finds models duplicated across Ollama, LM Studio and Open WebUI's container volume. |
-| **Updates** 更新 | Pick the packages you want. A dependency simulation runs first and shows everything that will really be touched, including what your selection drags in. No forced reboot; it only reads `/var/run/reboot-required` and tells you. Packages are grouped by source with readable names and a colour per source (the raw apt `Origin` is still shown, since vendors fill it with things like `code stable` or `. nodistro`). Firmware sub-packages that Ubuntu's `linux-firmware` meta-package drags in but no loaded driver uses on this machine (AMD graphics, Qualcomm, Netronome…) are folded away, judged by intersecting the package's files with `modinfo -F firmware` of every loaded module; they do not light the tab's badge and *Select all* skips them. While downloading, the job bar shows bytes done / total, speed and ETA, because aptdaemon's percentage is not linear in bytes and sits at 1 % for a long time. Before it installs, it simulates the upgrade and keeps the `.deb` of every version that will really be replaced, including the ones pulled in by dependencies (from the apt cache, the repository pool, or Launchpad for Ubuntu packages; downloads are checked against the sha256 in the apt index), so a bad update can be rolled back from the same tab, one package or the whole set, via `pkexec apt-get install --allow-downgrades --no-remove` after the same simulate-and-confirm step as an update (a rollback that would remove other software is refused, and edited configuration files are kept); packages whose source does not keep old versions are marked as such rather than silently skipped. Below it, a **firmware panel** reads fwupd directly, so a flash that reported success but did not change the version shows up as a mismatch, and an **npm global packages panel** lists the CLI tools installed with `npm -g` (Claude Code, Gemini CLI, OpenClaw…) with their latest versions; they update without a password because they live in your home directory, and the version being replaced is recorded so the same roll-back panel can reinstall it. pip and Docker images are deliberately not covered: system pip packages belong to apt, virtualenv versions are pinned by their projects, and pulling a Docker image does not update the running container. npm updates install only versions whose `engines` match your Node (checked with npm's own semver, never a silent fall-back to `@latest`), processes still running a package are detected and, when they are systemd user services, can be restarted with one click. When your Node is older than the current LTS, the same panel guides a **Node major-version upgrade** (see below). |
-| **Apps** 應用程式 | Every desktop application across apt, snap and flatpak, with icons, versions, origins, installed size and install date. flatpak and snap updates are one click. snap updates show real byte-level progress read from snapd's API. |
-| **Disk** 磁碟 | A macOS-style segmented bar of what is eating space (models, Docker, app data, caches, logs, trash, other) with a legend, then the breakdown with relative bars: models, Docker, snap data, caches, logs, big files. Cleanup actions are a fixed whitelist. Desktop notification at 90 %. |
-| **Hardware** 硬體 | An "About this machine" header (model, chip, unified memory, storage, DGX OS, serial, BIOS; the BIOS tile opens the full version string, the EC / SoC / USB-C PD firmware versions with their LVFS release notes, and a link to your vendor's support page, matched from DMI for ASUS, MSI, GIGABYTE, Dell, HP, Lenovo, Acer and NVIDIA Founders Edition), then a Windows-style inventory: rear-panel diagram with per-port USB-C mapping (built in for the ASUS Ascent GX10; other GB10 models calibrate it by plugging something in, and the result stays on the machine), DMI serial and memory modules, NVMe SMART health, USB device tree, Bluetooth, printers (live status, alerts and toner levels asked from the printer itself over IPP, re-checked every 30 s), PCI link speeds. A **Devices on this network** panel lists what this machine can see on its own subnet: the ARP/NDP neighbour table (with vendor from the IEEE OUI table; randomised MACs are labelled as private, not guessed) plus mDNS announcements, names from the router's DHCP host names or mDNS. It is passive by default; an explicit *Scan the subnet* button pings every address once (no root) so every device gets a MAC and vendor. It only ever sees the subnet this machine is on; other VLANs are the router's business, and the traffic column says whether a device talked to *this machine*, not whether it is online. |
-| **History** 歷史 | Recent apt transactions with who ran them. |
-| **FAQ** 常見問題 | NVIDIA's official *DGX Spark / GB10 FAQ* (the post the NVIDIA team keeps pinned on the developer forum), grouped by topic in both languages, searchable, with copyable commands. Where an answer depends on the machine, a separate **This machine** box shows what is true here, kept apart from NVIDIA's text: the ConnectX-7 hotplug flag and whether CX7 is on the PCI bus, buff/cache summed the way `free` does, the Wi-Fi interface name the FAQ's command assumes, and the DMI manufacturer for the BIOS-password answer. The page records which revision of the original it was written from and asks the forum once a day; when NVIDIA has edited the post since, it says so instead of passing the old copy off as current. |
+| **Monitor** | DGX-style gauges and sparklines, sampled every 2 s: unified memory, CPU (overall or per-core with clocks), GPU via NVML, GPU temperature against the real NVML slowdown threshold, GPU power, NVMe temperature, per-interface throughput with the negotiated link speed in the card title (a 10GbE cable plugged in later appears within seconds), and Wi-Fi quality (signal, MCS, retry rate, beacon loss, 24 h disconnects) with a channel analyser. Detects the **"GPU stuck at 611 MHz"** PD-controller failure and shows the cold-drain fix. |
+| **Models** | Ollama: load / unload with a keep-alive choice, pull with streaming progress, delete. Benchmarks that actually generate tokens — single request or 1/2/4/8 concurrent — with history kept server-side. Finds models duplicated across Ollama, LM Studio and Open WebUI's container volume. |
+| **Updates** | Pick the packages you want. A dependency simulation runs first and shows everything that will really be touched, including what your selection drags in. No forced reboot; it only reads `/var/run/reboot-required` and tells you. Packages are grouped by source with readable names and a colour per source (the raw apt `Origin` is still shown, since vendors fill it with things like `code stable` or `. nodistro`). Firmware sub-packages that Ubuntu's `linux-firmware` meta-package drags in but no loaded driver uses on this machine (AMD graphics, Qualcomm, Netronome…) are folded away, judged by intersecting the package's files with `modinfo -F firmware` of every loaded module; they do not light the tab's badge and *Select all* skips them. While downloading, the job bar shows bytes done / total, speed and ETA, because aptdaemon's percentage is not linear in bytes and sits at 1 % for a long time. Before it installs, it simulates the upgrade and keeps the `.deb` of every version that will really be replaced, including the ones pulled in by dependencies (from the apt cache, the repository pool, or Launchpad for Ubuntu packages; downloads are checked against the sha256 in the apt index), so a bad update can be rolled back from the same tab, one package or the whole set, via `pkexec apt-get install --allow-downgrades --no-remove` after the same simulate-and-confirm step as an update (a rollback that would remove other software is refused, and edited configuration files are kept); packages whose source does not keep old versions are marked as such rather than silently skipped. Below it, a **firmware panel** reads fwupd directly, so a flash that reported success but did not change the version shows up as a mismatch, and an **npm global packages panel** lists the CLI tools installed with `npm -g` (Claude Code, Gemini CLI, OpenClaw…) with their latest versions; they update without a password because they live in your home directory, and the version being replaced is recorded so the same roll-back panel can reinstall it. pip and Docker images are deliberately not covered: system pip packages belong to apt, virtualenv versions are pinned by their projects, and pulling a Docker image does not update the running container. npm updates install only versions whose `engines` match your Node (checked with npm's own semver, never a silent fall-back to `@latest`), processes still running a package are detected and, when they are systemd user services, can be restarted with one click. When your Node is older than the current LTS, the same panel guides a **Node major-version upgrade** (see below). |
+| **Apps** | Every desktop application across apt, snap and flatpak, with icons, versions, origins, installed size and install date. flatpak and snap updates are one click. snap updates show real byte-level progress read from snapd's API. |
+| **Disk** | A macOS-style segmented bar of what is eating space (models, Docker, app data, caches, logs, trash, other) with a legend, then the breakdown with relative bars: models, Docker, snap data, caches, logs, big files. Cleanup actions are a fixed whitelist. Desktop notification at 90 %. |
+| **Hardware** | An "About this machine" header (model, chip, unified memory, storage, DGX OS, serial, BIOS; the BIOS tile opens the full version string, the EC / SoC / USB-C PD firmware versions with their LVFS release notes, and a link to your vendor's support page, matched from DMI for ASUS, MSI, GIGABYTE, Dell, HP, Lenovo, Acer and NVIDIA Founders Edition), then a Windows-style inventory: rear-panel diagram with per-port USB-C mapping (built in for the ASUS Ascent GX10; other GB10 models calibrate it by plugging something in, and the result stays on the machine), DMI serial and memory modules, NVMe SMART health, USB device tree, Bluetooth, printers (live status, alerts and toner levels asked from the printer itself over IPP, re-checked every 30 s), PCI link speeds. A **Devices on this network** panel lists what this machine can see on its own subnet: the ARP/NDP neighbour table (with vendor from the IEEE OUI table; randomised MACs are labelled as private, not guessed) plus mDNS announcements, names from the router's DHCP host names or mDNS. It is passive by default; an explicit *Scan the subnet* button pings every address once (no root) so every device gets a MAC and vendor. It only ever sees the subnet this machine is on; other VLANs are the router's business, and the traffic column says whether a device talked to *this machine*, not whether it is online. |
+| **History** | Recent apt transactions with who ran them. |
+| **FAQ** | NVIDIA's official *DGX Spark / GB10 FAQ* (the post the NVIDIA team keeps pinned on the developer forum), grouped by topic in both languages, searchable, with copyable commands. Where an answer depends on the machine, a separate **This machine** box shows what is true here, kept apart from NVIDIA's text: the ConnectX-7 hotplug flag and whether CX7 is on the PCI bus, buff/cache summed the way `free` does, the Wi-Fi interface name the FAQ's command assumes, and the DMI manufacturer for the BIOS-password answer. The page records which revision of the original it was written from and asks the forum once a day; when NVIDIA has edited the post since, it says so instead of passing the old copy off as current. |
 
 ## Node major-version upgrades
 
@@ -102,11 +101,11 @@ Then open <http://127.0.0.1:11001>, or launch **Spark Center** from the applicat
 
 **No system title bar (optional).** The app window is a Chrome app window, so by default it carries the desktop's title bar. Run `app/spark-center-app --install` once, click *Install* in the window that opens, close it, and launch Spark Center from the application menu again: Chrome now opens it as an installed web app with *window controls overlay*, so only the three window buttons remain, drawn over Spark Center's own top bar, which you can drag. This works on X11 and Wayland alike. If Chrome still shows its own thin title bar the first time, click the small toggle at its right end once; Chrome remembers the choice.
 
-To have the window open automatically after login, tick **登入時自動開啟** in the top bar. It writes a desktop entry to `~/.config/autostart/` and unticking removes it; the checkbox reflects whether that file exists, nothing else.
+To have the window open automatically after login, turn on **Open at login** in the Setup tab. It writes a desktop entry to `~/.config/autostart/` and unticking removes it; the checkbox reflects whether that file exists, nothing else.
 
 ```sh
-systemctl --user status spark-center     # 狀態
-journalctl --user -u spark-center -f     # 日誌
+systemctl --user status spark-center     # service status
+journalctl --user -u spark-center -f     # live log
 ```
 
 ### Keeping Spark Center itself up to date
@@ -181,34 +180,33 @@ Without them those panels say so on screen instead of showing blanks.
 - **Rollback is per package, not a system restore.** It reinstalls the exact `.deb` that was replaced, after an apt simulation; it does not snapshot the filesystem, and it refuses when going back would remove other software. Tested end to end on a real security update (curl: update → roll back the set → verify → update again).
 - It lists only applications that have a desktop entry. Command-line tools and libraries are not in the Apps tab; they are in Updates.
 
-## 一個要知道的取捨
+## One trade-off to know about
 
-更新分頁讓你自己勾選套件，這是它存在的理由，但也是它唯一比官方 Dashboard 危險的地方：
-**核心與 NVIDIA 簽章模組是兩個獨立的 meta 套件，彼此沒有相依關係。** 只勾核心不勾模組，模擬不會有任何警告，
-重開機後會進到一個沒有簽章 GPU 驅動的核心。升級核心時請連 `linux-modules-nvidia-*-nvidia-hwe-*` 一起勾。
+The Updates tab lets you pick packages yourself. That is the reason it exists, and it is also the one way it is more dangerous than the stock Dashboard: **the kernel and the NVIDIA signed modules are two separate meta-packages with no dependency between them.** Tick the kernel without the modules and the simulation shows no warning, but after the reboot you are on a kernel with no signed GPU driver. When you upgrade the kernel, tick `linux-modules-nvidia-*-nvidia-hwe-*` with it. Spark Center points this out when it sees one without the other.
 
-## 需求
+## Requirements
 
-Ubuntu 24.04 / DGX OS 7.x on aarch64. 以下都是系統內建，不需要另外安裝：
-`python3-apt`、`python3-aptdaemon`、`python3-dbus`、`python3-gi`、`fwupd`、`nvme-cli`、`bluez`、`iw`、`network-manager`。
+Ubuntu 24.04 / DGX OS 7.x on aarch64. Everything below ships with DGX OS; nothing needs to be installed:
+`python3-apt`, `python3-aptdaemon`, `python3-dbus`, `python3-gi`, `fwupd`, `nvme-cli`, `bluez`, `iw`, `network-manager`.
 
-## 檔案
+## Files
 
-| 檔案 | 用途 |
+| File | Purpose |
 |---|---|
-| `server.py` | 後端，stdlib `http.server`，約 3800 行 |
-| `index.html` | 前端骨架（HTML 標記），約 140 行 |
-| `static/css/app.css`、`static/js/*.js` | 前端樣式與各分頁的程式，由 server.py 直接提供，無建置步驟、無外部資源；`i18n.js` 是中英字串表 |
-| `tools/check.sh` | 改動前的靜態檢查：語法、CSS 重複選擇器、重複 id、字串表對齊 |
-| `install.sh` | 產生並安裝 systemd 單元與桌面捷徑 |
-| `spark-center.service.in`、`app/spark-center.desktop.in` | 路徑用 `@ROOT@` 的模板 |
-| `data/` | 執行時資料（孔位校準、量測歷史、硬體快照、`rollback/` 裡更新前保留的舊版 .deb），已 git 忽略 |
-| `docs/` | README 截圖，以及已完成的工單（英文化規格與術語表） |
-| `HANDOFF.md`、`CLAUDE.md` | Maintainer's working notes in Chinese: current state and next steps, and the working conventions for the coding agent. Not needed to install or use the tool. 維護者的中文工作筆記，安裝與使用不需要看。 |
+| `server.py` | Back end on the standard-library `http.server`, about 5,400 lines |
+| `index.html` | Front-end skeleton (markup only), about 170 lines |
+| `static/css/app.css`, `static/js/*.js` | Styles and one script per tab, served straight by server.py; no build step, no external resources. `i18n.js` holds the English and Chinese strings |
+| `tools/check.sh` | Static checks before a change: syntax, duplicate CSS selectors, duplicate ids, string-table alignment |
+| `tools/node_source.py`, `tools/spark-center-node-source.policy` | The optional root-owned helper for Node.js major upgrades and its polkit policy (installed from the Setup tab) |
+| `install.sh`, `uninstall.sh` | Create or remove the systemd user unit, the app-menu entry and the icons |
+| `spark-center.service.in`, `app/spark-center.desktop.in` | Templates with `@ROOT@` and `@PORT@` placeholders |
+| `data/` | Run-time data: USB-C port calibration, benchmark history, hardware snapshot, and the `.deb` files kept for roll-back under `rollback/`. Ignored by git |
+| `docs/` | README screenshots and completed work orders |
+| `HANDOFF.md`, `CLAUDE.md` | The maintainer's working notes, in Chinese: current state, next steps, and conventions for the coding agent. Not needed to install or use the tool |
 
 ## Changelog
 
-見 [CHANGELOG.md](CHANGELOG.md)。
+See [CHANGELOG.md](CHANGELOG.md) (entries are in Chinese with an English summary per release).
 
 ## License
 
