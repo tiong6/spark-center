@@ -1558,7 +1558,7 @@ def autostart_set(enabled):
     try:
         txt = open(DESKTOP_INSTALLED, encoding="utf-8").read()
     except OSError:
-        txt = open(os.path.join(HERE, "app", "spark-center.desktop.in"), encoding="utf-8").read().replace("@ROOT@", HERE)
+        txt = open(os.path.join(HERE, "app", "spark-center.desktop.in"), encoding="utf-8").read().replace("@ROOT@", HERE).replace("@PORT@", str(PORT))
     txt = re.sub(r"^(Hidden|X-GNOME-Autostart-enabled|X-GNOME-Autostart-Delay)=.*\n?", "", txt, flags=re.M).rstrip("\n")
     txt += "\nX-GNOME-Autostart-enabled=true\nX-GNOME-Autostart-Delay=3\n"   # 等桌面就緒再開，視窗才會在正確位置
     os.makedirs(os.path.dirname(AUTOSTART_FILE), exist_ok=True)
@@ -3900,6 +3900,7 @@ def pwa_install_launch():
     env = _session_env()
     if not env.get("DISPLAY") and not env.get("WAYLAND_DISPLAY"):
         return {"ok": False, "error": msg("setup_no_display", LANG_DEFAULT)}
+    env["SPARK_CENTER_URL"] = f"http://127.0.0.1:{PORT}"   # 啟動器要開的是這個服務自己的埠（install.sh 可能選了別的埠）
     try:
         subprocess.Popen([os.path.join(HERE, "app", "spark-center-app"), "--install"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     except OSError as e:

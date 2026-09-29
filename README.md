@@ -94,7 +94,7 @@ cd spark-center
 ./install.sh
 ```
 
-That is the whole installation: `install.sh` generates the systemd user unit and the desktop entry (using wherever you cloned the repo), installs the icon, starts the service and opens the window. No root required.
+That is the whole installation (it listens on 127.0.0.1:11001; if that port is taken, `install.sh` picks the next free one and says so): `install.sh` generates the systemd user unit and the desktop entry (using wherever you cloned the repo), installs the icon, starts the service and opens the window. No root required.
 
 Everything else is optional and lives in the app's **Setup** tab (the ⚙ in the top bar): serial numbers and memory modules, NVMe health, making the DGX Dashboard re-check after updates, Node.js major upgrades, a window without a system title bar, and opening at login. Each item there says what it gives you, what it costs, whether it is enabled, and shows the exact commands with your paths filled in. The sections below describe the same things in more detail.
 

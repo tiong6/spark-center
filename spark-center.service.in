@@ -8,6 +8,7 @@ ExecStart=/usr/bin/python3 "@ROOT@/server.py"
 Restart=on-failure
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
+Environment=SPARK_UPDATER_PORT=@PORT@
 
 [Install]
 WantedBy=default.target

@@ -2,7 +2,7 @@
 Type=Application
 Name=Spark Center
 Comment=GB10 機器（DGX Spark、ASUS Ascent GX10 等）的更新、監控、硬體、磁碟
-Exec="@ROOT@/app/spark-center-app"
+Exec=env SPARK_CENTER_URL=http://127.0.0.1:@PORT@ "@ROOT@/app/spark-center-app"
 Icon=spark-center
 Terminal=false
 Categories=Utility;
