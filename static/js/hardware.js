@@ -40,6 +40,30 @@ $('#btnLanScan').onclick = () => {
   openModal(t("hw.lan_scan"));
 };
 $('#btnLanReload').onclick = async () => { const b = $('#btnLanReload'); b.disabled = true; $('#lanMeta').textContent = t("hw.lan_scanning"); await loadLan(true); b.disabled = false; };
+/* BIOS 磚：點開看完整字串、fwupd 認得的 EC／SoC／PD 韌體版本與 LVFS 說明（英文原文）、上次更新；ASUS 機器加官網 BIOS 頁連結 */
+$('#hwHero').addEventListener('click', async e => {
+  if (!e.target.closest('#biosTile')) return;
+  const S = hw.static.system || {};
+  $('#mBody').innerHTML = `<div class="empty">${t("updates.loading")}</div>`; $('#mOk').classList.add('hide'); openModal(t("hw.bios_title"));
+  const j = await api('/api/firmware');
+  let h = `<dl class="kv"><dt>BIOS</dt><dd class="mono">${esc(S.bios_version || '—')}<div class="sub1">${esc(S.bios_vendor || '—')} · ${esc(S.bios_date || '—')}</div></dd></dl>`;
+  const isAsus = /asus/i.test(S.sys_vendor || '');
+  if (isAsus) h += `<p class="sub1">${t("hw.bios_asus_hint")} <a href="https://www.asus.com/networking-iot-servers/desktop-ai-supercomputer/ultra-small-ai-supercomputers/asus-ascent-gx10/helpdesk_bios?model2Name=ASUS-Ascent-GX10" target="_blank" rel="noopener">ASUS Ascent GX10 BIOS</a></p>`;
+  const caps = (j.ok && j.devices ? j.devices : []).filter(d => d.plugin === 'uefi_capsule');
+  if (!j.ok || !j.available) h += `<div class="sub1">${esc(j.error || j.note || '')}</div>`;
+  else if (!caps.length) h += `<div class="sub1">${t("hw.bios_no_capsule")}</div>`;
+  else {
+    h += `<p style="margin-top:12px"><b>${t("hw.bios_components")}</b></p>`;
+    for (const d of caps) {
+      const last = (d.history || [])[0], n = (d.notes || {}).installed;
+      h += `<div style="margin:8px 0 0"><b>${esc(d.name)}</b> <span class="mono">${esc(d.version || '—')}</span>${d.update_available ? ` <span class="tag sec">${t("updates.new_version", {v0: esc(d.latest)})}</span>` : ''}` +
+           (last ? `<div class="sub1">${t("hw.bios_last_update", {from: esc(last.old || '?'), to: esc(last.new || '?'), when: esc((last.when || '').replace('T', ' ')), state: esc(last.state_zh || '')})}</div>` : '') +
+           (n && (n.summary || n.text) ? `<div class="sub1" style="margin:2px 0 0 12px;white-space:pre-line">${esc(n.summary || '')}${n.text ? '\n' + esc(n.text) : ''}</div>` : '') + `</div>`;
+    }
+    h += `<p class="sub1" style="margin-top:12px">${t("hw.bios_note")}</p>`;
+  }
+  $('#mBody').innerHTML = h;
+});
 $('#btnHwReload').onclick = async () => { const b = $('#btnHwReload'); b.disabled = true; b.textContent = t("updates.loading"); const j = await api('/api/hardware?force=1'); if (j.ok) { hw.static = j; renderHwStatic(); } loadPrinters(true); b.disabled = false; b.textContent = t("hw.reload_hardware"); pollHw(true); pollPorts(); };
 /* ---- 後面板示意圖：USB-C 四孔（DP 輸出 + USB 裝置）、HDMI、10GbE、QSFP。
    實體孔 ↔ 控制器 的對應存在伺服器端（data/usbc-map.json），所有瀏覽器共用。
@@ -126,7 +150,7 @@ function renderHwStatic() {
       <div><b>${disk0 ? GB(disk0.size) : '—'}</b><span>${disk0 ? `${esc((disk0.transport || '').toUpperCase())} · ${esc(disk0.model || '')}` : t("hw.storage")}</span></div>
       <div><b>DGX OS ${dash(S.dgx_release)}</b><span>${t("hw.kernel", {v11: dash(S.os), v12: dash(S.kernel)})}</span></div>
       <div><b class="mono" style="font-size:14px">${D.available ? dash(D.system.serial) : '—'}</b><span>${t("hw.serial_number", {v14: D.available ? '' : t("hw.requires_dmidecode")})}</span></div>
-      <div><b>${dash(S.bios_version).split('.').slice(0, 2).join('.')}</b><span>BIOS · ${dash(S.bios_date)}</span></div>
+      <div id="biosTile" style="cursor:pointer" title="${t("hw.bios_tile_hint")}"><b>${dash(S.bios_version).split('.').slice(0, 2).join('.')}</b><span>BIOS · ${dash(S.bios_date)} ▸</span></div>
     </div></div></div>`;
   const sys = `<div class="panel"><div class="panel-h"><h2>${t("hw.system")}</h2></div><dl class="kv">
     <dt>${t("hw.model")}</dt><dd>${dash(S.sys_vendor)} ${dash(S.product_name)}<div class="sub1">${dash(S.product_version)}</div></dd>
