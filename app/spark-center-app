@@ -9,8 +9,10 @@ PROFILE="$HOME/.local/share/spark-center/chrome-profile"   # 獨立 profile：�
 mkdir -p "$PROFILE"
 # 已安裝的 PWA 的 app id：不自己算（Chrome 的算法版本間有差，實測算不準），改讀 Chrome 安裝時寫在
 # ~/.local/share/applications 的捷徑檔：檔名 chrome-<appid>-Default.desktop，內容有這個 profile 路徑且 Name=Spark Center。
+# 名稱要完全相符：預設埠叫 "Spark Center"，別的埠叫 "Spark Center (埠)"，測試實例裝進同一個 profile 也不會被抓錯
+APPNAME="Spark Center"; case "$URL" in *:11001) ;; *) APPNAME="Spark Center (${URL##*:})";; esac
 APPID=$(grep -ls -- "--user-data-dir=$PROFILE" "$HOME"/.local/share/applications/chrome-*-Default.desktop 2>/dev/null \
-        | xargs -r grep -l "^Name=Spark Center" 2>/dev/null | head -1 | sed -E 's/.*chrome-([a-p]{32})-Default\.desktop$/\1/')
+        | xargs -r grep -lx "Name=$APPNAME" 2>/dev/null | head -1 | sed -E 's/.*chrome-([a-p]{32})-Default\.desktop$/\1/')
 for b in google-chrome google-chrome-stable chromium brave-browser; do
   if command -v "$b" >/dev/null 2>&1; then
     if [ "$1" = "--install" ]; then

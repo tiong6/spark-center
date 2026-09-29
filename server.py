@@ -3760,7 +3760,8 @@ def _pwa_installed():
         for fn in os.listdir(appdir):
             if fn.startswith("chrome-") and fn.endswith("-Default.desktop"):
                 txt = open(os.path.join(appdir, fn), encoding="utf-8", errors="replace").read()
-                if f"--user-data-dir={prof}" in txt and re.search(r"^Name=Spark Center$", txt, re.M):
+                name = "Spark Center" if PORT == 11001 else f"Spark Center ({PORT})"
+                if f"--user-data-dir={prof}" in txt and re.search(rf"^Name={re.escape(name)}$", txt, re.M):
                     return fn[len("chrome-"):-len("-Default.desktop")]
     except OSError:
         pass
@@ -4952,7 +4953,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/manifest.webmanifest":
                 # id 固定為 "/"：Chrome 用它算 app id（啟動器要靠這個 id 開已安裝的 app）。display_override 的 window-controls-overlay
                 # 讓 Chrome 只疊三顆視窗鈕在頂欄右上，系統標題列消失、頂欄可拖曳（CSS 的 app-region）；不支援的瀏覽器退回 standalone。
-                body = json.dumps({"id": "/", "scope": "/", "name": "Spark Center", "short_name": "Spark Center", "start_url": "/",
+                # 非預設埠的實例（測試用、或 install.sh 換過埠）名稱帶埠號：Chrome 的捷徑檔只有 Name 能分辨是哪一份，
+                # 啟動器靠 Name 找 app id，兩份都叫 Spark Center 會抓錯（真機踩到：開到已關掉的測試埠）。
+                app_name = "Spark Center" if PORT == 11001 else f"Spark Center ({PORT})"
+                body = json.dumps({"id": "/", "scope": "/", "name": app_name, "short_name": app_name, "start_url": "/",
                                    "display": "standalone", "display_override": ["window-controls-overlay", "standalone"],
                                    "background_color": "#111312", "theme_color": "#000000",
                                    "icons": [{"src": "/icon-256.png", "sizes": "256x256", "type": "image/png"},

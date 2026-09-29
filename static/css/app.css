@@ -15,6 +15,7 @@
     /* 高度維持 52px：綁成 Chrome 的 titlebar-area-height（Linux 約 30 幾像素）會把內容擠疊在一起。
        Chrome 的三顆鈕疊在右上角，只需要把右邊留出它們的寬度；頂欄整條可拖曳，互動元件除外。 */
     .topbar { -webkit-app-region: drag; app-region: drag; flex-wrap: nowrap; white-space: nowrap;
+              position: sticky; top: 0; z-index: 5;    /* 沒有系統標題列時頂欄就是標題列：黏在最上面，捲動時不能不見（sticky 不改版面高度）；要低於 .overlay 的 10，確認視窗才蓋得住它 */
               padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 24px); }
     .topbar .right { flex-wrap: nowrap; }
     .topbar a, .topbar button, .topbar input, .topbar label, .topbar .switch, .topbar .switch * { -webkit-app-region: no-drag; app-region: no-drag; }
