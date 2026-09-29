@@ -736,18 +736,18 @@ def dashboard_recheck(log=lambda s: None):
     有（README 那條選用規則）就 systemctl --no-ask-password restart；沒有就只留一句提示，不卡工作、不跳密碼。"""
     if READONLY:
         return False
+    # 不能先用 pkcheck 問：一般使用者帶 detail 問 CheckAuthorization 會被 polkit 拒絕（"Only trusted callers…"）。
+    # 直接試：--no-ask-password 之下沒放行就立刻失敗（Interactive authentication required），不會跳視窗。
     try:
-        ok = subprocess.run(["pkcheck", "--action-id", "org.freedesktop.systemd1.manage-units", "--process", str(os.getpid()),
-                             "--detail", "unit", DASH_ADMIN_UNIT, "--detail", "verb", "restart"],
-                            capture_output=True, timeout=10).returncode == 0
-    except Exception:
-        ok = False
-    if not ok:
-        log(msg("dash_recheck_hint", LANG_DEFAULT)); return False
-    r = subprocess.run(["systemctl", "--no-ask-password", "restart", DASH_ADMIN_UNIT], capture_output=True, text=True, timeout=60, env=_ENV_C)
+        r = subprocess.run(["systemctl", "--no-ask-password", "restart", DASH_ADMIN_UNIT], capture_output=True, text=True, timeout=60, env=_ENV_C)
+    except Exception as e:
+        log(msg("dash_recheck_failed", LANG_DEFAULT, err=str(e)[:120])); return False
     if r.returncode == 0:
         log(msg("dash_recheck_done", LANG_DEFAULT)); return True
-    log(msg("dash_recheck_failed", LANG_DEFAULT, err=(r.stderr or r.stdout).strip()[:120])); return False
+    err = (r.stderr or r.stdout).strip()
+    if "authentication" in err.lower() or "access denied" in err.lower() or "not authorized" in err.lower():
+        log(msg("dash_recheck_hint", LANG_DEFAULT)); return False
+    log(msg("dash_recheck_failed", LANG_DEFAULT, err=err[:120])); return False
 
 
 def dashboard_equivalent():
