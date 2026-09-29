@@ -85,11 +85,11 @@
   .sub1 { color: var(--muted); font-size: 12px; }
   /* 設定分頁的開關：原生 checkbox 畫成滑動開關，狀態文字在旁邊 */
   .switchrow { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--muted); }
-  .switchrow input { appearance: none; -webkit-appearance: none; width: 40px; height: 22px; border-radius: 11px; background: #2a2f2c; border: 1px solid var(--line); position: relative; cursor: pointer; margin: 0; transition: background .15s; }
-  .switchrow input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #9aa19a; transition: left .15s, background .15s; }
-  .switchrow input:checked { background: var(--accent); border-color: var(--accent); }
-  .switchrow input:checked::after { left: 20px; background: var(--accent-text); }
-  .switchrow input:disabled { opacity: .5; cursor: wait; }
+  .switchrow input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 40px; height: 22px; border-radius: 11px; background: #2a2f2c; border: 1px solid var(--line); position: relative; cursor: pointer; margin: 0; transition: background .15s; }
+  .switchrow input[type="checkbox"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #9aa19a; transition: left .15s, background .15s; }
+  .switchrow input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+  .switchrow input[type="checkbox"]:checked::after { left: 20px; background: var(--accent-text); }
+  .switchrow input[type="checkbox"]:disabled { opacity: .5; cursor: wait; }
   /* 捲軸：Chrome 預設是淺色粗條，在深色介面上很突兀。標準屬性 Chrome 121+／Firefox 都認得；舊版 Chrome 走 ::-webkit-scrollbar */
   html { scrollbar-width: thin; scrollbar-color: #3a3f3c #111312; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
