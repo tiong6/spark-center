@@ -10,6 +10,8 @@
 
 ### 新增
 
+- **App 視窗沒有系統標題列**。manifest 加 `display_override: [window-controls-overlay]`，CSS 在該模式下把頂欄變成可拖曳的標題列、右邊留出 Chrome 疊上來的三顆視窗鈕；啟動器多 `--install`（開一般視窗讓使用者按一次「安裝」），之後從 Chrome 寫的捷徑檔讀 app id 用 `--app-id` 開（自己算 id 實測和 Chrome 的不同）。X11、Wayland 都有效。在本機分支與獨立目錄（11003 埠）做完、真機確認標題列消失後才合併。
+- **ASUS GX10 內建 USB-C 孔位對應**。全新安裝沒有校準檔時，後面板顯示不出孔位對應；同款機器主機板一樣，把作者 GX10 的校準結果當該機型內建預設（依 DMI product_name 比對），面板標「內建預設」，插裝置校準會蓋掉。其他 GB10 機型仍需校準一次。
 - **Spark Center 自己的更新**。別人 git clone 裝的不會自動跟上、也不知道有新版。現在每 6 小時 `git fetch` 一次（只讀），有新 commit 就頂欄亮「Spark Center 有新版」，更新分頁「Spark Center 本身」面板列出 commit 標題（英文標題就是給這裡看的），一顆「更新並重啟」跑 `git pull --ff-only` 再由 systemd 臨時計時器重啟服務（不需 root），頁面自己重新載入。拒絕條件：本機改過追蹤中的檔案（不蓋掉，請 stash 或 commit）、有沒推上去的 commit、已是最新、有工作在跑、唯讀模式；不是 git clone 裝的不顯示這張卡。這次更新有動到 Node helper 時提醒重跑 sudo install。隔離測試：暫存 clone 退回 4 個 commit → 列出標題 → 改檔後拒絕 → 還原後 pull 成功歸零。
 - **硬體分頁的 BIOS 磚可以點開**：完整 BIOS 字串與廠商日期；fwupd 認得的系統韌體元件（EC、SoC、USB-C PD）各自版本、上次更新與 LVFS 說明；依 DMI 廠商給官方支援頁的超連結（ASUS 的 BIOS 頁確認有檔與說明；MSI、GIGABYTE、Dell、HP、Lenovo、Acer 是各家支援／下載頁，內容以該頁為準；NVIDIA Founders Edition 含 Leadtek 等經銷連到 NVIDIA 發行說明），不認得的廠牌不顯示。
 - **韌體面板顯示 LVFS 的版本說明與 BIOS 字串**。ASUS 的 EC／SoC／USB-C PD 韌體有上 LVFS，每一版都有摘要與說明（例如 SoC 0x03000007「OOBE、coreboot 穩定性、NCCL 效能改善」）；原本面板只有十六進位版本號。現在每個裝置下面可展開「已裝這版的說明」，有更新時再多一段「新版的說明」，讓人在按之前知道 NVIDIA OTA 會刷什麼。標題列加 DMI 的 BIOS 字串（GX10DGX.0105…），對得上 ASUS 官網的版本編號。 說明改成裝置列下方橫跨整表、預設收起的一列，不再把裝置欄撐高。
