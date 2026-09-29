@@ -266,6 +266,12 @@ MSG = {
         "snap_overall": "（整體 {p0}%）",
         "snap_ended": "snapd 變更 {p0} 結束於 {p1}",
         "snap_status": "snapd 變更 {p0}: {p1}",
+        "self_not_git": "這份 Spark Center 不是用 git clone 裝的，沒辦法從這裡更新；請看 GitHub。",
+        "self_fetch_failed": "連不上 GitHub 查新版：{err}",
+        "self_dirty": "本機改過這些檔案，不自動更新以免蓋掉：{files}。請自己 git stash 或 git commit 後再試。",
+        "self_ahead": "本機有 {n} 個還沒推上去的 commit，不自動更新。",
+        "self_up_to_date": "已經是最新版。",
+        "self_pull_failed": "git pull 失敗：{err}",
         "dash_recheck_done": "已重啟 DGX Dashboard 後台，讓它重新檢查更新（它的「有更新」是快照，裝完常常還亮著）",
         "dash_recheck_hint": "DGX Dashboard 的「有更新」可能還亮著：它讀的是自己後台的快照。要讓 Spark Center 裝完自動叫它重查，加 README 的選用 sudoers 一行；或手動 sudo systemctl restart dgx-dashboard-admin.service",
         "dash_recheck_busy": "DGX Dashboard 後台不是閒置狀態（{state}），不重啟它，免得打斷 NVIDIA 自己的更新",
@@ -531,6 +537,12 @@ MSG = {
         "snap_overall": " (overall {p0}%)",
         "snap_ended": "snapd change {p0} ended with {p1}",
         "snap_status": "snapd change {p0}: {p1}",
+        "self_not_git": "This copy of Spark Center was not installed with git clone, so it cannot update itself from here; see GitHub.",
+        "self_fetch_failed": "Could not reach GitHub to check for a new version: {err}",
+        "self_dirty": "These files were modified locally; not updating automatically so they are not overwritten: {files}. Run git stash or git commit, then try again.",
+        "self_ahead": "This copy has {n} commits that are not on GitHub; not updating automatically.",
+        "self_up_to_date": "Already up to date.",
+        "self_pull_failed": "git pull failed: {err}",
         "dash_recheck_done": "Restarted the DGX Dashboard back end so it re-checks for updates (its \"update available\" is a snapshot that often stays lit after installing)",
         "dash_recheck_hint": "The DGX Dashboard may still say updates are available: it reads its own back-end snapshot. To have Spark Center trigger a re-check automatically, add the optional sudoers line from the README, or run sudo systemctl restart dgx-dashboard-admin.service",
         "dash_recheck_busy": "The DGX Dashboard back end is not idle ({state}); not restarting it, so as not to interrupt NVIDIA's own update",
@@ -3616,6 +3628,79 @@ def lan_sweep():
     return {"ok": True, "pinged": len(targets), **lan_devices(force=True)}
 
 
+# ---------- Spark Center 自己的更新 ----------
+# 別人 git clone 裝的，不會自動跟上；這裡每 6 小時 git fetch 一次（只讀），有新版就在更新分頁列出 commit 標題，
+# 一顆「更新並重啟」跑 git pull --ff-only 再重啟服務（不需 root）。本機改過追蹤中的檔案、或有工作在跑、或唯讀模式：不動。
+_SELF = {"ts": 0, "data": None, "lock": threading.Lock()}
+SELF_TTL = 6 * 3600
+SELF_HELPER_FILES = ["tools/node_source.py", "tools/spark-center-node-source.policy"]
+
+
+def _git(*args, timeout=30):
+    r = subprocess.run(["git", "-C", HERE, *args], capture_output=True, text=True, timeout=timeout, env=_ENV_C)
+    return r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip()
+
+
+def self_status(force=False):
+    with _SELF["lock"]:
+        if not force and _SELF["data"] and time.time() - _SELF["ts"] < SELF_TTL:
+            return _SELF["data"]
+    rc, _, _ = _git("rev-parse", "--is-inside-work-tree", timeout=10)
+    if rc != 0:
+        return {"ok": True, "git": False, "note": msg("self_not_git", LANG_DEFAULT)}
+    out = {"ok": True, "git": True, "fetch_error": None, "checked": None}
+    rc, _, err = _git("fetch", "--quiet", "origin", timeout=60)
+    if rc != 0:
+        out["fetch_error"] = msg("self_fetch_failed", LANG_DEFAULT, err=err[:120])
+    else:
+        out["checked"] = datetime.now().isoformat(timespec="seconds")
+    _, branch, _ = _git("rev-parse", "--abbrev-ref", "HEAD", timeout=10)
+    rc, upstream, _ = _git("rev-parse", "--abbrev-ref", "@{u}", timeout=10)
+    if rc != 0:
+        upstream = "origin/main"
+    _, head, _ = _git("log", "-1", "--format=%h%x09%ad%x09%s", "--date=short", "HEAD", timeout=10)
+    _, remote, _ = _git("log", "-1", "--format=%h%x09%ad%x09%s", "--date=short", upstream, timeout=10)
+    _, behind, _ = _git("rev-list", "--count", f"HEAD..{upstream}", timeout=10)
+    _, ahead, _ = _git("rev-list", "--count", f"{upstream}..HEAD", timeout=10)
+    _, log, _ = _git("log", "--format=%h%x09%ad%x09%s", "--date=short", "-n", "40", f"HEAD..{upstream}", timeout=10)
+    _, dirty, _ = _git("status", "--porcelain", "--untracked-files=no", timeout=10)
+    _, helper_diff, _ = _git("diff", "--name-only", "HEAD", upstream, "--", *SELF_HELPER_FILES, timeout=10)
+    split = lambda line: dict(zip(("hash", "date", "subject"), line.split("\t", 2)))
+    out.update(branch=branch, upstream=upstream, head=split(head) if head else None, remote=split(remote) if remote else None,
+               behind=int(behind or 0), ahead=int(ahead or 0), commits=[split(l) for l in log.splitlines() if l],
+               dirty=[l.split(None, 1)[-1] for l in dirty.splitlines() if l.strip()], helper_changed=bool(helper_diff.strip()),   # _git 已 strip，不能用固定位移取檔名
+               can_update=(not READONLY) and int(behind or 0) > 0 and not dirty.strip() and int(ahead or 0) == 0)
+    with _SELF["lock"]:
+        if not out["fetch_error"]:
+            _SELF.update(ts=time.time(), data=out)
+    return out
+
+
+def self_update():
+    """git pull --ff-only 然後 1 秒後由 systemd 的臨時計時器重啟本服務（從自己的 cgroup 外面重啟，才不會被自己的停止殺掉）。"""
+    st = self_status(force=True)
+    if not st.get("git"):
+        return {"ok": False, "error": st.get("note")}
+    if st.get("dirty"):
+        return {"ok": False, "error": msg("self_dirty", LANG_DEFAULT, files=", ".join(st["dirty"][:5]))}
+    if st.get("ahead"):
+        return {"ok": False, "error": msg("self_ahead", LANG_DEFAULT, n=st["ahead"])}
+    if not st.get("behind"):
+        return {"ok": False, "error": msg("self_up_to_date", LANG_DEFAULT)}
+    rc, out, err = _git("pull", "--ff-only", "--quiet", timeout=120)
+    if rc != 0:
+        return {"ok": False, "error": msg("self_pull_failed", LANG_DEFAULT, err=(err or out)[:200])}
+    _, head, _ = _git("log", "-1", "--format=%h %s", timeout=10)
+    _SELF["ts"] = 0
+    try:
+        subprocess.Popen(["systemd-run", "--user", "--quiet", "--on-active=1", "--unit=spark-center-self-restart",
+                          "systemctl", "--user", "restart", "spark-center"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        restart = True
+    except OSError:
+        restart = False
+    return {"ok": True, "head": head, "restart_scheduled": restart, "helper_changed": st.get("helper_changed")}
+
+
 def _root_usage():
     try:
         st = os.statvfs("/")
@@ -4755,6 +4840,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, **printers(force="force=1" in (self.path.split("?", 1) + [""])[1])})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/self":
+            try:
+                self._json(self_status(force="force=1" in (self.path.split("?", 1) + [""])[1]))
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/lan":
             try:
                 self._json(lan_devices(force="force=1" in (self.path.split("?", 1) + [""])[1]))
@@ -4896,6 +4986,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({'ok': True})
             except Exception as e:
                 return self._json({'ok': False, 'error': node_error(str(e))}, 400)
+        if path == "/api/self/update":
+            if JOB.state.get("status") == "running":
+                return self._json({"ok": False, "error": msg("job_running", LANG_DEFAULT)}, 409)
+            try:
+                r = self_update()
+                return self._json(r, 200 if r.get("ok") else 400)
+            except Exception as e:
+                return self._json({"ok": False, "error": str(e)}, 500)
         if path == "/api/lan/scan":
             if NO_SWEEP:
                 return self._json({"ok": False, "error": msg("sweep_disabled", self.lang)}, 403)

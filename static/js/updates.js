@@ -103,6 +103,41 @@ async function loadFirmware(force) {
 $('#btnFwRefresh').onclick = async () => { $('#fwMeta').textContent = t("updates.querying_lvfs"); const r = await api('/api/disk/action', {action: 'fwupd_refresh'}); if (!r.ok) { alert(r.error); return; } startPolling(t("updates.fwupd_refresh_lvfs_metadata")); const w = setInterval(async () => { const jj = await api('/api/job'); if (jj.status !== 'running') { clearInterval(w); loadFirmware(true); } }, 1500); };
 $('#btnFwUpdate').onclick = async () => { if (!confirm(t("updates.install_all_available_firmware_updates_with"))) return; const r = await api('/api/disk/action', {action: 'fwupd_update'}); if (!r.ok) { alert(r.error); return; } startPolling(t("updates.fwupd_install_firmware_updates")); window.scrollTo({top: 0, behavior: 'smooth'}); };
 
+/* ---- Spark Center 自己的更新：git fetch 比對 origin，有新版列 commit 標題，一顆「更新並重啟」 ---- */
+async function loadSelf(force) {
+  const panel = $('#selfPanel'), box = $('#self'); if (!panel) return;
+  const j = await api('/api/self' + (force ? '?force=1' : ''));
+  if (!j.ok) { panel.classList.remove('hide'); box.innerHTML = `<div class="empty">${esc(j.error)}</div>`; return; }
+  if (!j.git) { panel.classList.add('hide'); return; }   // 不是 git clone 裝的：這張卡沒有意義
+  panel.classList.remove('hide');
+  const h = j.head || {}, r = j.remote || {};
+  $('#selfMeta').textContent = t("self.meta", {head: h.hash || '—', date: h.date || '—', when: j.checked ? j.checked.replace('T', ' ') : '—'});
+  $('#btnSelfUpdate').classList.toggle('hide', !j.can_update);
+  $('#selfBadge').classList.toggle('hide', !(j.behind > 0));
+  let html = j.fetch_error ? `<div class="panel notice warn" style="margin-bottom:10px">${esc(j.fetch_error)}</div>` : '';
+  if (!j.behind) html += `<div class="empty">${t("self.up_to_date", {head: esc(h.hash || '—'), subject: esc(h.subject || '')})}</div>`;
+  else {
+    html += `<p>${t("self.behind", {n: j.behind, hash: esc(r.hash || '—'), date: esc(r.date || '—')})}</p>`;
+    if (j.dirty.length) html += `<div class="panel notice danger">${t("self.dirty", {files: esc(j.dirty.join(', '))})}</div>`;
+    if (j.ahead) html += `<div class="panel notice warn">${t("self.ahead", {n: j.ahead})}</div>`;
+    if (j.helper_changed) html += `<div class="panel notice warn">${t("self.helper_changed")}</div>`;
+    html += `<div class="chg">` + j.commits.map(c => `<div>${esc(c.date)} ${esc(c.hash)} ${esc(c.subject)}</div>`).join('') + `</div>`;
+    html += `<p class="sub1" style="margin-top:10px">${t("self.how")}</p>`;
+  }
+  box.innerHTML = html;
+}
+$('#btnSelfCheck').onclick = async () => { const b = $('#btnSelfCheck'); b.disabled = true; $('#selfMeta').textContent = t("self.checking"); await loadSelf(true); b.disabled = false; };
+$('#btnSelfUpdate').onclick = async () => {
+  if (!confirm(t("self.confirm"))) return;
+  const b = $('#btnSelfUpdate'); b.disabled = true;
+  const r = await api('/api/self/update', {});
+  if (!r.ok) { alert(r.error); b.disabled = false; return; }
+  $('#self').innerHTML = `<div class="panel notice ok">${t("self.updated", {head: esc(r.head || '')})}${r.helper_changed ? `<div style="margin-top:6px">${t("self.helper_changed")}</div>` : ''}<div class="sub1" style="margin-top:6px">${t("self.restarting")}</div></div>`;
+  // 服務會在 1 秒後重啟：等它回來再重新載入頁面
+  const t0 = Date.now(); await new Promise(res => setTimeout(res, 2500));
+  const wait = setInterval(async () => { try { const m = await api('/api/machine'); if (m.ok) { clearInterval(wait); location.reload(); } } catch (e) {} if (Date.now() - t0 > 60000) clearInterval(wait); }, 1500);
+};
+
 /* ---- npm 全域套件：Claude Code、Gemini CLI、OpenClaw 這類 CLI 工具，apt/snap/flatpak 都看不到 ---- */
 async function loadNpm(force) {
   const box = $('#npm'); if (!box) return;
@@ -246,7 +281,7 @@ async function loadRollback() {
   });
 }
 async function load() {
-  loadFirmware(); loadNpm(); loadRollback(); loadNodeSource();
+  loadFirmware(); loadNpm(); loadRollback(); loadNodeSource(); loadSelf();
   const j = await api('/api/updates');
   if (!j.ok) { $('#list').innerHTML = `<div class="panel notice danger">${t("updates.could_not_load_the_list", {v0: esc(j.error)})}</div>`; return; }
   const names = new Set(j.items.map(i => i.name));
