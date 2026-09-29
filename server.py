@@ -53,6 +53,7 @@ MSG = {
     "zh-TW": {
     "sweep_disabled": "主動掃描網段已停用（SPARK_CENTER_NO_SWEEP=1）。",
     "usbc_default_note": "{product} 內建預設對應（依作者同款機器校準）；插裝置即可重新校準",
+    "setup_no_display_toggle": "找不到桌面（沒有 DISPLAY），密碼視窗沒地方跳。請展開這一項的「自己動手也可以」，把指令貼到終端機執行。",
     "setup_visudo_failed": "sudoers 內容沒通過 visudo 檢查，不裝：{err}",
     "setup_timeout": "等密碼視窗等太久，已放棄。",
     "setup_no_display": "服務找不到桌面（沒有 DISPLAY），請在終端機自己跑 app/spark-center-app --install。",
@@ -328,6 +329,7 @@ MSG = {
     "en": {
     "sweep_disabled": "The subnet sweep is disabled (SPARK_CENTER_NO_SWEEP=1).",
     "usbc_default_note": "Built-in default for {product} (calibrated on the author's identical machine); plug in a device to recalibrate",
+    "setup_no_display_toggle": "No desktop found (no DISPLAY), so there is nowhere to show the password dialog. Open this item's \"Do it by hand instead\" and run the commands in a terminal.",
     "setup_visudo_failed": "The sudoers line failed the visudo check; not installing it: {err}",
     "setup_timeout": "Gave up waiting for the password dialog.",
     "setup_no_display": "The service cannot see a desktop (no DISPLAY); run app/spark-center-app --install in a terminal instead.",
@@ -3780,8 +3782,13 @@ def setup_status():
                   "commands": [f'echo "{user} ALL=(root) NOPASSWD: /usr/bin/systemctl restart dgx-dashboard-admin.service" | sudo tee /etc/sudoers.d/spark-center-dashboard',
                                "sudo chmod 440 /etc/sudoers.d/spark-center-dashboard"]})
     ns = node_status()
+    # 只列「Node 是 NodeSource 的 apt 套件」的機器：nvm／snap 裝的 helper 也裝得起來但功能會說不適用，列了只會讓新手困惑
+    try:
+        nodesource = os.path.realpath(shutil.which("node") or "") == "/usr/bin/node" and "nodesource" in (apt.Cache()["nodejs"].installed.version if apt.Cache().get("nodejs") and apt.Cache()["nodejs"].installed else "")
+    except Exception:
+        nodesource = False
     items.append({"id": "node_helper", "enabled": bool(node_helper_ready() and os.path.isfile("/usr/share/polkit-1/actions/io.github.tiong6.spark-center.node-source.policy")),
-                  "sudo": True, "applies": bool(ns.get("major")), "recommended": bool(ns.get("target") and ns.get("major") and ns["target"] > ns["major"]),
+                  "sudo": True, "applies": nodesource, "recommended": bool(nodesource and ns.get("target") and ns.get("major") and ns["target"] > ns["major"]),
                   "detail": {"node": ns.get("installed") or "", "lts": ns.get("target")},
                   "commands": [f"cd {q(HERE)}",
                                "sudo install -d -o root -g root -m 0755 /usr/local/libexec/spark-center",
@@ -3791,6 +3798,9 @@ def setup_status():
     items.append({"id": "pwa", "enabled": bool(_pwa_installed()), "sudo": False, "applies": bool(browser), "action": "pwa_install",
                   "commands": [f"{q(os.path.join(HERE, 'app', 'spark-center-app'))} --install"]})
     items.append({"id": "autostart", "enabled": autostart_status().get("enabled", False), "sudo": False, "action": "autostart", "commands": []})
+    cal = usbc_map_load(); srcs = {v.get("source") for v in cal.values()}
+    items.append({"id": "usbc", "enabled": bool(cal), "sudo": False, "action": "link", "commands": [],
+                  "state": "default" if srcs == {"default"} else ("calibrated" if cal else "none"), "n": len(cal)})
     return {"ok": True, "items": items, "repo": HERE, "readonly": READONLY, "generated": datetime.now().isoformat(timespec="seconds")}
 
 
@@ -3806,6 +3816,9 @@ NODE_POLICY = "/usr/share/polkit-1/actions/io.github.tiong6.spark-center.node-so
 
 def _pkexec(args, timeout=300):
     """回 (ok, error_message)。126 = 使用者取消或密碼錯，127 = 找不到程式。"""
+    env = _session_env()
+    if not env.get("DISPLAY") and not env.get("WAYLAND_DISPLAY"):
+        return False, msg("setup_no_display_toggle", LANG_DEFAULT)   # SSH 進來、沒有桌面：密碼視窗沒地方跳
     try:
         r = subprocess.run(["pkexec"] + args, capture_output=True, text=True, timeout=timeout, env=_session_env())
     except subprocess.TimeoutExpired:

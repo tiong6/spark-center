@@ -98,7 +98,7 @@ That is the whole installation: `install.sh` generates the systemd user unit and
 
 Everything else is optional and lives in the app's **Setup** tab (the ⚙ in the top bar): serial numbers and memory modules, NVMe health, making the DGX Dashboard re-check after updates, Node.js major upgrades, a window without a system title bar, and opening at login. Each item there says what it gives you, what it costs, whether it is enabled, and shows the exact commands with your paths filled in. The sections below describe the same things in more detail.
 
-Then open <http://127.0.0.1:11001>, or launch **Spark Center** from the application menu — it opens as a standalone window, not a browser tab.
+Then open <http://127.0.0.1:11001>, or launch **Spark Center** from the application menu. With Google Chrome, Chromium or Brave installed it opens as a standalone window; without one of those it opens as an ordinary tab in your default browser (everything works there too, you just keep the address bar).
 
 **No system title bar (optional).** The app window is a Chrome app window, so by default it carries the desktop's title bar. Run `app/spark-center-app --install` once, click *Install* in the window that opens, close it, and launch Spark Center from the application menu again: Chrome now opens it as an installed web app with *window controls overlay*, so only the three window buttons remain, drawn over Spark Center's own top bar, which you can drag. This works on X11 and Wayland alike. If Chrome still shows its own thin title bar the first time, click the small toggle at its right end once; Chrome remembers the choice.
 

@@ -10,9 +10,11 @@ async function loadSetup(data) {
   let html = j.readonly ? `<div class="panel notice warn">${t("setup.readonly")}</div>` : '';
   for (const it of j.items) {
     if (it.applies === false) continue;
-    const st = it.enabled ? `<span class="tag ok">${t("setup.enabled")}</span>` : it.recommended ? `<span class="tag sec">${t("setup.recommended")}</span>` : '';
+    const st = it.id === 'usbc' ? (it.state === 'default' ? `<span class="tag ok">${t("setup.usbc_default")}</span>` : it.state === 'calibrated' ? `<span class="tag ok">${t("setup.usbc_calibrated", {n: it.n})}</span>` : `<span class="tag sec">${t("setup.usbc_none")}</span>`)
+             : it.enabled ? `<span class="tag ok">${t("setup.enabled")}</span>` : it.recommended ? `<span class="tag sec">${t("setup.recommended")}</span>` : '';
     let control;
-    if (it.id === 'pwa') control = it.enabled ? '' : `<button class="small primary" data-act="pwa_install" ${j.readonly ? 'disabled' : ''}>${t("setup.pwa_button")}</button>`;
+    if (it.id === 'usbc') control = `<a class="btnlink small" href="#hardware" data-act="goto-hardware">${t("setup.usbc_go")}</a>`;
+    else if (it.id === 'pwa') control = it.enabled ? '' : `<button class="small primary" data-act="pwa_install" ${j.readonly ? 'disabled' : ''}>${t("setup.pwa_button")}</button>`;
     else control = `<label class="switchrow"><input type="checkbox" data-toggle="${it.id}" ${it.enabled ? 'checked' : ''} ${j.readonly ? 'disabled' : ''}><span>${it.enabled ? t("setup.on") : t("setup.off")}</span></label>`;
     const detail = it.id === 'node_helper' && it.detail ? `<div class="sub1">${t("setup.node_detail", {node: esc(it.detail.node || '—'), lts: esc(it.detail.lts || '—')})}</div>` : '';
     const prompt = it.sudo ? `<div class="sub1">${t(it.id === 'node_helper' ? "setup.prompt_two" : "setup.prompt_one")}</div>` : '';
@@ -24,11 +26,12 @@ async function loadSetup(data) {
   html += `<div class="sub1" style="margin:4px 0 20px">${t("setup.footer")}</div>`;
   box.innerHTML = html;
   box.querySelectorAll('button[data-copy]').forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = t("setup.copied"); setTimeout(() => b.textContent = t("setup.copy"), 1500); } catch (e) { alert(t("setup.copy_failed")); } });
+  box.querySelectorAll('a[data-act="goto-hardware"]').forEach(a => a.onclick = e => { e.preventDefault(); showTab('hardware'); });
   box.querySelectorAll('button[data-act="pwa_install"]').forEach(b => b.onclick = async () => { b.disabled = true; const r = await api('/api/setup/pwa-install', {}); if (!r.ok) { alert(r.error); b.disabled = false; return; } b.textContent = t("setup.pwa_opened"); });
   box.querySelectorAll('input[data-toggle]').forEach(cb => cb.onchange = async () => {
     const want = cb.checked; cb.disabled = true; const lab = cb.nextElementSibling; lab.textContent = t("setup.waiting");
     const r = await api('/api/setup/toggle', {item: cb.dataset.toggle, enable: want});
-    if (!r.ok) alert(r.error);
+    if (!r.ok) { alert(r.error); const d = cb.closest('.panel') && cb.closest('.panel').querySelector('details'); if (d) d.open = true; }   // 失敗時把「自己動手」攤開
     if (r.items) loadSetup(r); else loadSetup();   // 以伺服器回報的實際狀態重畫，不信任本地勾選
     if (cb.dataset.toggle === 'autostart') { const top = $('#autostart'); if (top && r.items) top.checked = !!r.items.find(i => i.id === 'autostart').enabled; }
   });
