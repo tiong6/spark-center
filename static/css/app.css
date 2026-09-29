@@ -83,6 +83,12 @@
   .badge.remove, .badge.purge { border-color: #6b2a2a; color: #ff8a8a; }
   .pk { display: inline-block; font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: #0f1110; border: 1px solid #2c302e; border-radius: 4px; padding: 1px 6px; margin: 2px 4px 2px 0; }
   .sub1 { color: var(--muted); font-size: 12px; }
+  /* 捲軸：Chrome 預設是淺色粗條，在深色介面上很突兀。標準屬性 Chrome 121+／Firefox 都認得；舊版 Chrome 走 ::-webkit-scrollbar */
+  html { scrollbar-width: thin; scrollbar-color: #3a3f3c #111312; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: #111312; }
+  ::-webkit-scrollbar-thumb { background: #3a3f3c; border-radius: 6px; border: 2px solid #111312; }
+  ::-webkit-scrollbar-thumb:hover { background: #4a504c; }
   /* 唯讀模式：後端已把所有 POST 擋成 403，這裡只是把動作按鈕藏起來，讓人一眼看出「這個模式什麼都不會動」 */
   .ro-badge { border: 1px solid var(--warn); color: var(--warn); border-radius: 999px; padding: 2px 10px; font-size: 12px; margin-right: 10px; }
   .ro #btnRefresh, .ro #btnAll, .ro #btnNone, .ro #btnGo, .ro #btnFwRefresh, .ro #btnFwUpdate, .ro #btnNpmRefresh, .ro #btnNpmUpdate,
