@@ -47,6 +47,16 @@ Installation is a separate **Check impact and install** action with an apt simul
 
 One major-upgrade backup (maximum 150 MiB) is kept under root-owned `/var/lib/spark-center/node-source/`; preparing a subsequent major upgrade replaces it. nvm, snap, custom or multiple NodeSource sources are not handled. No downloaded setup script is executed.
 
+### Optional: let the DGX Dashboard re-check after updates
+
+The stock Dashboard's "update available" badge comes from a snapshot kept by its root service, so it often stays lit for an hour or more after you have installed everything. Spark Center can make it re-check right after each install by restarting that one service, which needs root. This polkit rule allows members of the `sudo` group to restart exactly `dgx-dashboard-admin.service` and nothing else, without a password:
+
+```sh
+sudo install -o root -g root -m 0644 tools/spark-center-dashboard-recheck.rules /etc/polkit-1/rules.d/49-spark-center-dashboard-recheck.rules
+```
+
+Without the rule nothing breaks: the job log just reminds you of the manual command.
+
 ### Optional: install the Node upgrade helper
 
 Node major upgrades require a separately installed, root-owned helper. The app refuses to run the repository copy with privilege. Without a matching installed helper, the panel explains that this feature is unavailable; other update features still work. The helper runs only on demand through pkexec, not as a background root service.

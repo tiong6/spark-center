@@ -266,6 +266,9 @@ MSG = {
         "snap_overall": "（整體 {p0}%）",
         "snap_ended": "snapd 變更 {p0} 結束於 {p1}",
         "snap_status": "snapd 變更 {p0}: {p1}",
+        "dash_recheck_done": "已重啟 DGX Dashboard 後台，讓它重新檢查更新（它的「有更新」是快照，裝完常常還亮著）",
+        "dash_recheck_hint": "DGX Dashboard 的「有更新」可能還亮著：它讀的是自己後台的快照。要讓 Spark Center 裝完自動叫它重查，裝 README 的選用 polkit 規則；或手動 sudo systemctl restart dgx-dashboard-admin.service",
+        "dash_recheck_failed": "重啟 DGX Dashboard 後台失敗：{err}",
         "config_conflict": "設定檔衝突 {p0}，保留現有版本",
         "transaction_exit": "交易結束狀態：{p0}",
         "job_start": "開始 {p0}: {p1}",
@@ -527,6 +530,9 @@ MSG = {
         "snap_overall": " (overall {p0}%)",
         "snap_ended": "snapd change {p0} ended with {p1}",
         "snap_status": "snapd change {p0}: {p1}",
+        "dash_recheck_done": "Restarted the DGX Dashboard back end so it re-checks for updates (its \"update available\" is a snapshot that often stays lit after installing)",
+        "dash_recheck_hint": "The DGX Dashboard may still say updates are available: it reads its own back-end snapshot. To have Spark Center trigger a re-check automatically, install the optional polkit rule in the README, or run sudo systemctl restart dgx-dashboard-admin.service",
+        "dash_recheck_failed": "Restarting the DGX Dashboard back end failed: {err}",
         "config_conflict": "Configuration file conflict for {p0}; keeping the current version",
         "transaction_exit": "Transaction exit status: {p0}",
         "job_start": "Starting {p0}: {p1}",
@@ -719,6 +725,29 @@ def kernel_pairing_warning(selected, upgradable):
 
 
 _DASH_CACHE = {"ts": 0, "data": None}
+
+
+DASH_ADMIN_UNIT = "dgx-dashboard-admin.service"
+
+
+def dashboard_recheck(log=lambda s: None):
+    """裝完更新後叫 DGX Dashboard 重查。它的「有更新」來自 root 後台的快照，更新完常常還亮著（真機兩次）。
+    重啟 dgx-dashboard-admin.service 需要 root：先用 pkcheck 問 polkit 有沒有被放行（不會跳視窗），
+    有（README 那條選用規則）就 systemctl --no-ask-password restart；沒有就只留一句提示，不卡工作、不跳密碼。"""
+    if READONLY:
+        return False
+    try:
+        ok = subprocess.run(["pkcheck", "--action-id", "org.freedesktop.systemd1.manage-units", "--process", str(os.getpid()),
+                             "--detail", "unit", DASH_ADMIN_UNIT, "--detail", "verb", "restart"],
+                            capture_output=True, timeout=10).returncode == 0
+    except Exception:
+        ok = False
+    if not ok:
+        log(msg("dash_recheck_hint", LANG_DEFAULT)); return False
+    r = subprocess.run(["systemctl", "--no-ask-password", "restart", DASH_ADMIN_UNIT], capture_output=True, text=True, timeout=60, env=_ENV_C)
+    if r.returncode == 0:
+        log(msg("dash_recheck_done", LANG_DEFAULT)); return True
+    log(msg("dash_recheck_failed", LANG_DEFAULT, err=(r.stderr or r.stdout).strip()[:120])); return False
 
 
 def dashboard_equivalent():
@@ -1902,6 +1931,8 @@ class Job:
                 _DASH_CACHE["ts"] = 0
                 _NPM["ts"] = 0   # nodejs 從這條路裝過，Node 版本會變
                 _NODE_FLOW["ts"] = 0
+                if exit_state == aenums.EXIT_SUCCESS and kind in ("install", "remove"):
+                    threading.Thread(target=dashboard_recheck, args=(self._log,), daemon=True).start()   # 不在 GLib 回呼裡等 systemctl
                 loop.quit()
 
             trans.connect("status-changed", on_status)
