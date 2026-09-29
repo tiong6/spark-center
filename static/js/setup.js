@@ -16,8 +16,16 @@ async function loadSetup(data) {
     if (it.id === 'usbc') control = `<a class="btnlink small" href="#hardware" data-act="goto-hardware">${t("setup.usbc_go")}</a>`;
     else if (it.id === 'pwa') control = it.enabled ? '' : `<button class="small primary" data-act="pwa_install" ${j.readonly ? 'disabled' : ''}>${t("setup.pwa_button")}</button>`;
     else control = `<label class="switchrow"><input type="checkbox" data-toggle="${it.id}" ${it.enabled ? 'checked' : ''} ${j.readonly ? 'disabled' : ''}><span>${it.enabled ? t("setup.on") : t("setup.off")}</span></label>`;
-    const detail = it.id === 'node_helper' && it.detail ? `<div class="sub1">${t("setup.node_detail", {node: esc(it.detail.node || '—'), lts: esc(it.detail.lts || '—')})}</div>` : '';
-    const prompt = it.sudo ? `<div class="sub1">${t(it.id === 'node_helper' ? "setup.prompt_two" : "setup.prompt_one")}</div>` : '';
+    const rd = it.id === 'remote' && it.detail ? it.detail : null;
+    const remote = rd ? `<div style="margin-top:8px"><b>${t("setup.remote_sync_title")}</b><table style="margin-top:4px;width:auto"><tbody>
+        <tr><td class="sub1" style="padding:2px 12px 2px 0">Name</td><td class="mono">Spark Center</td></tr>
+        <tr><td class="sub1" style="padding:2px 12px 2px 0">Port</td><td class="mono">${rd.port}</td></tr>
+        <tr><td class="sub1" style="padding:2px 12px 2px 0">Auto open in browser</td><td>${t("setup.remote_tick")}</td></tr>
+        <tr><td class="sub1" style="padding:2px 12px 2px 0">URL Path / Launch Script</td><td class="sub1">${t("setup.remote_blank")}</td></tr></tbody></table>
+        <div class="sub1" style="margin-top:6px">${t("setup.remote_addr", {mdns: esc(rd.mdns || '—'), ips: esc(rd.ips.join(', ') || '—'), ts: rd.tailscale ? ` · Tailscale ${esc(rd.tailscale)}` : '', user: esc(rd.user), port: rd.port})}</div>
+        ${it.enabled && !rd.boot ? `<div class="sub1">${t("setup.remote_not_boot")}</div>` : ''}</div>` : '';
+    const detail = remote + (it.id === 'node_helper' && it.detail ? `<div class="sub1">${t("setup.node_detail", {node: esc(it.detail.node || '—'), lts: esc(it.detail.lts || '—')})}</div>` : '');
+    const prompt = it.sudo ? `<div class="sub1">${t(it.id === 'node_helper' ? "setup.prompt_two" : it.id === 'remote' ? "setup.prompt_remote" : "setup.prompt_one")}</div>` : '';
     const cmds = it.commands.length ? `<details style="margin-top:8px"><summary class="sub1" style="cursor:pointer">${t("setup.diy")}</summary><div style="margin-top:6px;display:flex;gap:8px;align-items:flex-start"><pre class="cl" style="flex:1">${esc(it.commands.join('\n'))}</pre><button class="small" data-copy="${esc(it.commands.join('\n'))}">${t("setup.copy")}</button></div></details>` : '';
     html += `<div class="panel"><div class="panel-h"><h2>${t("setup." + it.id + ".title")}</h2>${st}<div class="actions">${control}</div></div>
       <div style="margin-top:6px">${t("setup." + it.id + ".gives")}</div>

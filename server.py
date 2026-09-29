@@ -3798,6 +3798,22 @@ def setup_status():
     items.append({"id": "pwa", "enabled": bool(_pwa_installed()), "sudo": False, "applies": bool(browser), "action": "pwa_install",
                   "commands": [f"{q(os.path.join(HERE, 'app', 'spark-center-app'))} --install"]})
     items.append({"id": "autostart", "enabled": autostart_status().get("enabled", False), "sudo": False, "action": "autostart", "commands": []})
+    # 從別台電腦連（NVIDIA Sync／ssh -L）：SSH 有沒有在聽、要填的值直接給
+    ssh_listening = bool(re.search(r"^LISTEN\s+\S+\s+\S+\s+\S*:22\s", _run(["ss", "-ltnH"], timeout=5) or "", re.M))
+    ssh_boot = any((_run(["systemctl", "is-enabled", u], timeout=5) or "").strip() == "enabled" for u in ("ssh.socket", "ssh.service"))
+    host = (_run(["hostname"], timeout=5) or "").strip()
+    ips = []
+    try:
+        for i in json.loads(_run(["ip", "-j", "-4", "addr"], timeout=5) or "[]"):
+            if i.get("ifname") == "lo" or not os.path.exists(f"/sys/class/net/{i.get('ifname','')}/device"):
+                continue
+            ips += [a["local"] for a in i.get("addr_info", []) if a.get("family") == "inet"]
+    except (ValueError, KeyError):
+        pass
+    ts = (_run(["tailscale", "ip", "-4"], timeout=5) or "").strip().splitlines()[:1] if shutil.which("tailscale") else []
+    items.append({"id": "remote", "enabled": ssh_listening, "sudo": True, "applies": os.path.exists("/usr/sbin/sshd"),
+                  "detail": {"host": host, "mdns": f"{host}.local" if host else None, "ips": ips, "tailscale": ts[0] if ts else None, "user": user, "port": PORT, "boot": ssh_boot},
+                  "commands": [f"ssh -L {PORT}:127.0.0.1:{PORT} {user}@{host}.local"]})
     cal = usbc_map_load(); srcs = {v.get("source") for v in cal.values()}
     items.append({"id": "usbc", "enabled": bool(cal), "sudo": False, "action": "link", "commands": [],
                   "state": "default" if srcs == {"default"} else ("calibrated" if cal else "none"), "n": len(cal)})
@@ -3858,6 +3874,9 @@ def setup_toggle(item, enable):
                 ok, err = _pkexec(["/usr/bin/install", "-D", "-o", "root", "-g", "root", "-m", "0644", os.path.join(HERE, "tools", "spark-center-node-source.policy"), NODE_POLICY])
         else:
             ok, err = _pkexec(["/usr/bin/rm", "-f", NODE_HELPER, NODE_POLICY])
+    elif item == "remote":
+        # Ubuntu 24.04 的 sshd 是 ssh.socket 觸發；enable --now 兩個都做最穩
+        ok, err = _pkexec(["/usr/bin/systemctl", "enable" if enable else "disable", "--now", "ssh.socket", "ssh.service"] if enable else ["/usr/bin/systemctl", "disable", "--now", "ssh.socket", "ssh.service"])
     elif item == "autostart":
         r = autostart_set(bool(enable)); ok, err = r.get("ok", False), r.get("error")
     else:
@@ -5194,7 +5213,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({'ok': False, 'error': node_error(str(e))}, 400)
         if path == "/api/setup/toggle":
             item, enable = str(data.get("item") or ""), bool(data.get("enable"))
-            if item not in ("dmidecode", "nvme", "dashboard_recheck", "node_helper", "autostart"):
+            if item not in ("dmidecode", "nvme", "dashboard_recheck", "node_helper", "autostart", "remote"):
                 return self._json({"ok": False, "error": msg("node_bad_action", LANG_DEFAULT)}, 400)
             r = setup_toggle(item, enable)
             return self._json(r, 200 if r.get("ok") else 400)
