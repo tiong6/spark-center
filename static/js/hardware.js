@@ -47,8 +47,20 @@ $('#hwHero').addEventListener('click', async e => {
   $('#mBody').innerHTML = `<div class="empty">${t("updates.loading")}</div>`; $('#mOk').classList.add('hide'); openModal(t("hw.bios_title"));
   const j = await api('/api/firmware');
   let h = `<dl class="kv"><dt>BIOS</dt><dd class="mono">${esc(S.bios_version || '—')}<div class="sub1">${esc(S.bios_vendor || '—')} · ${esc(S.bios_date || '—')}</div></dd></dl>`;
-  const isAsus = /asus/i.test(S.sys_vendor || '');
-  if (isAsus) h += `<p class="sub1">${t("hw.bios_asus_hint")} <a href="https://www.asus.com/networking-iot-servers/desktop-ai-supercomputer/ultra-small-ai-supercomputers/asus-ascent-gx10/helpdesk_bios?model2Name=ASUS-Ascent-GX10" target="_blank" rel="noopener">ASUS Ascent GX10 BIOS</a></p>`;
+  // GB10 各廠牌的支援頁（依 DMI 廠商比對）。只有 ASUS 那頁確認有 BIOS 檔與說明；其他是官方支援／下載頁，內容以該頁為準。
+  // Leadtek 等經銷的是 NVIDIA Founders Edition，DMI 廠商是 NVIDIA，走 NVIDIA 的發行說明。
+  const VENDOR_PAGES = [
+    [/asus/i, 'ASUS Ascent GX10 BIOS', 'https://www.asus.com/networking-iot-servers/desktop-ai-supercomputer/ultra-small-ai-supercomputers/asus-ascent-gx10/helpdesk_bios?model2Name=ASUS-Ascent-GX10'],
+    [/micro-star|msi/i, 'MSI EdgeXpert MS-C931', 'https://ipc.msi.com/product_detail/Industrial-Computer-Box-PC/AI-Supercomputer/EdgeXpert-MS-C931'],
+    [/gigabyte/i, 'GIGABYTE AI TOP ATOM', 'https://www.gigabyte.com/AI-TOP-PC/GIGABYTE-AI-TOP-ATOM/support'],
+    [/dell/i, 'Dell Pro Max with GB10 (FCM1253)', 'https://www.dell.com/support/product-details/en-us/product/dell-pro-max-fcm1253-micro/drivers'],
+    [/hewlett|\bhp\b/i, 'HP ZGX Nano G1n', 'https://support.hp.com/sg-en/drivers/hp-zgx-nano-g1n-ai-station/2103248033'],
+    [/lenovo/i, 'Lenovo ThinkStation PGX', 'https://pcsupport.lenovo.com/us/en/products/workstations/thinkstation-p-series-workstations/thinkstation-pgx/downloads'],
+    [/acer/i, 'Acer Veriton GN100', 'https://www.acer.com/us-en/support/product-support/Veriton_GN100/downloads'],
+    [/nvidia/i, 'NVIDIA DGX Spark release notes', 'https://docs.nvidia.com/dgx/dgx-spark/release-notes.html'],
+  ];
+  const vp = VENDOR_PAGES.find(([re]) => re.test(S.sys_vendor || ''));
+  if (vp) h += `<p class="sub1">${t(vp[0].test('asus') ? "hw.bios_asus_hint" : "hw.bios_vendor_hint", {vendor: esc(S.sys_vendor || '')})} <a href="${vp[2]}" target="_blank" rel="noopener">${esc(vp[1])}</a></p>`;
   const caps = (j.ok && j.devices ? j.devices : []).filter(d => d.plugin === 'uefi_capsule');
   if (!j.ok || !j.available) h += `<div class="sub1">${esc(j.error || j.note || '')}</div>`;
   else if (!caps.length) h += `<div class="sub1">${t("hw.bios_no_capsule")}</div>`;
