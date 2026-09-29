@@ -6,6 +6,9 @@ systemctl --user disable --now spark-center 2>/dev/null || true
 rm -f "$HOME/.config/systemd/user/spark-center.service"
 systemctl --user daemon-reload 2>/dev/null || true
 rm -f "$HOME/.local/share/applications/spark-center.desktop" "$HOME/.config/autostart/spark-center.desktop"
+# Chrome 把 Spark Center「安裝」成 app 時寫的捷徑，以及 app 用的獨立 Chrome profile
+grep -ls -- "--user-data-dir=$HOME/.local/share/spark-center/chrome-profile" "$HOME"/.local/share/applications/chrome-*-Default.desktop 2>/dev/null | xargs -r rm -f
+rm -rf "$HOME/.local/share/spark-center"
 for s in 256 128 64 48; do rm -f "$HOME/.local/share/icons/hicolor/${s}x${s}/apps/spark-center.png"; done
 rm -f "$HOME/.local/share/icons/hicolor/scalable/apps/spark-center.svg"
 gtk-update-icon-cache -q -f "$HOME/.local/share/icons/hicolor" 2>/dev/null || true

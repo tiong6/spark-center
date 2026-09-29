@@ -18,6 +18,15 @@ for b in google-chrome google-chrome-stable chromium brave-browser; do
       exec "$b" --user-data-dir="$PROFILE" --no-first-run --no-default-browser-check "$URL/"
     fi
     if [ -n "$APPID" ]; then
+      # Chrome 安裝時會自己寫一個 Name=Spark Center 的捷徑，選單會出現兩個。把它標成不顯示（檔案留著，上面的 id 探測要用），
+      # 並把我們的捷徑的視窗類別改成 crx_<id>，GNOME 才會把這個視窗歸到我們的圖示下。兩個改動都是冪等的。
+      CHROME_DESKTOP="$HOME/.local/share/applications/chrome-$APPID-Default.desktop"
+      grep -q '^NoDisplay=true' "$CHROME_DESKTOP" 2>/dev/null || printf 'NoDisplay=true\n' >> "$CHROME_DESKTOP"
+      OURS="$HOME/.local/share/applications/spark-center.desktop"
+      if [ -f "$OURS" ] && ! grep -q "^StartupWMClass=crx_$APPID" "$OURS"; then
+        sed -i "s/^StartupWMClass=.*/StartupWMClass=crx_$APPID/" "$OURS"
+        update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+      fi
       exec "$b" --app-id="$APPID" --user-data-dir="$PROFILE" --no-first-run --no-default-browser-check "$@"
     fi
     exec "$b" --app="$URL/" --class=SparkCenter --user-data-dir="$PROFILE" --window-size=1280,900 --no-first-run --no-default-browser-check "$@"
