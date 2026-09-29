@@ -12,6 +12,7 @@ import glob
 import hashlib
 import http.client
 import shutil
+import tempfile
 import html
 import shlex
 import socket
@@ -52,6 +53,8 @@ MSG = {
     "zh-TW": {
     "sweep_disabled": "主動掃描網段已停用（SPARK_CENTER_NO_SWEEP=1）。",
     "usbc_default_note": "{product} 內建預設對應（依作者同款機器校準）；插裝置即可重新校準",
+    "setup_visudo_failed": "sudoers 內容沒通過 visudo 檢查，不裝：{err}",
+    "setup_timeout": "等密碼視窗等太久，已放棄。",
     "setup_no_display": "服務找不到桌面（沒有 DISPLAY），請在終端機自己跑 app/spark-center-app --install。",
     "readonly_mode": "唯讀模式（SPARK_CENTER_READONLY=1）：這個服務不會改任何東西。要啟用更新等功能，拿掉這個環境變數後重啟服務。",
     "node_flow_locked": "nodejs 正由 Node 主版本升級流程處理，請到 npm 面板按「確認安裝」，或先「恢復原版本」。",
@@ -325,6 +328,8 @@ MSG = {
     "en": {
     "sweep_disabled": "The subnet sweep is disabled (SPARK_CENTER_NO_SWEEP=1).",
     "usbc_default_note": "Built-in default for {product} (calibrated on the author's identical machine); plug in a device to recalibrate",
+    "setup_visudo_failed": "The sudoers line failed the visudo check; not installing it: {err}",
+    "setup_timeout": "Gave up waiting for the password dialog.",
     "setup_no_display": "The service cannot see a desktop (no DISPLAY); run app/spark-center-app --install in a terminal instead.",
     "readonly_mode": "Read-only mode (SPARK_CENTER_READONLY=1): this service changes nothing. To enable updates and other actions, remove that environment variable and restart the service.",
     "node_flow_locked": "nodejs is being handled by the Node major-upgrade flow; use 'Confirm install' on the npm panel, or restore the original version first.",
@@ -3789,6 +3794,66 @@ def setup_status():
     return {"ok": True, "items": items, "repo": HERE, "readonly": READONLY, "generated": datetime.now().isoformat(timespec="seconds")}
 
 
+# 開關：真的替使用者做，不只給指令。每一步都是 pkexec 跑一個系統指令（install／rm）處理一個明確的檔案，
+# 跳一次密碼視窗；沒有常駐 root、沒有任意 shell。sudoers 內容先用 visudo -c 驗過才裝。
+SETUP_SUDOERS = {
+    "dmidecode": ("spark-center-dmidecode", "/usr/sbin/dmidecode"),
+    "nvme": ("spark-center-nvme", "/usr/sbin/nvme smart-log /dev/nvme0n1 --output-format=json"),
+    "dashboard_recheck": ("spark-center-dashboard", "/usr/bin/systemctl restart dgx-dashboard-admin.service"),
+}
+NODE_POLICY = "/usr/share/polkit-1/actions/io.github.tiong6.spark-center.node-source.policy"
+
+
+def _pkexec(args, timeout=300):
+    """回 (ok, error_message)。126 = 使用者取消或密碼錯，127 = 找不到程式。"""
+    try:
+        r = subprocess.run(["pkexec"] + args, capture_output=True, text=True, timeout=timeout, env=_session_env())
+    except subprocess.TimeoutExpired:
+        return False, msg("setup_timeout", LANG_DEFAULT)
+    if r.returncode == 0:
+        return True, None
+    if r.returncode == 126:
+        return False, msg("auth_cancelled", LANG_DEFAULT)
+    return False, (r.stderr or r.stdout).strip()[:200] or f"rc={r.returncode}"
+
+
+def setup_toggle(item, enable):
+    if READONLY:
+        return {"ok": False, "error": msg("readonly_mode", LANG_DEFAULT)}
+    if item in SETUP_SUDOERS:
+        fn, cmd = SETUP_SUDOERS[item]
+        dest = f"/etc/sudoers.d/{fn}"
+        if enable:
+            user = os.environ.get("USER") or os.path.basename(os.path.expanduser("~"))
+            d = tempfile.mkdtemp(prefix="spark-center-sudoers-")
+            src = os.path.join(d, fn)
+            with open(src, "w", encoding="utf-8") as f:
+                f.write(f"{user} ALL=(root) NOPASSWD: {cmd}\n")
+            os.chmod(src, 0o644)   # root 的 install 要讀得到；目錄本身是 0700 的話 root 也讀得到
+            chk = subprocess.run(["visudo", "-c", "-q", "-f", src], capture_output=True, text=True)
+            if chk.returncode != 0:
+                shutil.rmtree(d, ignore_errors=True)
+                return {"ok": False, "error": msg("setup_visudo_failed", LANG_DEFAULT, err=(chk.stderr or chk.stdout).strip()[:120])}
+            ok, err = _pkexec(["/usr/bin/install", "-o", "root", "-g", "root", "-m", "0440", src, dest])
+            shutil.rmtree(d, ignore_errors=True)
+        else:
+            ok, err = _pkexec(["/usr/bin/rm", "-f", dest])
+    elif item == "node_helper":
+        if enable:
+            ok, err = _pkexec(["/usr/bin/install", "-D", "-o", "root", "-g", "root", "-m", "0755", NODE_HELPER_SOURCE, NODE_HELPER])
+            if ok:
+                ok, err = _pkexec(["/usr/bin/install", "-D", "-o", "root", "-g", "root", "-m", "0644", os.path.join(HERE, "tools", "spark-center-node-source.policy"), NODE_POLICY])
+        else:
+            ok, err = _pkexec(["/usr/bin/rm", "-f", NODE_HELPER, NODE_POLICY])
+    elif item == "autostart":
+        r = autostart_set(bool(enable)); ok, err = r.get("ok", False), r.get("error")
+    else:
+        return {"ok": False, "error": msg("node_bad_action", LANG_DEFAULT)}
+    if not ok:
+        return {"ok": False, "error": err, **setup_status()}
+    return setup_status()
+
+
 def _session_env():
     """使用者 systemd 管理員的環境（有 DISPLAY／XAUTHORITY），開圖形程式要用；服務本身的環境沒有這些。"""
     env = dict(os.environ)
@@ -5114,6 +5179,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({'ok': True})
             except Exception as e:
                 return self._json({'ok': False, 'error': node_error(str(e))}, 400)
+        if path == "/api/setup/toggle":
+            item, enable = str(data.get("item") or ""), bool(data.get("enable"))
+            if item not in ("dmidecode", "nvme", "dashboard_recheck", "node_helper", "autostart"):
+                return self._json({"ok": False, "error": msg("node_bad_action", LANG_DEFAULT)}, 400)
+            r = setup_toggle(item, enable)
+            return self._json(r, 200 if r.get("ok") else 400)
         if path == "/api/setup/pwa-install":
             r = pwa_install_launch()
             return self._json(r, 200 if r.get("ok") else 500)
