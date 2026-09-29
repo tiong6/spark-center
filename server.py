@@ -51,6 +51,7 @@ LANG_DEFAULT = "zh-TW"
 MSG = {
     "zh-TW": {
     "sweep_disabled": "主動掃描網段已停用（SPARK_CENTER_NO_SWEEP=1）。",
+    "usbc_default_note": "{product} 內建預設對應（依作者同款機器校準）；插裝置即可重新校準",
     "readonly_mode": "唯讀模式（SPARK_CENTER_READONLY=1）：這個服務不會改任何東西。要啟用更新等功能，拿掉這個環境變數後重啟服務。",
     "node_flow_locked": "nodejs 正由 Node 主版本升級流程處理，請到 npm 面板按「確認安裝」，或先「恢復原版本」。",
     "node_helper_unavailable": "Node 升級 helper 未安裝、版本不符或權限不安全；請依 README 的選用安裝步驟由管理員安裝。",
@@ -322,6 +323,7 @@ MSG = {
     },
     "en": {
     "sweep_disabled": "The subnet sweep is disabled (SPARK_CENTER_NO_SWEEP=1).",
+    "usbc_default_note": "Built-in default for {product} (calibrated on the author's identical machine); plug in a device to recalibrate",
     "readonly_mode": "Read-only mode (SPARK_CENTER_READONLY=1): this service changes nothing. To enable updates and other actions, remove that environment variable and restart the service.",
     "node_flow_locked": "nodejs is being handled by the Node major-upgrade flow; use 'Confirm install' on the npm panel, or restore the original version first.",
     "node_helper_unavailable": "Node upgrade helper is missing, outdated or has unsafe permissions. Ask an administrator to follow the optional helper installation steps in README.",
@@ -2951,15 +2953,37 @@ def displays():
 USBC_MAP_FILE = os.path.join(HERE, "data", "usbc-map.json")
 
 
+# 同款機器主機板一樣、孔位對控制器的對應也一樣：把作者 GX10 上校準出來的結果當該機型的預設值，裝了就有，
+# 不用每台再校準。只對 DMI 產品名相符的機型套用；別家 GB10 板子不同，仍要自己校準。使用者校準會蓋掉預設（存進檔案）。
+USBC_MAP_DEFAULTS = {
+    "GX10": {"0": {"controller": "NVDA8000:03"}, "1": {"controller": "NVDA8000:02"},
+             "2": {"controller": "NVDA8000:01"}, "3": {"controller": "NVDA8000:00"}},
+}
+
+
+def usbc_map_default():
+    try:
+        with open("/sys/class/dmi/id/product_name", encoding="utf-8") as f:
+            product = f.read().strip()
+    except OSError:
+        return {}
+    d = USBC_MAP_DEFAULTS.get(product)
+    if not d:
+        return {}
+    return {k: {**v, "source": "default", "note": msg("usbc_default_note", LANG_DEFAULT, product=product)} for k, v in d.items()}
+
+
 def usbc_map_load():
-    """實體孔 → 控制器 的對應（伺服器端持久化，所有瀏覽器共用）。
+    """實體孔 → 控制器 的對應（伺服器端持久化，所有瀏覽器共用）。沒有校準檔時用該機型的內建預設（有的話）。
     slot 0 固定是電源輸入孔（依 ASUS 規格與評測），核心無 UCSI/typec，供電狀態偵測不到，只能手動標記。"""
     try:
         with open(USBC_MAP_FILE) as f:
             d = json.load(f)
-            return d if isinstance(d, dict) else {}
+            if isinstance(d, dict) and d:
+                return d
     except (OSError, ValueError):
-        return {}
+        pass
+    return usbc_map_default()
 
 
 def usbc_map_save(d):
@@ -4744,8 +4768,11 @@ class Handler(BaseHTTPRequestHandler):
         elif path in ("/manifest.webmanifest", "/icon-256.png", "/icon-128.png", "/icon.svg"):
             # Chrome app 模式的視窗／工作列圖示來自 web manifest
             if path == "/manifest.webmanifest":
-                body = json.dumps({"name": "Spark Center", "short_name": "Spark Center", "start_url": "/", "display": "standalone",
-                                   "background_color": "#111312", "theme_color": "#111312",
+                # id 固定為 "/"：Chrome 用它算 app id（啟動器要靠這個 id 開已安裝的 app）。display_override 的 window-controls-overlay
+                # 讓 Chrome 只疊三顆視窗鈕在頂欄右上，系統標題列消失、頂欄可拖曳（CSS 的 app-region）；不支援的瀏覽器退回 standalone。
+                body = json.dumps({"id": "/", "scope": "/", "name": "Spark Center", "short_name": "Spark Center", "start_url": "/",
+                                   "display": "standalone", "display_override": ["window-controls-overlay", "standalone"],
+                                   "background_color": "#111312", "theme_color": "#000000",
                                    "icons": [{"src": "/icon-256.png", "sizes": "256x256", "type": "image/png"},
                                              {"src": "/icon-128.png", "sizes": "128x128", "type": "image/png"},
                                              {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"}]}).encode()

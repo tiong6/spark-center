@@ -120,7 +120,7 @@ async function pollRear() {
     if (!st) st = cid ? `<span class="sub1">${t("hw.empty")}</span>` : `<span class="sub1">${t("hw.not_calibrated")}</span>`;
     const SRC = { plug: t("hw.confirmed_by_plugging_in"), manual: t("hw.manually_reported"), inferred: t("hw.confirmed_on_insertion") };
     // 已確認的孔不再貼標籤；只有推測、未校準才提示
-    const tag = isPower ? '' : cal ? (cal.source === 'inferred' ? t("hw.estimated", {v0: SRC.inferred}) : '') : t("hw.not_calibrated");
+    const tag = isPower ? '' : cal ? (cal.source === 'inferred' ? t("hw.estimated", {v0: SRC.inferred}) : cal.source === 'default' ? t("hw.default_map") : '') : t("hw.not_calibrated");
     const sub2 = cid ? `${esc(cid.replace('NVDA8000:', t("hw.controller")))} · USB-C-${cid.slice(-1)}` : (isPower ? t("hw.controller_unavailable") : t("hw.controller_awaiting_calibration"));
     slots.push(`<div class="slot ${isPower ? 'k-power' : 'k-usbc'} ${on || isPower ? 'on' : ''} ${flash ? 'flash' : ''} ${hw.calibSlot === i ? 'pick' : ''}" data-slot="${i}">${isPower ? ICON.plug : ICON.usbc}<div class="lb"><b class="kind">${isPower ? t("hw.power") : 'USB-C'}</b>${t("hw.port", {v7: i + 1})}<br>${sub2}</div><div class="st">${st}</div>${tag ? `<span class="tg">${tag}</span>` : ''}</div>`);
   }

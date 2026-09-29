@@ -1,12 +1,25 @@
 #!/bin/sh
 # Spark Center 桌面 App：用瀏覽器 app 模式開獨立視窗（無網址列）。服務沒起來就先啟動。
-URL="http://127.0.0.1:11001"
+# 若這個 profile 已把 Spark Center「安裝」成 PWA（--install 一次），改用 --app-id 開：Chrome 會套用 manifest 的
+# window-controls-overlay，沒有系統標題列、只剩三顆視窗鈕疊在頂欄；否則維持 --app= 的一般 app 視窗。
+URL="${SPARK_CENTER_URL:-http://127.0.0.1:11001}"
 systemctl --user is-active --quiet spark-center || systemctl --user start spark-center
 for i in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null "$URL/api/job" && break; sleep 0.5; done
 PROFILE="$HOME/.local/share/spark-center/chrome-profile"   # 獨立 profile：不和你平常的 Chrome 分頁混在一起
 mkdir -p "$PROFILE"
+# 已安裝的 PWA 的 app id：不自己算（Chrome 的算法版本間有差，實測算不準），改讀 Chrome 安裝時寫在
+# ~/.local/share/applications 的捷徑檔：檔名 chrome-<appid>-Default.desktop，內容有這個 profile 路徑且 Name=Spark Center。
+APPID=$(grep -ls -- "--user-data-dir=$PROFILE" "$HOME"/.local/share/applications/chrome-*-Default.desktop 2>/dev/null \
+        | xargs -r grep -l "^Name=Spark Center" 2>/dev/null | head -1 | sed -E 's/.*chrome-([a-p]{32})-Default\.desktop$/\1/')
 for b in google-chrome google-chrome-stable chromium brave-browser; do
   if command -v "$b" >/dev/null 2>&1; then
+    if [ "$1" = "--install" ]; then
+      echo "在打開的視窗按網址列右邊的「安裝」（或選單 → 安裝 Spark Center），裝好關掉視窗，之後從應用程式選單開就沒有標題列了。"
+      exec "$b" --user-data-dir="$PROFILE" --no-first-run --no-default-browser-check "$URL/"
+    fi
+    if [ -n "$APPID" ]; then
+      exec "$b" --app-id="$APPID" --user-data-dir="$PROFILE" --no-first-run --no-default-browser-check "$@"
+    fi
     exec "$b" --app="$URL/" --class=SparkCenter --user-data-dir="$PROFILE" --window-size=1280,900 --no-first-run --no-default-browser-check "$@"
   fi
 done
