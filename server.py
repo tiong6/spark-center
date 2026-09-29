@@ -267,7 +267,8 @@ MSG = {
         "snap_ended": "snapd 變更 {p0} 結束於 {p1}",
         "snap_status": "snapd 變更 {p0}: {p1}",
         "dash_recheck_done": "已重啟 DGX Dashboard 後台，讓它重新檢查更新（它的「有更新」是快照，裝完常常還亮著）",
-        "dash_recheck_hint": "DGX Dashboard 的「有更新」可能還亮著：它讀的是自己後台的快照。要讓 Spark Center 裝完自動叫它重查，裝 README 的選用 polkit 規則；或手動 sudo systemctl restart dgx-dashboard-admin.service",
+        "dash_recheck_hint": "DGX Dashboard 的「有更新」可能還亮著：它讀的是自己後台的快照。要讓 Spark Center 裝完自動叫它重查，加 README 的選用 sudoers 一行；或手動 sudo systemctl restart dgx-dashboard-admin.service",
+        "dash_recheck_busy": "DGX Dashboard 後台不是閒置狀態（{state}），不重啟它，免得打斷 NVIDIA 自己的更新",
         "dash_recheck_failed": "重啟 DGX Dashboard 後台失敗：{err}",
         "config_conflict": "設定檔衝突 {p0}，保留現有版本",
         "transaction_exit": "交易結束狀態：{p0}",
@@ -531,7 +532,8 @@ MSG = {
         "snap_ended": "snapd change {p0} ended with {p1}",
         "snap_status": "snapd change {p0}: {p1}",
         "dash_recheck_done": "Restarted the DGX Dashboard back end so it re-checks for updates (its \"update available\" is a snapshot that often stays lit after installing)",
-        "dash_recheck_hint": "The DGX Dashboard may still say updates are available: it reads its own back-end snapshot. To have Spark Center trigger a re-check automatically, install the optional polkit rule in the README, or run sudo systemctl restart dgx-dashboard-admin.service",
+        "dash_recheck_hint": "The DGX Dashboard may still say updates are available: it reads its own back-end snapshot. To have Spark Center trigger a re-check automatically, add the optional sudoers line from the README, or run sudo systemctl restart dgx-dashboard-admin.service",
+        "dash_recheck_busy": "The DGX Dashboard back end is not idle ({state}); not restarting it, so as not to interrupt NVIDIA's own update",
         "dash_recheck_failed": "Restarting the DGX Dashboard back end failed: {err}",
         "config_conflict": "Configuration file conflict for {p0}; keeping the current version",
         "transaction_exit": "Transaction exit status: {p0}",
@@ -736,16 +738,21 @@ def dashboard_recheck(log=lambda s: None):
     有（README 那條選用規則）就 systemctl --no-ask-password restart；沒有就只留一句提示，不卡工作、不跳密碼。"""
     if READONLY:
         return False
-    # 不能先用 pkcheck 問：一般使用者帶 detail 問 CheckAuthorization 會被 polkit 拒絕（"Only trusted callers…"）。
-    # 直接試：--no-ask-password 之下沒放行就立刻失敗（Interactive authentication required），不會跳視窗。
+    # 為什麼用 sudo -n 而不是 polkit：systemctl 走 polkit 時 --no-ask-password 只擋終端機提示，桌面的 polkit 視窗照樣跳
+    # （真機踩到：測試時跳了密碼視窗）；pkcheck 帶 detail 又只准 root 問。sudo -n 沒放行就安靜失敗，絕不跳視窗。
+    # 只在 Dashboard 後台回「ready」時重啟：它正在跑 OTA（狀態 pending 之類）時重啟會打斷 NVIDIA 自己的更新。
+    st = _run(["busctl", "--system", "call", "com.nvidia.dgx.dashboard.admin1", "/com/nvidia/dgx/dashboard/admin",
+               "com.nvidia.dgx.dashboard.admin1", "GetOTAAvailabilitySnapshot"], timeout=10) or ""
+    if '"ready"' not in st:
+        log(msg("dash_recheck_busy", LANG_DEFAULT, state=st.strip()[:60] or "?")); return False
     try:
-        r = subprocess.run(["systemctl", "--no-ask-password", "restart", DASH_ADMIN_UNIT], capture_output=True, text=True, timeout=60, env=_ENV_C)
+        r = subprocess.run(["sudo", "-n", "/usr/bin/systemctl", "restart", DASH_ADMIN_UNIT], capture_output=True, text=True, timeout=60, env=_ENV_C)
     except Exception as e:
         log(msg("dash_recheck_failed", LANG_DEFAULT, err=str(e)[:120])); return False
     if r.returncode == 0:
         log(msg("dash_recheck_done", LANG_DEFAULT)); return True
     err = (r.stderr or r.stdout).strip()
-    if "authentication" in err.lower() or "access denied" in err.lower() or "not authorized" in err.lower():
+    if "password" in err.lower() or "sudo" in err.lower():
         log(msg("dash_recheck_hint", LANG_DEFAULT)); return False
     log(msg("dash_recheck_failed", LANG_DEFAULT, err=err[:120])); return False
 

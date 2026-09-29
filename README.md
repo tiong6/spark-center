@@ -49,13 +49,14 @@ One major-upgrade backup (maximum 150 MiB) is kept under root-owned `/var/lib/sp
 
 ### Optional: let the DGX Dashboard re-check after updates
 
-The stock Dashboard's "update available" badge comes from a snapshot kept by its root service, so it often stays lit for an hour or more after you have installed everything. Spark Center can make it re-check right after each install by restarting that one service, which needs root. This polkit rule allows members of the `sudo` group to restart exactly `dgx-dashboard-admin.service` and nothing else, without a password:
+The stock Dashboard's "update available" badge comes from a snapshot kept by its root service, so it often stays lit for an hour or more after you have installed everything. Spark Center can make it re-check right after each install by restarting that one service, which needs root. Like the two rules above, this is a sudoers line that allows exactly one command and nothing else:
 
 ```sh
-sudo install -o root -g root -m 0644 tools/spark-center-dashboard-recheck.rules /etc/polkit-1/rules.d/49-spark-center-dashboard-recheck.rules
+echo "$USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart dgx-dashboard-admin.service" | sudo tee /etc/sudoers.d/spark-center-dashboard
+sudo chmod 440 /etc/sudoers.d/spark-center-dashboard
 ```
 
-Without the rule nothing breaks: the job log just reminds you of the manual command.
+It only runs when the Dashboard back end reports itself idle ("ready"), never while an NVIDIA OTA is in progress. Without the line nothing breaks and nothing prompts: `sudo -n` fails silently and the job log reminds you of the manual command. (A polkit rule was tried first and rejected: `systemctl` still pops the desktop password dialog when the rule does not match.)
 
 ### Optional: install the Node upgrade helper
 

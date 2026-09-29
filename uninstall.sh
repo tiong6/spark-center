@@ -13,6 +13,6 @@ update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
 echo "Spark Center user files removed. The repository directory (and its data/) is untouched."
 echo
 echo "Optional root-owned pieces, only if you installed them (each needs sudo):"
-echo "  sudo rm -f /etc/sudoers.d/spark-center-dmidecode /etc/sudoers.d/spark-center-nvme"
+echo "  sudo rm -f /etc/sudoers.d/spark-center-dmidecode /etc/sudoers.d/spark-center-nvme /etc/sudoers.d/spark-center-dashboard"
 echo "  sudo rm -rf /usr/local/libexec/spark-center /var/lib/spark-center"
 echo "  sudo rm -f /usr/share/polkit-1/actions/io.github.tiong6.spark-center.node-source.policy"
