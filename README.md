@@ -105,6 +105,10 @@ systemctl --user status spark-center     # 狀態
 journalctl --user -u spark-center -f     # 日誌
 ```
 
+### Keeping Spark Center itself up to date
+
+Your clone does not update by itself, but it tells you when it should: the service checks GitHub every six hours (`git fetch`, read-only), and when there are new commits the top bar shows **Spark Center update available** and the Updates tab lists them under *Spark Center itself*, with an **Update and restart** button that runs `git pull --ff-only` and restarts the service (no root). It refuses to pull if you have modified tracked files or have local commits, so nothing of yours gets overwritten, and it is blocked while a job is running or in read-only mode. If an update changes the optional Node-upgrade helper, the panel reminds you to re-run its `sudo install` line. Copies that were not installed with `git clone` cannot use this and simply do not show the panel.
+
 ### Try it read-only first
 
 If you would rather not hand a tool you have just met the ability to run apt, start it in read-only mode. Every request that would change anything is refused with HTTP 403 and the action buttons are hidden; monitoring, hardware, disk, history and the update *list* all still work, and a badge in the top bar says so.

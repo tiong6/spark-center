@@ -10,6 +10,7 @@
 
 ### 新增
 
+- **Spark Center 自己的更新**。別人 git clone 裝的不會自動跟上、也不知道有新版。現在每 6 小時 `git fetch` 一次（只讀），有新 commit 就頂欄亮「Spark Center 有新版」，更新分頁「Spark Center 本身」面板列出 commit 標題（英文標題就是給這裡看的），一顆「更新並重啟」跑 `git pull --ff-only` 再由 systemd 臨時計時器重啟服務（不需 root），頁面自己重新載入。拒絕條件：本機改過追蹤中的檔案（不蓋掉，請 stash 或 commit）、有沒推上去的 commit、已是最新、有工作在跑、唯讀模式；不是 git clone 裝的不顯示這張卡。這次更新有動到 Node helper 時提醒重跑 sudo install。隔離測試：暫存 clone 退回 4 個 commit → 列出標題 → 改檔後拒絕 → 還原後 pull 成功歸零。
 - **裝完更新自動叫 DGX Dashboard 重查**。Dashboard 的「有更新」來自 root 後台 dgx-dashboard-admin 的快照，裝完常常還亮著（真機 9/25、9/29 各一次，這次快照 18:55、更新 19:09，後台就一直讀舊的）。apt 工作成功結束後跑 `sudo -n /usr/bin/systemctl restart dgx-dashboard-admin.service`：有 README 那一行 sudoers 就重啟並記錄，沒有就安靜失敗、只在工作記錄留提示與手動指令，不跳視窗。重啟前先讀後台狀態，不是 ready（例如正在跑 NVIDIA 的 OTA）就不動並記錄原因。唯讀模式不做。真機驗證：sudoers 只放行這一個指令、別的服務被拒；pending 時跳過、ready 時重啟成功，Dashboard 的過期「有更新」消失。
 
 ### 修正
