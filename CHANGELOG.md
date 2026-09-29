@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-09-29
+
+*After each apt install, Spark Center can make the stock DGX Dashboard re-check for updates (its "update available" badge is a back-end snapshot that stays lit after you install). Opt-in via one sudoers line; never runs while the Dashboard back end is busy with an NVIDIA OTA.*
+
+### 新增
+
+- **裝完更新自動叫 DGX Dashboard 重查**。Dashboard 的「有更新」來自 root 後台 dgx-dashboard-admin 的快照，裝完常常還亮著（真機 9/25、9/29 各一次，這次快照 18:55、更新 19:09，後台就一直讀舊的）。apt 工作成功結束後跑 `sudo -n /usr/bin/systemctl restart dgx-dashboard-admin.service`：有 README 那一行 sudoers 就重啟並記錄，沒有就安靜失敗、只在工作記錄留提示與手動指令，不跳視窗。重啟前先讀後台狀態，不是 ready（例如正在跑 NVIDIA 的 OTA）就不動並記錄原因。唯讀模式不做。真機驗證：sudoers 只放行這一個指令、別的服務被拒；pending 時跳過、ready 時重啟成功，Dashboard 的過期「有更新」消失。
+
+### 修正
+
+- **先做的 polkit 規則版本撤掉**：`systemctl` 走 polkit 時 `--no-ask-password` 只擋終端機提示，規則不符時桌面照樣跳密碼視窗（測試時真的跳了）；`pkcheck` 帶 detail 又只准 root 問，探測永遠失敗。改回專案既有的 sudoers 模式。
+- 說明更正：D-Bus `GetOTAAvailabilitySnapshot` 回傳的兩個布林欄位意義不明（Dashboard 顯示無更新時第三欄仍是 true），程式只用第一欄的 ready／pending 判斷，不拿它當「有更新」。
+
 ## 2026-09-28
 
 *FAQ tab: NVIDIA's official DGX Spark / GB10 FAQ, organised and bilingual, with a live "This machine" box where the answer depends on the hardware, and a daily check that says when NVIDIA has revised the original.*
