@@ -12,6 +12,7 @@ import glob
 import hashlib
 import http.client
 import shutil
+import html
 import shlex
 import socket
 import stat
@@ -4430,6 +4431,15 @@ def fwupd_status(force=False):
             "state_zh": FW_STATE.get(h.get("UpdateState"), str(h.get("UpdateState"))), "error": h.get("UpdateError"),
             "when": datetime.fromtimestamp(h["Modified"]).isoformat(timespec="minutes") if h.get("Modified") else None,
             "summary": rel.get("Summary"), "urgency": rel.get("Urgency")})
+    def _html_text(h):
+        h = re.sub(r"</li>\s*", "\n", h or ""); h = re.sub(r"</p>\s*", "\n", h); h = re.sub(r"<li>", "• ", h)
+        return html.unescape(re.sub(r"\s*\n\s*", "\n", re.sub(r"<[^>]+>", "", h)).strip())   # LVFS 的說明是 HTML，&quot; 這類實體要還原
+    def _notes(did, cur, new):
+        """LVFS 上這個裝置每一版的說明（廠商有上傳才有；ASUS 的 EC／SoC／PD 韌體有）。給「已裝的這版」與「可升級的新版」。"""
+        rel = (_fw_json(["get-releases", did], timeout=30) or {}).get("Releases") or []
+        pick = lambda v: next(({"version": r.get("Version"), "summary": r.get("Summary"), "text": _html_text(r.get("Description")),
+                                "urgency": r.get("Urgency")} for r in rel if v and r.get("Version") == v), None)
+        return {"installed": pick(cur), "latest": pick(new) if new and new != cur else None}
     rows = []
     for d in devs:
         flags = d.get("Flags") or []
@@ -4447,10 +4457,12 @@ def fwupd_status(force=False):
             "needs_reboot": "needs-reboot" in flags, "internal": "internal" in flags, "hidden": "updatable-hidden" in flags,
             "history": hs, "mismatch": mismatch,
             "pending": bool(last and last["state"] in (1, 4)),
+            "notes": _notes(did, cur, latest.get(did)) if "updatable-hidden" not in flags else None,
         })
     rows.sort(key=lambda r: (not r["mismatch"], not r["update_available"], r["hidden"], r["name"] or ""))
     # get-updates 失敗：更新數未知（None），不是 0；get-history 失敗：對不上／等重開機未知
-    data = {"available": True, "devices": rows,
+    bios = {k: (_read(f"/sys/class/dmi/id/bios_{k}") or "").strip() for k in ("version", "date")}   # SoC 韌體的「0105」在 DMI，fwupd 只給十六進位
+    data = {"available": True, "devices": rows, "bios": bios if bios["version"] else None,
             "updates": None if q_ups is None else sum(1 for r in rows if r["update_available"]),
             "mismatches": None if q_hist is None else sum(1 for r in rows if r["mismatch"]),
             "pending": None if q_hist is None else sum(1 for r in rows if r["pending"]),
