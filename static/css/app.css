@@ -12,11 +12,12 @@
   /* 裝成 PWA 且 Chrome 用 Window Controls Overlay 時：沒有系統標題列，頂欄就是標題列。整條可拖曳，按鈕／連結／勾選框除外；
      右邊留出 Chrome 疊上來的三顆視窗鈕的寬度（env(titlebar-area-*) 由 Chrome 給），高度跟它一致。 */
   @media (display-mode: window-controls-overlay) {
-    .topbar { -webkit-app-region: drag; app-region: drag; position: fixed; top: 0; left: 0; right: 0; z-index: 50;
-              height: env(titlebar-area-height, 52px); padding-left: calc(env(titlebar-area-x, 0px) + 16px);
-              padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 16px); }
+    /* 高度維持 52px：綁成 Chrome 的 titlebar-area-height（Linux 約 30 幾像素）會把內容擠疊在一起。
+       Chrome 的三顆鈕疊在右上角，只需要把右邊留出它們的寬度；頂欄整條可拖曳，互動元件除外。 */
+    .topbar { -webkit-app-region: drag; app-region: drag; flex-wrap: nowrap; white-space: nowrap;
+              padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 24px); }
+    .topbar .right { flex-wrap: nowrap; }
     .topbar a, .topbar button, .topbar input, .topbar label, .topbar .switch, .topbar .switch * { -webkit-app-region: no-drag; app-region: no-drag; }
-    body { padding-top: env(titlebar-area-height, 52px); }
   }
   .topbar .brand { font-weight: 700; letter-spacing: .02em; }
   .topbar .brand small { color: var(--muted); font-weight: 400; margin-left: 10px; font-size: 12px; }
