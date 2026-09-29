@@ -12,5 +12,9 @@ gtk-update-icon-cache -q -f "$HOME/.local/share/icons/hicolor" 2>/dev/null || tr
 update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
 systemctl --user daemon-reload
 systemctl --user enable --now spark-center
-echo "Spark Center: http://127.0.0.1:11001  （應用程式選單也有「Spark Center」）"
-echo "選用：序號／記憶體模組與 NVMe SMART 需要 sudoers 放行 dmidecode 與 nvme smart-log，見 README。"
+echo "Spark Center is running: http://127.0.0.1:11001  (also in the application menu)"
+echo "Spark Center 已啟動：http://127.0.0.1:11001（應用程式選單也有）"
+echo "Optional features (serial numbers, NVMe health, Node upgrades, title-bar-free window, open at login): see the Setup tab in the app."
+echo "選用功能（序號、NVMe 健康、Node 升級、無標題列視窗、登入自動開啟）：在 app 的「設定」分頁。"
+# 裝完直接開 app 視窗；沒有桌面（SSH 進來裝）就略過
+if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; then ("$ROOT/app/spark-center-app" >/dev/null 2>&1 &); fi

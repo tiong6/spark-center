@@ -10,6 +10,7 @@
 
 ### 新增
 
+- **設定分頁**（頂欄 ⚙）：給新手的。選用功能列成清單：序號與記憶體模組、NVMe 健康、裝完更新叫 Dashboard 重查、Node 大版本升級 helper、無標題列 app、登入自動開啟。每項寫「給你什麼」「要付出什麼」、已啟用／未啟用（sudoers 用 `sudo -n -l <指令>` 只問准不准、不執行）、路徑已填好的指令加一鍵複製；無標題列那項有按鈕直接替你開安裝視窗（用使用者 session 的 DISPLAY）。這台用不到的項目（沒裝 Dashboard、沒有 Chrome）不列。只有「建議裝但沒裝」（Node 比 LTS 舊）才亮點。README 安裝節縮成三行主線加「其他在設定分頁」；install.sh 輸出中英並列、裝完自動開 app。順手：lint 的字串表檢查改從 stdin 餵 node（表超過 128 KB 後參數會 Argument list too long）。
 - **App 視窗沒有系統標題列**。manifest 加 `display_override: [window-controls-overlay]`，CSS 在該模式下把頂欄變成可拖曳的標題列、右邊留出 Chrome 疊上來的三顆視窗鈕；啟動器多 `--install`（開一般視窗讓使用者按一次「安裝」），之後從 Chrome 寫的捷徑檔讀 app id 用 `--app-id` 開（自己算 id 實測和 Chrome 的不同）。X11、Wayland 都有效。在本機分支與獨立目錄（11003 埠）做完、真機確認標題列消失後才合併。
 - **ASUS GX10 內建 USB-C 孔位對應**。全新安裝沒有校準檔時，後面板顯示不出孔位對應；同款機器主機板一樣，把作者 GX10 的校準結果當該機型內建預設（依 DMI product_name 比對），面板標「內建預設」，插裝置校準會蓋掉。其他 GB10 機型仍需校準一次。
 - **Spark Center 自己的更新**。別人 git clone 裝的不會自動跟上、也不知道有新版。現在每 6 小時 `git fetch` 一次（只讀），有新 commit 就頂欄亮「Spark Center 有新版」，更新分頁「Spark Center 本身」面板列出 commit 標題（英文標題就是給這裡看的），一顆「更新並重啟」跑 `git pull --ff-only` 再由 systemd 臨時計時器重啟服務（不需 root），頁面自己重新載入。拒絕條件：本機改過追蹤中的檔案（不蓋掉，請 stash 或 commit）、有沒推上去的 commit、已是最新、有工作在跑、唯讀模式；不是 git clone 裝的不顯示這張卡。這次更新有動到 Node helper 時提醒重跑 sudo install。隔離測試：暫存 clone 退回 4 個 commit → 列出標題 → 改檔後拒絕 → 還原後 pull 成功歸零。

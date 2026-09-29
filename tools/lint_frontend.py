@@ -38,7 +38,7 @@ else:
 # 3. 字串表
 js = open(os.path.join(ROOT, 'static/js/i18n.js'), encoding='utf-8').read()
 m = re.search(r'const STR = (\{.*?\n\});\n', js, re.S)
-STR = json.loads(subprocess.check_output(['node', '-e', 'const STR=' + m.group(1) + ';console.log(JSON.stringify(STR))']))
+STR = json.loads(subprocess.check_output(['node', '-'], input=('const STR=' + m.group(1) + ';console.log(JSON.stringify(STR))').encode()))   # 用 stdin：字串表超過 128 KB 後當參數會 Argument list too long
 py = open(os.path.join(ROOT, 'server.py'), encoding='utf-8').read()
 MSG = eval(re.search(r'^MSG = (\{.*?\n\})\n', py, re.S | re.M).group(1))
 for name, tbl in (('STR', STR), ('MSG', MSG)):

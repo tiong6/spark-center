@@ -14,7 +14,7 @@
 <div class="topbar">
   <span class="mark"></span>
   <span class="brand">Spark Center <small id="machineName"></small></span>
-  <span class="right"><a class="ro-badge hide" id="selfBadge" href="#updates" data-i18n="self.badge" data-i18n-title="self.badge_hint" style="text-decoration:none">Spark Center 有新版</a><span class="ro-badge hide" id="roBadge" data-i18n="common.readonly" data-i18n-title="common.readonly_hint">唯讀模式</span><a class="dash hide" id="dashLink" target="_blank" rel="noopener" data-i18n-title="common.open_dgx_dashboard"><img src="/dashboard-icon" alt="" onerror="this.remove()"><span data-i18n="common.dgx_dashboard">DGX Dashboard</span></a><span class="switch" id="langSwitch"><span data-lang="zh-TW">中</span><span data-lang="en">EN</span></span><label title="在 ~/.config/autostart 放一份桌面捷徑，GNOME 登入後幾秒自動開啟這個視窗；取消就把檔案刪掉" data-i18n-title="common.create_a_desktop_shortcut_in_config" style="cursor:pointer"><input type="checkbox" id="autostart" style="margin:0 4px 0 0"><span id="autostartLabel" data-i18n="common.open_at_login">登入時自動開啟</span></label></span>
+  <span class="right"><a class="ro-badge hide" id="selfBadge" href="#updates" data-i18n="self.badge" data-i18n-title="self.badge_hint" style="text-decoration:none">Spark Center 有新版</a><span class="ro-badge hide" id="roBadge" data-i18n="common.readonly" data-i18n-title="common.readonly_hint">唯讀模式</span><a class="dash hide" id="dashLink" target="_blank" rel="noopener" data-i18n-title="common.open_dgx_dashboard"><img src="/dashboard-icon" alt="" onerror="this.remove()"><span data-i18n="common.dgx_dashboard">DGX Dashboard</span></a><a class="dash" href="#setup" id="setupLink" data-i18n-title="setup.gear_hint" title="設定：選用功能與安裝說明" style="padding:2px 8px">⚙</a><span class="switch" id="langSwitch"><span data-lang="zh-TW">中</span><span data-lang="en">EN</span></span><label title="在 ~/.config/autostart 放一份桌面捷徑，GNOME 登入後幾秒自動開啟這個視窗；取消就把檔案刪掉" data-i18n-title="common.create_a_desktop_shortcut_in_config" style="cursor:pointer"><input type="checkbox" id="autostart" style="margin:0 4px 0 0"><span id="autostartLabel" data-i18n="common.open_at_login">登入時自動開啟</span></label></span>
 </div>
 <main>
   <div class="titlerow">
@@ -28,6 +28,7 @@
       <a data-tab="hardware" data-i18n="tab.hardware">硬體</a>
       <a data-tab="history" data-i18n="tab.history">歷史</a>
       <a data-tab="faq" data-i18n="tab.faq">常見問題<span id="dotFaq" class="dot hide" style="background:var(--warn)"></span></a>
+      <a data-tab="setup" data-i18n="tab.setup">設定<span id="dotSetup" class="dot hide" style="background:var(--warn)"></span></a>
     </nav>
   </div>
 
@@ -123,6 +124,11 @@
     </div>
   </section>
 
+  <section id="tab-setup" class="hide">
+    <div class="panel notice"><div class="panel-h"><h2 data-i18n="setup.title">選用功能</h2><span class="sub" id="setupMeta"></span><div class="actions"><button id="btnSetupReload" class="small" data-i18n="setup.recheck">重新檢查</button></div></div>
+      <div class="sub1" style="margin-top:8px" data-i18n="setup.intro">主程式不需要 root。下面每一項都是選用的：寫清楚它給你什麼、要付出什麼，指令已填好你的路徑，複製到終端機貼上就好。不裝，其他功能照常。</div></div>
+    <div id="setup"></div>
+  </section>
   <section id="tab-faq" class="hide">
     <div class="panel notice">
       <div class="panel-h"><h2 data-i18n="faq.src_title">NVIDIA 官方 FAQ</h2><span class="sub" id="faqBased"></span><div class="actions"><a class="btnlink" id="faqOpen" target="_blank" rel="noopener" data-i18n="faq.src_open">開啟原文</a></div></div>
@@ -154,6 +160,7 @@
 <script src="/static/js/hardware.js"></script>
 <script src="/static/js/monitor.js"></script>
 <script src="/static/js/faq.js"></script>
+<script src="/static/js/setup.js"></script>
 <script src="/static/js/main.js"></script>
 </body>
 </html>

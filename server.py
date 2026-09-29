@@ -52,6 +52,7 @@ MSG = {
     "zh-TW": {
     "sweep_disabled": "主動掃描網段已停用（SPARK_CENTER_NO_SWEEP=1）。",
     "usbc_default_note": "{product} 內建預設對應（依作者同款機器校準）；插裝置即可重新校準",
+    "setup_no_display": "服務找不到桌面（沒有 DISPLAY），請在終端機自己跑 app/spark-center-app --install。",
     "readonly_mode": "唯讀模式（SPARK_CENTER_READONLY=1）：這個服務不會改任何東西。要啟用更新等功能，拿掉這個環境變數後重啟服務。",
     "node_flow_locked": "nodejs 正由 Node 主版本升級流程處理，請到 npm 面板按「確認安裝」，或先「恢復原版本」。",
     "node_helper_unavailable": "Node 升級 helper 未安裝、版本不符或權限不安全；請依 README 的選用安裝步驟由管理員安裝。",
@@ -324,6 +325,7 @@ MSG = {
     "en": {
     "sweep_disabled": "The subnet sweep is disabled (SPARK_CENTER_NO_SWEEP=1).",
     "usbc_default_note": "Built-in default for {product} (calibrated on the author's identical machine); plug in a device to recalibrate",
+    "setup_no_display": "The service cannot see a desktop (no DISPLAY); run app/spark-center-app --install in a terminal instead.",
     "readonly_mode": "Read-only mode (SPARK_CENTER_READONLY=1): this service changes nothing. To enable updates and other actions, remove that environment variable and restart the service.",
     "node_flow_locked": "nodejs is being handled by the Node major-upgrade flow; use 'Confirm install' on the npm panel, or restore the original version first.",
     "node_helper_unavailable": "Node upgrade helper is missing, outdated or has unsafe permissions. Ask an administrator to follow the optional helper installation steps in README.",
@@ -3726,6 +3728,88 @@ def self_update():
     return {"ok": True, "head": head, "restart_scheduled": restart, "helper_changed": st.get("helper_changed")}
 
 
+# ---------- 設定分頁：選用功能的狀態與指令 ----------
+# 新手卡在「選用步驟散在 README 四處、裝完不知道還有什麼沒開」。這裡把每一項列成：給你什麼、要付出什麼、現在開了沒、
+# 路徑已填好的指令。狀態用 sudo -n -l <指令> 問「准不准」，不真的執行。
+SUDOERS_CMDS = {
+    "dmidecode": ["/usr/sbin/dmidecode"],
+    "nvme": ["/usr/sbin/nvme", "smart-log", "/dev/nvme0n1", "--output-format=json"],
+    "dashboard_recheck": ["/usr/bin/systemctl", "restart", "dgx-dashboard-admin.service"],
+}
+
+
+def _sudo_allowed(cmd):
+    try:
+        return subprocess.run(["sudo", "-n", "-l"] + cmd, capture_output=True, timeout=10).returncode == 0
+    except Exception:
+        return False
+
+
+def _pwa_installed():
+    """Chrome 把 Spark Center 安裝成 app 後會寫 chrome-<id>-Default.desktop（內含我們的 profile 路徑）。和啟動器同一個判斷。"""
+    prof = os.path.expanduser("~/.local/share/spark-center/chrome-profile")
+    appdir = os.path.expanduser("~/.local/share/applications")
+    try:
+        for fn in os.listdir(appdir):
+            if fn.startswith("chrome-") and fn.endswith("-Default.desktop"):
+                txt = open(os.path.join(appdir, fn), encoding="utf-8", errors="replace").read()
+                if f"--user-data-dir={prof}" in txt and re.search(r"^Name=Spark Center$", txt, re.M):
+                    return fn[len("chrome-"):-len("-Default.desktop")]
+    except OSError:
+        pass
+    return None
+
+
+def setup_status():
+    user = os.environ.get("USER") or os.path.basename(os.path.expanduser("~"))
+    q = shlex.quote
+    items = []
+    items.append({"id": "dmidecode", "enabled": _sudo_allowed(SUDOERS_CMDS["dmidecode"]), "sudo": True,
+                  "commands": [f'echo "{user} ALL=(root) NOPASSWD: /usr/sbin/dmidecode" | sudo tee /etc/sudoers.d/spark-center-dmidecode',
+                               "sudo chmod 440 /etc/sudoers.d/spark-center-dmidecode"]})
+    items.append({"id": "nvme", "enabled": _sudo_allowed(SUDOERS_CMDS["nvme"]), "sudo": True,
+                  "commands": [f'echo "{user} ALL=(root) NOPASSWD: /usr/sbin/nvme smart-log /dev/nvme0n1 --output-format=json" | sudo tee /etc/sudoers.d/spark-center-nvme',
+                               "sudo chmod 440 /etc/sudoers.d/spark-center-nvme"]})
+    items.append({"id": "dashboard_recheck", "enabled": _sudo_allowed(SUDOERS_CMDS["dashboard_recheck"]), "sudo": True,
+                  "applies": os.path.exists("/opt/nvidia/dgx-dashboard"),
+                  "commands": [f'echo "{user} ALL=(root) NOPASSWD: /usr/bin/systemctl restart dgx-dashboard-admin.service" | sudo tee /etc/sudoers.d/spark-center-dashboard',
+                               "sudo chmod 440 /etc/sudoers.d/spark-center-dashboard"]})
+    ns = node_status()
+    items.append({"id": "node_helper", "enabled": bool(node_helper_ready() and os.path.isfile("/usr/share/polkit-1/actions/io.github.tiong6.spark-center.node-source.policy")),
+                  "sudo": True, "applies": bool(ns.get("major")), "recommended": bool(ns.get("target") and ns.get("major") and ns["target"] > ns["major"]),
+                  "detail": {"node": ns.get("installed") or "", "lts": ns.get("target")},
+                  "commands": [f"cd {q(HERE)}",
+                               "sudo install -d -o root -g root -m 0755 /usr/local/libexec/spark-center",
+                               "sudo install -o root -g root -m 0755 tools/node_source.py /usr/local/libexec/spark-center/node_source.py",
+                               "sudo install -o root -g root -m 0644 tools/spark-center-node-source.policy /usr/share/polkit-1/actions/io.github.tiong6.spark-center.node-source.policy"]})
+    browser = next((b for b in ("google-chrome", "google-chrome-stable", "chromium", "brave-browser") if shutil.which(b)), None)
+    items.append({"id": "pwa", "enabled": bool(_pwa_installed()), "sudo": False, "applies": bool(browser), "action": "pwa_install",
+                  "commands": [f"{q(os.path.join(HERE, 'app', 'spark-center-app'))} --install"]})
+    items.append({"id": "autostart", "enabled": autostart_status().get("enabled", False), "sudo": False, "action": "autostart", "commands": []})
+    return {"ok": True, "items": items, "repo": HERE, "readonly": READONLY, "generated": datetime.now().isoformat(timespec="seconds")}
+
+
+def _session_env():
+    """使用者 systemd 管理員的環境（有 DISPLAY／XAUTHORITY），開圖形程式要用；服務本身的環境沒有這些。"""
+    env = dict(os.environ)
+    out = _run(["systemctl", "--user", "show-environment"], timeout=10) or ""
+    for line in out.splitlines():
+        if "=" in line and line.split("=", 1)[0] in ("DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"):
+            k, v = line.split("=", 1); env[k] = v
+    return env
+
+
+def pwa_install_launch():
+    env = _session_env()
+    if not env.get("DISPLAY") and not env.get("WAYLAND_DISPLAY"):
+        return {"ok": False, "error": msg("setup_no_display", LANG_DEFAULT)}
+    try:
+        subprocess.Popen([os.path.join(HERE, "app", "spark-center-app"), "--install"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True}
+
+
 def _root_usage():
     try:
         st = os.statvfs("/")
@@ -4879,6 +4963,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, **printers(force="force=1" in (self.path.split("?", 1) + [""])[1])})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/setup":
+            try:
+                self._json(setup_status())
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/self":
             try:
                 self._json(self_status(force="force=1" in (self.path.split("?", 1) + [""])[1]))
@@ -5025,6 +5114,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({'ok': True})
             except Exception as e:
                 return self._json({'ok': False, 'error': node_error(str(e))}, 400)
+        if path == "/api/setup/pwa-install":
+            r = pwa_install_launch()
+            return self._json(r, 200 if r.get("ok") else 500)
         if path == "/api/self/update":
             if JOB.state.get("status") == "running":
                 return self._json({"ok": False, "error": msg("job_running", LANG_DEFAULT)}, 409)
