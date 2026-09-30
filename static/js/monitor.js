@@ -268,7 +268,16 @@ function renderClockPanel(cc, g, sg) {
   p.classList.remove('hide');
   const r = $('#clockRange'), sel = $('#clockSel'), apply = $('#clockApply'), reset = $('#clockReset');
   const hwMax = sg.max_clock_mhz ? Math.min(cc.max, Math.floor(sg.max_clock_mhz / cc.step) * cc.step) : cc.max;
-  if (r.min != cc.min || r.max != hwMax) { r.min = cc.min; r.max = hwMax; r.step = cc.step; }
+  if (r.min != cc.min || r.max != hwMax) {
+    r.min = cc.min; r.max = hwMax; r.step = cc.step;
+    // 刻度：每一格一個 tick（datalist），下面每 500 標數字，原廠預設工作點另標
+    const ticks = []; for (let v = cc.min; v <= hwMax; v += cc.step) ticks.push(`<option value="${v}"></option>`);
+    $('#clockTicks').innerHTML = ticks.join('');
+    const pos = v => ((v - cc.min) / (hwMax - cc.min) * 100).toFixed(1) + '%';
+    const labels = []; for (let v = cc.min; v <= hwMax; v += 500) labels.push(`<span style="left:${pos(v)}">${v}</span>`);
+    if (sg.app_clock_mhz) labels.push(`<span class="def" style="left:${pos(sg.app_clock_mhz)}">${t("mon.clock_factory_mark", {v0: sg.app_clock_mhz})}</span>`);
+    $('#clockScale').innerHTML = labels.join('');
+  }
   const target = cc.cap_mhz || sg.app_clock_mhz || hwMax;
   // 超過原廠預設工作點：紅色。這不會更快（驅動仍以自己的功耗／溫度限制為準），只等於取消上限；按確定會再問一次
   const paint = v => { const over = sg.app_clock_mhz && v > sg.app_clock_mhz; r.style.accentColor = over ? 'var(--danger)' : ''; sel.style.color = over ? 'var(--danger)' : ''; sel.textContent = v + ' MHz' + (over ? ' ' + t("mon.clock_over_mark") : ''); };

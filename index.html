@@ -90,7 +90,7 @@
     <div id="mon" class="mon"><div class="panel"><div class="empty" data-i18n="updates.loading">讀取中…</div></div></div>
     <div id="clockPanel" class="panel hide">
       <div class="panel-h"><h2 data-i18n="mon.clock_panel_title">GPU 時脈上限</h2><span class="sub" id="clockCapNow"></span></div>
-      <div class="clockctl"><input type="range" id="clockRange"><b id="clockSel" class="mono">— MHz</b>
+      <div class="clockctl"><div class="clockslide"><input type="range" id="clockRange" list="clockTicks"><datalist id="clockTicks"></datalist><div class="clockscale" id="clockScale"></div></div><b id="clockSel" class="mono">— MHz</b>
         <button class="small primary" id="clockApply" data-i18n="mon.clock_apply">確定</button><button class="small" id="clockReset" data-i18n="mon.clock_reset">還原預設</button></div>
       <div class="sub1" id="clockHint" style="margin-top:6px"></div>
     </div>
