@@ -75,6 +75,8 @@
   .sub td:first-child { padding-left: 26px; }
   .sub td:nth-child(2) { padding-left: 20px; }
   .tag { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid #3a3f3c; color: var(--muted); margin-left: 6px; vertical-align: middle; white-space: nowrap; }
+  .tag.new { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .faq.new > summary .fq { color: var(--accent); }   /* 原文最新版新增的題目：亮色＋NEW */
   .tag.sec { color: var(--warn); border-color: var(--warn); }
   .tag.reboot { color: var(--danger); border-color: var(--danger); }
   .tag.ok { color: var(--accent); border-color: var(--accent); }

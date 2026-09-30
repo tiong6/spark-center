@@ -12,7 +12,7 @@ const FAQ = [
     FAQ_APPLE_LAN] },
   { id: 'ssid', cat: 'setup', fe: true },
   { id: 'power_on', cat: 'setup' },
-  { id: 'airgap', cat: 'setup', links: [['faq.link.recovery', 'https://www.nvidia.com/en-us/drivers/dgx-spark-recovery-software/']] },   // 第 12 版新增
+  { id: 'airgap', cat: 'setup', since: 12, links: [['faq.link.recovery', 'https://www.nvidia.com/en-us/drivers/dgx-spark-recovery-software/']] },   // since：原文哪一版新增；等於目前版本就標 NEW
   { id: 'mac_ssh', cat: 'network', links: [FAQ_APPLE_LAN] },
   { id: 'sync_exists', cat: 'network', cmds: [
     ['Windows', 'C:\\Users\\<username>\\AppData\\Local\\NVIDIA Corporation\\Sync\\config\\ssh_config'],
@@ -74,7 +74,9 @@ function faqRich(src) {
 function faqItem(it) {
   const q = t(`faq.${it.id}.q`), a = t(`faq.${it.id}.a`);
   const label = l => l.startsWith('faq.') ? t(l) : l;
-  const tags = (it.local ? `<span class="tag ok">${t('faq.tag_local')}</span>` : '')
+  const isNew = it.since === FAQ_SOURCE.version;   // 只標「目前這一版」新增的；下一版出來自然退掉
+  const tags = (isNew ? `<span class="tag new" title="${esc(t('faq.tag_new_hint', {v: FAQ_SOURCE.version, d: FAQ_SOURCE.updated}))}">${t('faq.tag_new')}</span>` : '')
+    + (it.local ? `<span class="tag ok">${t('faq.tag_local')}</span>` : '')
     + (it.fe ? `<span class="tag" title="${esc(t('faq.tag_fe_hint'))}">${t('faq.tag_fe')}</span>` : '');
   const cmds = (it.cmds || []).map(([l, cmd]) =>
     `<div class="fcmd"><div class="sub1">${esc(label(l))}</div><div class="fbox"><pre>${esc(cmd)}</pre><button class="small" data-copy>${t('faq.copy')}</button></div></div>`).join('');
@@ -83,7 +85,7 @@ function faqItem(it) {
   const local = it.local ? `<div class="floc"><div class="sub1"><b>${t('faq.local_title')}</b> · ${t('faq.local_hint')}</div>`
     + `<dl class="kv" id="faqLoc-${it.id}"><dt>…</dt><dd class="muted">${t('faq.loading')}</dd></dl></div>` : '';
   const search = [q, a, ...(it.cmds || []).map(c => c[1])].join('\n').toLowerCase();
-  return `<details class="faq" data-id="${it.id}" data-search="${esc(search)}"><summary><span class="fq">${esc(q)}</span>${tags}</summary>`
+  return `<details class="faq${isNew ? ' new' : ''}" data-id="${it.id}" data-search="${esc(search)}"><summary><span class="fq">${esc(q)}</span>${tags}</summary>`
     + `<div class="fa">${faqRich(a)}${cmds}${links}${local}</div></details>`;
 }
 
