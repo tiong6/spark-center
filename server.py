@@ -4840,9 +4840,11 @@ _GPU_WATCH = {"lock": threading.Lock(), "samples": [], "alert": None, "last_noti
 # 過熱警報：門檻是驅動回報的降頻點（NVML），拿不到就不警報（不猜一個數字）。
 # 連續 60 秒（12 個 5 秒樣本）都在門檻以上才叫，避免跑模型時在門檻附近晃來晃去一直響；同一波每 10 分鐘再提醒；降到門檻下 3 度才解除。
 GPU_HOT_SAMPLES = 12
-GPU_HOT_RENOTIFY_S = 600
+GPU_HOT_RENOTIFY_S = 120          # 還在門檻上就每 2 分鐘再響一輪，直到降溫解除（一聲就過去不算警報）
 GPU_HOT_CLEAR_MARGIN = 3
 GPU_HOT_SOUND = "alarm-clock-elapsed"
+GPU_HOT_SOUND_REPEAT = 4          # 每輪連響幾聲
+GPU_HOT_SOUND_GAP_S = 1.5
 GPU_STUCK_CLOCK_MHZ = 800
 GPU_STUCK_MIN_UTIL = 20
 GPU_STUCK_SAMPLES = 6
@@ -4881,18 +4883,26 @@ def gpu_hot_evaluate(samples, threshold, current=None):
     return all(v >= threshold for v in recent), max(recent)
 
 
-def _play_sound(name):
-    """系統音效（freedesktop 主題自帶，不用裝東西）。沒有音效工具或沒有桌面就算了。"""
-    try:
-        env = _session_env()
-        if not (env.get("DISPLAY") or env.get("WAYLAND_DISPLAY")):
-            return
-        if shutil.which("canberra-gtk-play"):
-            subprocess.Popen(["canberra-gtk-play", "-i", name], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        elif shutil.which("paplay") and os.path.exists(f"/usr/share/sounds/freedesktop/stereo/{name}.oga"):
-            subprocess.Popen(["paplay", f"/usr/share/sounds/freedesktop/stereo/{name}.oga"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
+def _play_sound(name, times=1, gap=0.0):
+    """系統音效（freedesktop 主題自帶，不用裝東西），可連響幾聲；在背景執行緒播，不擋監控迴圈。沒有音效工具或沒有桌面就算了。"""
+    def run():
+        try:
+            env = _session_env()
+            if not (env.get("DISPLAY") or env.get("WAYLAND_DISPLAY")):
+                return
+            if shutil.which("canberra-gtk-play"):
+                cmd = ["canberra-gtk-play", "-i", name]
+            elif shutil.which("paplay") and os.path.exists(f"/usr/share/sounds/freedesktop/stereo/{name}.oga"):
+                cmd = ["paplay", f"/usr/share/sounds/freedesktop/stereo/{name}.oga"]
+            else:
+                return
+            for i in range(times):
+                subprocess.run(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
+                if i < times - 1:
+                    time.sleep(gap)
+        except Exception:
+            pass
+    threading.Thread(target=run, daemon=True).start()
 
 
 def _gpu_watch():
@@ -4933,7 +4943,7 @@ def _gpu_watch():
                 if hot_notify:
                     _notify(msg('gpu_hot_title', LANG_DEFAULT, p0=g.get("temp_c")),
                             msg('gpu_hot_body', LANG_DEFAULT, p0=threshold, p1=GPU_HOT_SAMPLES * 5) + msg('gpu_help', LANG_DEFAULT) % PORT)
-                    _play_sound(GPU_HOT_SOUND)
+                    _play_sound(GPU_HOT_SOUND, GPU_HOT_SOUND_REPEAT, GPU_HOT_SOUND_GAP_S)
         except Exception:
             pass
         time.sleep(5)
