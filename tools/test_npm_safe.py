@@ -13,6 +13,8 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("SPARK_CENTER_NO_SWEEP", "1")
 import server  # noqa: E402
 
+REAL_UNITS_FOR = server._npm_units_for   # setUp 會把它換成假的；要測真的就用這個
+
 UNIT = "openclaw-gateway.service"
 SCHEMA_NEW = ("openclaw: cannot open your existing data: it was written by a newer schema (19); this build supports 18.\n"
               "Main process exited, code=exited, status=78/CONFIG")
@@ -37,7 +39,9 @@ class Fake:
         c = " ".join(cmd)
         class R: pass
         r = R(); r.returncode = 0; r.stdout = ""; r.stderr = ""
-        if "backup create" in c:
+        if "is-active" in c:
+            r.stdout = self.unit_state + "\n"; r.returncode = 0 if self.unit_state == "active" else 3
+        elif "backup create" in c:
             if not self.backup_ok:
                 r.returncode = 1; r.stderr = "backup: disk full"
             else:
@@ -51,8 +55,6 @@ class Fake:
     def _run(self, cmd, timeout=20):   # server._run（回字串）
         self.calls.append(list(cmd))
         c = " ".join(cmd)
-        if "is-active" in c:
-            return self.unit_state + "\n"
         if "journalctl" in c:
             return self.journal
         if "systemctl --user show" in c:
@@ -176,6 +178,37 @@ class T(unittest.TestCase):
             self.job._npm_transaction(["foo"], [server.NPM_BIN, "install", "-g", "--engine-strict", "foo@2"], backup=True, repair=True)
         self.assertEqual(self.job.state["status"], "done")
         self.assertEqual(self.order(), ["stop", "install", "start"])
+
+    def test_older_binary_refuses_new_config_is_forward_only(self):
+        # 真機 2026-09-30：降回 9.6 後 gateway 說 config 是 9.7 寫的、拒絕啟動。這不是 schema 字樣，但救法一樣：回新版
+        journal = ("Refusing to start the gateway service because this OpenClaw binary (2026.9.6) is older than the config "
+                   "last written by OpenClaw 2026.9.7.\nMain process exited, code=exited, status=78/CONFIG")
+        self.f.unit_state = "failed"; self.f.journal = journal
+        self.job.state.update(kind="rollback_npm", status="running", packages=["j", "openclaw"], forward={"openclaw": "2026.9.7"})
+        self.job._npm_transaction(["openclaw"], [server.NPM_BIN, "install", "-g", "openclaw@2026.9.6"], backup=False, repair=False)
+        st = self.job.state
+        self.assertEqual(st["reason"], "npm_reason_schema_new")
+        ids = [a["id"] for a in st["actions"]]
+        self.assertEqual(ids[0], "forward"); self.assertNotIn("repair", ids)
+        # failed 要在第一輪就判定，不是等滿 20 輪
+        self.assertLessEqual(sum(1 for c in self.f.calls if "is-active" in " ".join(c)), 2)
+
+    def test_units_found_even_when_service_is_failed(self):
+        # 服務 failed 時沒有程序在跑；靠認識的程式的清單和 ExecStart 掃描找到它
+        fake_status = {"prefix": "/usr", "packages": [{"name": "openclaw", "running": []}, {"name": "foo", "running": []}]}
+        def run(cmd, timeout=20):
+            c = " ".join(cmd)
+            if "list-units" in c:
+                return "openclaw-gateway.service loaded failed failed\nfoo-daemon.service loaded inactive dead\nother.service loaded active running\n"
+            if "show foo-daemon.service" in c:
+                return "{ path=/usr/bin/node ; argv[]=/usr/bin/node /usr/lib/node_modules/foo/server.js }"
+            if "show other.service" in c:
+                return "{ path=/usr/bin/other ; argv[]=/usr/bin/other }"
+            return ""
+        with patch.object(server, "npm_status", lambda force=False: fake_status), patch.object(server, "_run", run):
+            self.assertEqual(REAL_UNITS_FOR(["openclaw"]), ["openclaw-gateway.service"])
+            self.assertEqual(REAL_UNITS_FOR(["foo"]), ["foo-daemon.service"])
+            self.assertEqual(REAL_UNITS_FOR(["bar"]), [])
 
     def test_halfloaded_explanation(self):
         self.assertEqual(server._npm_explain(MODULE, "openclaw")[0], "npm_reason_halfloaded")

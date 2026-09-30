@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-09-30
+
+*npm packages that run as a service (OpenClaw today) are now updated as one transaction: stop → back up → install → the program's own repair step → start → verify it stays alive. A plan dialog explains this before you confirm, and a failure shows a plain-language cause with buttons for the way out ("go back to the newer version and repair", "let it repair itself", "restart"), the backup path, and a desktop notification.*
+
+### 新增
+
+- npm 更新／降回改成一筆交易：先停服務、認識的程式先用它自己的指令備份（保留最近兩份於 ~/.local/share/spark-center/npm-backups）、裝完跑它自己的修復／遷移、啟動後要活過幾秒才算完成；任一步失敗就停下並把服務用原本的檔案拉回來。
+- 更新／降回前的計畫視窗：會停哪些服務、認不認識這個程式、要不要備份（預設勾）、會不會升資料格式。降回時明講「舊版打不開新資料，比較穩的是留在新版跑修復」。
+- 失敗卡片先講人話原因（資料格式太新／遷移沒做完／載入到一半／埠被占／不認得），再給可以按的修法與備份路徑、官方說明；桌面通知一則。
+- `tools/test_npm_safe.py`：12 條隔離測試（mock 掉 npm／systemctl／備份指令），掛進 check.sh。
+
+### 修正
+
+- 真機重演 OpenClaw 9.7→9.6 降回：9.6 拒絕啟動的訊息是「binary 比 config 舊」而非 schema，已加入辨識，給「回到新版並修復」而不是無效的「讓它自己修」。
+- 服務 failed 時 is-active 回非零，原本等滿 40 秒才判定；改讀 stdout，第一輪就判定。
+- npm 11 允許安裝腳本的重跑之間、以及裝完到啟動確認之間，工作狀態曾短暫是 done，前端會提早停止輪詢；現在交易途中一律 running。
+
 ## 2026-09-29
 
 *After each apt install, Spark Center can make the stock DGX Dashboard re-check for updates (its "update available" badge is a back-end snapshot that stays lit after you install). Opt-in via one sudoers line; never runs while the Dashboard back end is busy with an NVIDIA OTA.*

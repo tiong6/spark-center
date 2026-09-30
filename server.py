@@ -1451,7 +1451,8 @@ def npm_status(force=False):
 # 為什麼要有：OpenClaw 9.7 一啟動就把資料庫升到新格式，舊版打不開；「降回」救不了，只有備份和它自己的修復指令救得了。
 NPM_KNOWN = {
     "openclaw": {"bin": "openclaw", "backup": ["backup", "create", "--verify", "--json", "--output"], "repair": ["doctor", "--fix", "--non-interactive"],
-                 "migrates_data": True, "docs": "https://docs.openclaw.ai/reference/database-schemas", "data_dir": "~/.openclaw"},
+                 "migrates_data": True, "docs": "https://docs.openclaw.ai/reference/database-schemas", "data_dir": "~/.openclaw",
+                 "units": ["openclaw-gateway.service"]},
 }
 NPM_BACKUP_DIR = os.path.expanduser("~/.local/share/spark-center/npm-backups")
 NPM_BACKUP_KEEP = 2
@@ -1491,8 +1492,23 @@ def npm_plan(names, rollback=False, targets=None):
 
 
 def _npm_units_for(names):
+    """這個套件的 systemd 使用者服務：正在跑的、認識的程式列出的、以及 ExecStart 指到這個套件的（含已 failed 的）。
+    真機 2026-09-30：降回失敗後 gateway 是 failed、沒在跑，只看「正在跑的」會找不到，救回時就不會啟動它。"""
     st = npm_status()
-    return sorted({r["unit"] for e in st.get("packages", []) if e["name"] in names for r in e.get("running", []) if r.get("unit")})
+    units = {r["unit"] for e in st.get("packages", []) if e["name"] in names for r in e.get("running", []) if r.get("unit")}
+    for n in names:
+        units.update((NPM_KNOWN.get(n) or {}).get("units") or [])
+    prefix = (st.get("prefix") or "").strip()
+    if prefix:
+        listing = _run(["systemctl", "--user", "list-units", "--type=service", "--all", "--plain", "--no-legend"], timeout=15) or ""
+        for line in listing.splitlines():
+            u = line.split()[0] if line.split() else ""
+            if not u.endswith(".service") or u in units:
+                continue
+            exe = _run(["systemctl", "--user", "show", u, "-p", "ExecStart", "--value"], timeout=10) or ""
+            if any(f"/node_modules/{n}/" in exe or f"/bin/{(NPM_KNOWN.get(n) or {}).get('bin', n)} " in exe + " " for n in names):
+                units.add(u)
+    return sorted(units)
 
 
 def _npm_explain(journal, name):
@@ -1501,11 +1517,22 @@ def _npm_explain(journal, name):
     low = (journal or "").lower()
     if "schema version" in low or "cannot open your existing data" in low:
         return "npm_reason_schema_new" if "newer schema" in low or "this build supports" in low else "npm_reason_schema", k
+    if "older than the config" in low or "config was written by version" in low or "written by a newer version" in low:
+        return "npm_reason_schema_new", k   # 真機 2026-09-30：9.6 拒絕啟動，因為 config 是 9.7 寫的。救法同 schema：回新版
     if "cannot find module" in low or "err_module_not_found" in low:
         return "npm_reason_halfloaded", k
     if "eaddrinuse" in low or "address already in use" in low:
         return "npm_reason_port", k
     return "npm_reason_unknown", k
+
+
+def _unit_active(unit):
+    """is-active 不是 active 時 rc 非零，_run 會回 None；這裡要的是字面狀態，直接讀 stdout。"""
+    try:
+        r = subprocess.run(["systemctl", "--user", "is-active", unit], capture_output=True, text=True, timeout=10)
+        return (r.stdout or "").strip() or "unknown"
+    except Exception:
+        return "unknown"
 
 
 def _notify(title, body):
@@ -1933,13 +1960,12 @@ class Job:
             state = "unknown"
             for _ in range(20):
                 time.sleep(2)
-                state = (_run(["systemctl", "--user", "is-active", u], timeout=10) or "").strip() or "unknown"
+                state = _unit_active(u)
                 if state in ("failed", "inactive"):
                     break
                 if state == "active":
-                    r = _run(["systemctl", "--user", "show", u, "-p", "NRestarts", "-p", "ActiveEnterTimestampMonotonic"], timeout=10) or ""
                     time.sleep(6)   # 活著不算，要活過幾秒：OpenClaw 是啟動幾秒後才因 schema 退出
-                    state = (_run(["systemctl", "--user", "is-active", u], timeout=10) or "").strip() or "unknown"
+                    state = _unit_active(u)
                     if state == "active":
                         break
             if state != "active":
@@ -1990,6 +2016,8 @@ class Job:
             text = "\n".join(self.state.get("log") or [])
         m = re.search(r"--allow-scripts=([@A-Za-z0-9._/,-]+)", text) if ok and "install-scripts" in text else None
         if m:
+            with self.lock:
+                self.state.update(status="running", finished=None)   # 第一次裝完不算完，別讓前端在這裡停止輪詢
             self._log(msg("npm_allow_scripts", LANG_DEFAULT, pkgs=m.group(1)))
             self._run_subprocess(cmd[:3] + [f"--allow-scripts={m.group(1)}"] + cmd[3:], packages)
 
