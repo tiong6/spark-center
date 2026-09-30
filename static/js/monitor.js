@@ -275,8 +275,13 @@ function renderClockPanel(cc, g, sg) {
     const ticks = []; for (let v = cc.min; v <= hwMax; v += cc.step) ticks.push(`<option value="${v}"></option>`);
     $('#clockTicks').innerHTML = ticks.join('');
     const pos = v => ((v - cc.min) / (hwMax - cc.min) * 100).toFixed(1) + '%';
-    const labels = []; for (let v = cc.min; v <= hwMax; v += 500) labels.push(`<span style="left:${pos(v)}">${v}</span>`);
-    if (factory) labels.push(`<span class="def" style="left:${pos(hwMax)}">${t("mon.clock_factory_mark", {v0: sg.app_clock_mhz})}</span>`);
+    // 兩端的字靠邊對齊，不會超出拉桿；最右一格是原廠時只標「原廠」，不再重複標數字
+    const labels = [];
+    for (let v = cc.min; v <= hwMax; v += 500) {
+      if (factory && v === hwMax) continue;
+      labels.push(`<span class="${v === cc.min ? 'first' : v === hwMax ? 'last' : ''}" style="left:${pos(v)}">${v}</span>`);
+    }
+    if (factory) labels.push(`<span class="def last" style="left:${pos(hwMax)}">${t("mon.clock_factory_mark", {v0: sg.app_clock_mhz})}</span>`);
     $('#clockScale').innerHTML = labels.join('');
   }
   const target = cc.cap_mhz && cc.cap_mhz < hwMax ? cc.cap_mhz : hwMax;

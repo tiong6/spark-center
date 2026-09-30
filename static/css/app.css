@@ -90,10 +90,12 @@
   .clockctl { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
   .clockslide { flex: 1 1 260px; min-width: 180px; position: relative; padding-bottom: 16px; }
   .clockslide input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
-  .clockscale { position: relative; height: 26px; font-size: 10px; color: var(--muted); }
+  .clockscale { position: relative; height: 14px; font-size: 10px; color: var(--muted); }
   .clockscale span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
-  .clockscale span.def { color: var(--accent); top: 12px; }
-  .clockscale span.def::before { content: ""; position: absolute; left: 50%; top: -8px; width: 1px; height: 7px; background: var(--accent); }
+  .clockscale span.first { transform: none; }
+  .clockscale span.last { transform: translateX(-100%); }
+  .clockscale span.def { color: var(--accent); }
+  .clockscale span.def::before { content: ""; position: absolute; right: 0; top: -8px; width: 1px; height: 7px; background: var(--accent); }   /* 標線貼在標籤右緣＝拉桿右端 */
   .clockctl b { min-width: 90px; }
   .switchrow { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--muted); }
   .switchrow input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 40px; height: 22px; border-radius: 11px; background: #2a2f2c; border: 1px solid var(--line); position: relative; cursor: pointer; margin: 0; transition: background .15s; }
