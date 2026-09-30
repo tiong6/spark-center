@@ -274,6 +274,7 @@ async function loadRollback() {
     if (extra.length) html += `<div class="panel notice warn">${t("updates.packages_you_did_not_select_will", {v0: extra.length})}</div>`;
     html += `<div class="chg">` + sim.changes.map(c => `<div class="${c.requested?'':'extra'}">${c.action.padEnd(9)} ${esc(c.name)} ${esc(c.from)}${c.to?' → '+esc(c.to):''}</div>`).join('') + `</div>`;
     html += `<p class="muted" style="margin-top:12px">${t("updates.rollback_conffile_note")}</p>`;
+    if (sim.changes.some(c => /^@|^[a-z]/.test(c.name) && sim.npm)) html += `<div class="panel notice warn" style="margin-top:8px">${t("updates.npm_rollback_warn")}</div>`;
     body.innerHTML = html; $('#mOk').classList.remove('hide'); $('#mOk').textContent = t("common.confirm_rollback");
     $('#mOk').onclick = async () => {
       closeModal();

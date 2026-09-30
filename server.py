@@ -57,6 +57,9 @@ MSG = {
     "setup_visudo_failed": "sudoers 內容沒通過 visudo 檢查，不裝：{err}",
     "setup_timeout": "等密碼視窗等太久，已放棄。",
     "setup_no_display": "服務找不到桌面（沒有 DISPLAY），請在終端機自己跑 app/spark-center-app --install。",
+    "npm_allow_scripts": "npm 11 預設不跑安裝腳本；依 npm 列出的清單允許一次並重裝：{pkgs}",
+    "npm_unit_failed": "{unit} 在更新後沒有在跑（{state}）。日誌最後幾行：",
+    "npm_unit_failed_summary": "套件裝好了，但 {units} 起不來。看工作記錄裡的日誌；程式可能要先做自己的資料遷移（例如 OpenClaw 要 openclaw doctor --fix）。",
     "readonly_mode": "唯讀模式（SPARK_CENTER_READONLY=1）：這個服務不會改任何東西。要啟用更新等功能，拿掉這個環境變數後重啟服務。",
     "node_flow_locked": "nodejs 正由 Node 主版本升級流程處理，請到 npm 面板按「確認安裝」，或先「恢復原版本」。",
     "node_helper_unavailable": "Node 升級 helper 未安裝、版本不符或權限不安全；請依 README 的選用安裝步驟由管理員安裝。",
@@ -333,6 +336,9 @@ MSG = {
     "setup_visudo_failed": "The sudoers line failed the visudo check; not installing it: {err}",
     "setup_timeout": "Gave up waiting for the password dialog.",
     "setup_no_display": "The service cannot see a desktop (no DISPLAY); run app/spark-center-app --install in a terminal instead.",
+    "npm_allow_scripts": "npm 11 skips install scripts by default; allowing the ones npm listed, once, and reinstalling: {pkgs}",
+    "npm_unit_failed": "{unit} is not running after the update ({state}). Last log lines:",
+    "npm_unit_failed_summary": "The packages installed, but {units} failed to start. See the job log; the program may need its own data migration first (OpenClaw, for example, needs openclaw doctor --fix).",
     "readonly_mode": "Read-only mode (SPARK_CENTER_READONLY=1): this service changes nothing. To enable updates and other actions, remove that environment variable and restart the service.",
     "node_flow_locked": "nodejs is being handled by the Node major-upgrade flow; use 'Confirm install' on the npm panel, or restore the original version first.",
     "node_helper_unavailable": "Node upgrade helper is missing, outdated or has unsafe permissions. Ask an administrator to follow the optional helper installation steps in README.",
@@ -1720,6 +1726,40 @@ class Job:
             _NPM["ts"] = 0
             _NODE_FLOW["ts"] = 0
 
+    def _run_npm(self, cmd, packages):
+        """npm 11 起預設不跑套件的安裝腳本，只印 "install scripts not yet covered by allowScripts" 並建議 --allow-scripts=<清單>。
+        使用者明確選了要更新這些套件，等同 npm 10 以前的行為：照 npm 自己列出的清單允許一次、重跑同一個安裝（有快取，幾秒）。
+        清單只取 npm 輸出裡的那一行，不自己擴大。"""
+        self._run_subprocess(cmd, packages)
+        with self.lock:
+            ok = self.state.get("status") == "done"
+            text = "\n".join(self.state.get("log") or [])
+        m = re.search(r"--allow-scripts=([@A-Za-z0-9._/,-]+)", text) if ok and "install-scripts" in text else None
+        if m:
+            self._log(msg("npm_allow_scripts", LANG_DEFAULT, pkgs=m.group(1)))
+            self._run_subprocess(cmd[:3] + [f"--allow-scripts={m.group(1)}"] + cmd[3:], packages)
+
+    def _check_units_after_npm(self, units):
+        """更新前正在跑這些套件的 systemd 使用者服務，更新後還活著嗎？程式自己可能在檔案被換掉時重啟、而新版起不來
+        （真機：OpenClaw 9.7 要先做資料庫遷移，gateway 退出碼 78，systemd 不再重試，面板卻只顯示「沒在執行」）。
+        等 20 秒讓它們重啟完，有 failed 的就把這個工作標成錯誤並附上日誌最後幾行。"""
+        if not units:
+            return
+        time.sleep(20)
+        dead = []
+        for u in units:
+            state = (_run(["systemctl", "--user", "is-active", u], timeout=10) or "").strip() or "unknown"
+            if state in ("failed", "inactive"):
+                tail = (_run(["journalctl", "--user", "-u", u, "-n", "8", "--no-pager", "-o", "cat"], timeout=15) or "").strip().splitlines()
+                dead.append(u)
+                self._log(msg("npm_unit_failed", LANG_DEFAULT, unit=u, state=state))
+                for line in tail[-8:]:
+                    self._log("  " + line[:240])
+        if dead:
+            with self.lock:
+                self.state.update(status="error", error=msg("npm_unit_failed_summary", LANG_DEFAULT, units=", ".join(dead)))
+        _NPM["ts"] = 0
+
     def _run_ollama_pull(self, model):
         req = urllib.request.Request(OLLAMA + "/api/pull", data=json.dumps({"name": model, "stream": True}).encode(), headers={"Content-Type": "application/json"})
         self._log(f"ollama pull {model}")
@@ -1883,14 +1923,18 @@ class Job:
                                       finished=datetime.now().isoformat(timespec="seconds"))
                 return
             # --engine-strict：npm 對 engines 不符預設只印警告照裝，這裡要它直接失敗
-            return self._run_subprocess([NPM_BIN, "install", "-g", "--engine-strict"] + [f"{n}@{want[n]}" for n in packages], packages)
+            units = sorted({r["unit"] for e in st.get("packages", []) if e["name"] in packages for r in e.get("running", []) if r.get("unit")})
+            self._run_npm([NPM_BIN, "install", "-g", "--engine-strict"] + [f"{n}@{want[n]}" for n in packages], packages)
+            return self._check_units_after_npm(units)
         if kind == "rollback_npm":
             ents = rollback_npm_entries(packages[0], packages[1] or None)
             if not ents:
                 with self.lock:
                     self.state.update(status="error", error=msg("rollback_not_found", LANG_DEFAULT), finished=datetime.now().isoformat(timespec="seconds"))
                 return
-            return self._run_subprocess([NPM_BIN, "install", "-g"] + [f"{e['name']}@{e['old']}" for e in ents], [e["name"] for e in ents])
+            units = sorted({r["unit"] for e in npm_status().get("packages", []) if e["name"] in [x["name"] for x in ents] for r in e.get("running", []) if r.get("unit")})
+            self._run_npm([NPM_BIN, "install", "-g"] + [f"{e['name']}@{e['old']}" for e in ents], [e["name"] for e in ents])
+            return self._check_units_after_npm(units)
         if kind == "rollback":
             # 為什麼不用 aptdaemon 的 install_file：它最後跑 DebPackage.check()，預設拒絕比已安裝舊的版本
             # （"A later version is already installed"），force=True 也一樣。apt-get 對本機 .deb 會照給的版本裝，
@@ -3867,7 +3911,8 @@ def setup_toggle(item, enable):
             ok, err = _pkexec(["/usr/bin/install", "-o", "root", "-g", "root", "-m", "0440", src, dest])
             shutil.rmtree(d, ignore_errors=True)
         else:
-            ok, err = _pkexec(["/usr/bin/rm", "-f", dest])
+            # 早期版本（Spark Updater 時期）的檔名是 spark-updater-*，一起刪，否則開關看起來關不掉
+            ok, err = _pkexec(["/usr/bin/rm", "-f", dest, dest.replace("/spark-center-", "/spark-updater-")])
     elif item == "node_helper":
         if enable:
             ok, err = _pkexec(["/usr/bin/install", "-D", "-o", "root", "-g", "root", "-m", "0755", NODE_HELPER_SOURCE, NODE_HELPER])
@@ -5251,7 +5296,11 @@ class Handler(BaseHTTPRequestHandler):
             if r.returncode != 0:
                 return self._json({"ok": False, "error": msg("npm_restart_failed", LANG_DEFAULT, unit=unit, err=(r.stderr or r.stdout).strip()[:200])}, 500)
             _NPM["ts"] = 0
+            time.sleep(3)
             act = (_run(["systemctl", "--user", "is-active", unit], timeout=20) or "").strip()
+            if act != "active":
+                tail = (_run(["journalctl", "--user", "-u", unit, "-n", "8", "--no-pager", "-o", "cat"], timeout=15) or "").strip()
+                return self._json({"ok": False, "unit": unit, "active": act, "error": msg("npm_unit_failed", LANG_DEFAULT, unit=unit, state=act) + "\n" + tail[-1500:]}, 500)
             return self._json({"ok": True, "unit": unit, "active": act})
         if path == "/api/npm/update":
             names = [n for n in data.get("names", []) if isinstance(n, str) and re.fullmatch(r"(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*", n)]
@@ -5266,7 +5315,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error": msg("rollback_not_found", LANG_DEFAULT)}, 400)
             ents = rollback_npm_entries(job_id, name or None)
             if ents:   # npm：沒有相依模擬，registry 直接重裝指定版本；照樣先展示變更再確認
-                sim = {"ok": True, "changes": [{"name": e["name"], "action": "downgrade", "from": e.get("new") or "", "to": e["old"], "requested": True} for e in ents]}
+                sim = {"ok": True, "npm": True, "changes": [{"name": e["name"], "action": "downgrade", "from": e.get("new") or "", "to": e["old"], "requested": True} for e in ents]}
                 if data.get("simulate"):
                     return self._json(sim)
                 if not JOB.start("rollback_npm", [job_id, name]):
