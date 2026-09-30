@@ -188,15 +188,66 @@ async function loadNpm(force) {
   });
   $('#btnNpmUpdate').onclick = () => npmUpdate(j.packages.filter(p => p.outdated).map(p => p.name), $('#btnNpmUpdate'));
 }
-async function npmUpdate(names, btn) {
-  const running = (state.npmPkgs || []).filter(p => names.includes(p.name) && (p.running || []).length);
-  const extra = running.length ? '\n\n' + t("updates.npm_confirm_restart", {list: running.map(p => `${p.name}（${p.running.map(r => r.unit || ('PID ' + r.pid)).join('、')}）`).join('、')}) : '';
-  if (!confirm(t("updates.npm_confirm", {list: names.join(', ')}) + extra)) return;
-  btn.disabled = true;
-  const r = await api('/api/npm/update', {names});
-  if (!r.ok) { alert(t("updates.could_not_start_with_value", {value: r.error})); btn.disabled = false; return; }
-  startPolling(t("job.npm_update_with_value", {value: names.join(', ')})); window.scrollTo({top: 0, behavior: 'smooth'});
+/* 更新前先講清楚會發生什麼：停哪些服務、認不認識這個程式、要不要備份、會不會升資料格式。同一個視窗也給降回用（rollback=true）。 */
+function npmPlanHtml(plan, rollback) {
+  let h = '';
+  for (const it of plan.items) {
+    h += `<div style="margin-top:10px"><b class="mono">${esc(it.name)}</b> <span class="mono sub1">${esc(it.current || '—')} → ${esc(it.target || '—')}</span>`;
+    if (it.units.length) h += `<div class="sub1">${t("updates.npm_plan_units", {units: esc(it.units.join('、'))})}</div>`;
+    if (it.loose_pids.length) h += `<div class="sub1">${t("updates.npm_plan_loose", {pids: esc(it.loose_pids.join(', '))})}</div>`;
+    if (it.known) {
+      h += `<div class="sub1">${t(rollback ? "updates.npm_plan_known_rollback" : "updates.npm_plan_known", {name: esc(it.name)})}</div>`;
+      if (it.migrates_data) h += `<div class="panel notice ${rollback ? 'danger' : 'warn'}" style="margin-top:6px">${t(rollback ? "updates.npm_plan_migrates_rollback" : "updates.npm_plan_migrates", {name: esc(it.name)})}</div>`;
+      if (it.can_backup) h += `<label style="display:block;margin-top:6px;cursor:pointer"><input type="checkbox" id="npmBackup" checked> ${t("updates.npm_plan_backup", {dir: esc(it.data_dir || '')})}</label>`;
+    } else if (it.units.length) h += `<div class="sub1">${t("updates.npm_plan_unknown")}</div>`;
+    h += `</div>`;
+  }
+  h += `<p class="sub1" style="margin-top:12px">${t("updates.npm_plan_steps")}</p>`;
+  return h;
 }
+async function npmUpdate(names, btn) {
+  btn.disabled = true;
+  const plan = await api('/api/npm/plan', {names});
+  btn.disabled = false;
+  if (!plan.ok) { alert(plan.error); return; }
+  $('#mBody').innerHTML = `<p>${t("updates.npm_plan_title", {list: esc(names.join(', '))})}</p>` + npmPlanHtml(plan, false);
+  $('#mOk').classList.remove('hide'); $('#mOk').textContent = t("common.confirm_update");
+  $('#mOk').onclick = async () => {
+    const backup = !$('#npmBackup') || $('#npmBackup').checked; closeModal();
+    const r = await api('/api/npm/update', {names, backup});
+    if (!r.ok) { alert(t("updates.could_not_start_with_value", {value: r.error})); return; }
+    startPolling(t("job.npm_update_with_value", {value: names.join(', ')})); window.scrollTo({top: 0, behavior: 'smooth'});
+  };
+  openModal(t("updates.confirm_changes"));
+}
+/* 服務在 npm 更新後起不來：先用人話講原因，再給可以按的修法；原始日誌在下面本來就看得到 */
+function renderNpmFailure(j) {
+  const box = document.createElement('div'); box.style.marginTop = '10px';
+  let h = `<div class="panel notice danger"><b>${t("updates.npm_failure_what")}</b><div style="margin-top:6px">${t("updates." + j.reason, {name: esc(j.reason_name || '')})}</div></div>`;
+  h += `<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">`;
+  for (const a of j.actions || []) {
+    if (a.id === 'forward') h += `<button class="small primary" data-npmact="forward" data-name="${esc(a.name)}" data-version="${esc(a.version)}" title="${t("updates.npm_act_forward_hint")}">${t("updates.npm_act_forward", {v: esc(a.version)})}</button>`;
+    if (a.id === 'repair') h += `<button class="small primary" data-npmact="repair" data-name="${esc(a.name)}" title="${t("updates.npm_act_repair_hint")}">${t("updates.npm_act_repair", {name: esc(a.name)})}</button>`;
+    if (a.id === 'restart') for (const u of a.units) h += `<button class="small" data-restart="${esc(u)}">${t("updates.npm_restart_btn", {unit: esc(u)})}</button>`;
+    if (a.id === 'backup_info') h += `<span class="sub1">${t("updates.npm_act_backup", {path: esc(a.path)})}${a.docs ? ` · <a href="${esc(a.docs)}" target="_blank" rel="noopener">${t("updates.npm_act_docs")}</a>` : ''}</span>`;
+  }
+  h += `</div>`;
+  box.innerHTML = h; $('#jobactions').appendChild(box);
+  box.querySelectorAll('button[data-npmact]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    const r = await api('/api/npm/action', {action: b.dataset.npmact, name: b.dataset.name, version: b.dataset.version});
+    if (!r.ok) { alert(r.error); b.disabled = false; return; }
+    startPolling(t(b.dataset.npmact === 'forward' ? "job.npm_forward_with_value" : "job.npm_repair_with_value", {value: b.dataset.name}));
+  });
+  box.querySelectorAll('button[data-restart]').forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = t("updates.npm_restarting");
+    const r = await api('/api/npm/restart', {unit: b.dataset.restart});
+    b.textContent = r.ok ? t("updates.npm_restarted", {unit: b.dataset.restart, state: r.active}) : t("updates.npm_restart_failed_short");
+    if (!r.ok) { b.disabled = false; alert(r.error); }
+    loadNpm(true);
+  });
+}
+
 /* npm 更新完：還在跑舊版檔案的程序要重啟。systemd 使用者服務給一鍵重啟（不需密碼）；不是服務的只提醒 */
 async function offerNpmRestart(names) {
   const j = await api('/api/npm?force=1');
@@ -269,16 +320,23 @@ async function loadRollback() {
       body.innerHTML = h; $('#mOk').classList.add('hide'); openModal(t("updates.cannot_proceed")); return;
     }
     const extra = sim.changes.filter(c => !c.requested);
-    let html = `<p>${all ? t("updates.rollback_all_confirm", {list: esc(b.dataset.rbAll)}) : t("updates.rollback_confirm", {name: esc(b.dataset.rbName), new: esc(b.dataset.rbNew), old: esc(b.dataset.rbOld)})}</p>`;
-    html += `<p>${t("updates.rollback_sim_summary", {n: sim.changes.length})}</p>`;
-    if (extra.length) html += `<div class="panel notice warn">${t("updates.packages_you_did_not_select_will", {v0: extra.length})}</div>`;
-    html += `<div class="chg">` + sim.changes.map(c => `<div class="${c.requested?'':'extra'}">${c.action.padEnd(9)} ${esc(c.name)} ${esc(c.from)}${c.to?' → '+esc(c.to):''}</div>`).join('') + `</div>`;
-    html += `<p class="muted" style="margin-top:12px">${t("updates.rollback_conffile_note")}</p>`;
-    if (sim.changes.some(c => /^@|^[a-z]/.test(c.name) && sim.npm)) html += `<div class="panel notice warn" style="margin-top:8px">${t("updates.npm_rollback_warn")}</div>`;
+    let html;
+    if (sim.npm) {   // npm 降回沒有密碼視窗、沒有 apt 模擬、沒有設定檔：只講 npm 的計畫
+      html = `<p>${t("updates.npm_rollback_confirm", {name: esc(b.dataset.rbName), new: esc(b.dataset.rbNew), old: esc(b.dataset.rbOld)})}</p>`;
+      const plan = await api('/api/npm/plan', {names: sim.changes.map(c => c.name), rollback: true, targets: Object.fromEntries(sim.changes.map(c => [c.name, c.to]))});
+      if (plan.ok) html += npmPlanHtml(plan, true);
+    } else {
+      html = `<p>${all ? t("updates.rollback_all_confirm", {list: esc(b.dataset.rbAll)}) : t("updates.rollback_confirm", {name: esc(b.dataset.rbName), new: esc(b.dataset.rbNew), old: esc(b.dataset.rbOld)})}</p>`;
+      html += `<p>${t("updates.rollback_sim_summary", {n: sim.changes.length})}</p>`;
+      if (extra.length) html += `<div class="panel notice warn">${t("updates.packages_you_did_not_select_will", {v0: extra.length})}</div>`;
+      html += `<div class="chg">` + sim.changes.map(c => `<div class="${c.requested?'':'extra'}">${c.action.padEnd(9)} ${esc(c.name)} ${esc(c.from)}${c.to?' → '+esc(c.to):''}</div>`).join('') + `</div>`;
+      html += `<p class="muted" style="margin-top:12px">${t("updates.rollback_conffile_note")}</p>`;
+    }
     body.innerHTML = html; $('#mOk').classList.remove('hide'); $('#mOk').textContent = t("common.confirm_rollback");
     $('#mOk').onclick = async () => {
       closeModal();
-      const r = await api('/api/rollback', {job: b.dataset.rbJob, name: b.dataset.rbName});
+      const backup = !$('#npmBackup') || $('#npmBackup').checked;
+      const r = await api('/api/rollback', {job: b.dataset.rbJob, name: b.dataset.rbName, backup});
       if (!r.ok) { alert(r.error); return; }
       startPolling(t("job.rollback_with_value", {value: label})); window.scrollTo({top: 0, behavior: 'smooth'});
     };
@@ -340,7 +398,7 @@ function jobTitle(j) {   // 重新整理頁面或服務重啟後接回工作時�
   return ({ node_source: t('node.title'), refresh: t("job.refresh_apt_sources"), install: t("job.apt_install_with_value", {value: pk}), remove: t("job.apt_remove_with_value", {value: pk}),
             aptclean: t("job.clear_apt_cache"), snap: t("job.snap_update_with_value", {value: pk}), flatpak: t("job.flatpak_update_with_value", {value: pk}),
             ollama_pull: 'ollama pull ' + pk, shell: t("job.system_action_with_value", {value: pk}),
-            npm: t("job.npm_update_with_value", {value: pk}),
+            npm: t("job.npm_update_with_value", {value: pk}), npm_repair: t("job.npm_repair_with_value", {value: pk}), npm_forward: t("job.npm_forward_with_value", {value: (j.packages || [])[0] || pk}),
             rollback: t("job.rollback_with_value", {value: (j.packages || [])[1] || (j.packages || [])[0] || pk}),
             rollback_npm: t("job.rollback_with_value", {value: (j.packages || [])[1] || (j.packages || [])[0] || pk}) })[j.kind] || (t("job.job_with_value", {value: pk}));
 }
@@ -370,6 +428,7 @@ async function pollJob() {
     $('#jobcard').className = 'panel notice ' + (j.status === 'done' ? 'ok' : 'danger');
     $('#jobstatus').textContent = j.status === 'done' ? t("job.completed", {v0: j.finished}) : t("job.failed", {v0: j.error || t("job.unknown_error")});
     $('#jobactions').innerHTML = `<button id="jobClose">${t("job.close")}</button>`;
+    if (j.status === 'error' && j.reason) renderNpmFailure(j);   // 人話原因 + 可以按的修法
     clearInterval(state.autoClose); state.autoClose = null;
     const closeCard = () => { clearInterval(state.autoClose); state.autoClose = null; $('#jobcard').classList.add('hide'); };
     $('#jobClose').onclick = closeCard;
