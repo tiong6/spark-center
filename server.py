@@ -258,6 +258,8 @@ MSG = {
         "trash": "垃圾桶",
         "gpu_stuck_advice": "論壇多人確認的根因是電源供應器內 USB-C PD 控制器韌體卡住。解法：拔掉電源供應器與所有 USB-C 裝置，按住電源鍵 30 秒，再等 60 秒讓電容放電，然後接回開機。只重開機沒用，PD 控制器在變壓器裡，要斷電才會重置。",
         "gpu_stuck_title": "GPU 卡在低功耗狀態",
+        "gpu_hot_title": "GPU 過熱：{p0} °C",
+        "gpu_hot_body": "已連續 {p1} 秒在驅動的降頻點 {p0} °C 以上。檢查出風口有沒有被擋、風扇有沒有轉；持續下去驅動會降速、更高會自己關機。",
         "disk_full_title": "根分割區快滿了",
         "transaction_failed": "交易失敗",
         "fw_pending": "待處理（等重開機）",
@@ -552,6 +554,8 @@ MSG = {
         "trash": "Trash",
         "gpu_stuck_advice": "Multiple forum users have confirmed that the root cause is stuck firmware in the power supply's USB-C PD controller. Disconnect the power supply and all USB-C devices, hold the power button for 30 seconds, then wait another 60 seconds for the capacitors to discharge before reconnecting and powering on. Rebooting alone does not help: the PD controller is inside the power adapter and requires a power disconnect to reset.",
         "gpu_stuck_title": "GPU stuck in a low-power state",
+        "gpu_hot_title": "GPU too hot: {p0} °C",
+        "gpu_hot_body": "At or above the driver's slowdown point of {p0} °C for {p1} s. Check that the vents are clear and the fan is spinning; the driver will throttle, and shuts the GPU down if it keeps rising.",
         "disk_full_title": "Root partition is nearly full",
         "transaction_failed": "Transaction failed",
         "fw_pending": "Pending (waiting for reboot)",
@@ -4384,6 +4388,7 @@ def hardware_live():
         "uptime_s": float(up.split()[0]) if up else None,
         "gpu": _gpu_live(),
         "gpu_alert": gpu_alert(),
+        "gpu_hot": gpu_hot(),
         "sensors": _sensors(),
         "cpu": _cpu_jiffies(),
         "cpu_freq": _cpu_freqs(),
@@ -4831,7 +4836,13 @@ def disk_status(force=False):
 # 判定：連續 30 秒（6 次取樣）「GPU 使用率 ≥ 20% 但 SM 時脈 ≤ 800 MHz」，或硬體降速／功率煞車旗標持續亮著。
 # 閒置時時脈本來就低，所以一定要配合使用率，避免誤報。
 
-_GPU_WATCH = {"lock": threading.Lock(), "samples": [], "alert": None, "last_notify": 0}
+_GPU_WATCH = {"lock": threading.Lock(), "samples": [], "alert": None, "last_notify": 0, "hot": None, "hot_last_notify": 0}
+# 過熱警報：門檻是驅動回報的降頻點（NVML），拿不到就不警報（不猜一個數字）。
+# 連續 60 秒（12 個 5 秒樣本）都在門檻以上才叫，避免跑模型時在門檻附近晃來晃去一直響；同一波每 10 分鐘再提醒；降到門檻下 3 度才解除。
+GPU_HOT_SAMPLES = 12
+GPU_HOT_RENOTIFY_S = 600
+GPU_HOT_CLEAR_MARGIN = 3
+GPU_HOT_SOUND = "alarm-clock-elapsed"
 GPU_STUCK_CLOCK_MHZ = 800
 GPU_STUCK_MIN_UTIL = 20
 GPU_STUCK_SAMPLES = 6
@@ -4857,6 +4868,33 @@ def gpu_stuck_evaluate(samples):
     }
 
 
+def gpu_hot_evaluate(samples, threshold, current=None):
+    """純函式。回 (hot: bool, peak)。current 是上一輪的狀態：已在警報中就用「門檻－餘裕」判斷解除，不用門檻本身。"""
+    if not threshold:
+        return False, None
+    recent = [x["temp_c"] for x in samples if x.get("temp_c") is not None][-GPU_HOT_SAMPLES:]   # 偶爾讀不到的樣本跳過，看最近 N 個有效讀數
+    if current:
+        last = recent[-1] if recent else None
+        return (last is not None and last >= threshold - GPU_HOT_CLEAR_MARGIN), (max(recent) if recent else None)
+    if len(recent) < GPU_HOT_SAMPLES:
+        return False, None
+    return all(v >= threshold for v in recent), max(recent)
+
+
+def _play_sound(name):
+    """系統音效（freedesktop 主題自帶，不用裝東西）。沒有音效工具或沒有桌面就算了。"""
+    try:
+        env = _session_env()
+        if not (env.get("DISPLAY") or env.get("WAYLAND_DISPLAY")):
+            return
+        if shutil.which("canberra-gtk-play"):
+            subprocess.Popen(["canberra-gtk-play", "-i", name], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif shutil.which("paplay") and os.path.exists(f"/usr/share/sounds/freedesktop/stereo/{name}.oga"):
+            subprocess.Popen(["paplay", f"/usr/share/sounds/freedesktop/stereo/{name}.oga"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
 def _gpu_watch():
     while True:
         try:
@@ -4874,9 +4912,28 @@ def _gpu_watch():
                     notify = alert and time.time() - _GPU_WATCH["last_notify"] > 3600
                     if notify:
                         _GPU_WATCH["last_notify"] = time.time()
+                    # 過熱
+                    threshold = (_gpu_static() or {}).get("throttle_temp_c")
+                    hot, peak = gpu_hot_evaluate(_GPU_WATCH["samples"], threshold, _GPU_WATCH["hot"])
+                    hot_notify = False
+                    if hot:
+                        if not _GPU_WATCH["hot"]:
+                            _GPU_WATCH["hot"] = {"since": datetime.now().isoformat(timespec="seconds"), "threshold": threshold, "peak": peak}
+                        else:
+                            _GPU_WATCH["hot"]["peak"] = max(_GPU_WATCH["hot"]["peak"] or 0, peak or 0)
+                        _GPU_WATCH["hot"]["temp_c"] = g.get("temp_c")
+                        hot_notify = time.time() - _GPU_WATCH["hot_last_notify"] > GPU_HOT_RENOTIFY_S
+                        if hot_notify:
+                            _GPU_WATCH["hot_last_notify"] = time.time()
+                    else:
+                        _GPU_WATCH["hot"] = None
                 if notify:
                     subprocess.run(["notify-send", "-u", "critical", "-a", "Spark Center", msg('gpu_stuck_title', LANG_DEFAULT),
                                     alert["message"] + msg('gpu_help', LANG_DEFAULT) % PORT], timeout=10)
+                if hot_notify:
+                    _notify(msg('gpu_hot_title', LANG_DEFAULT, p0=g.get("temp_c")),
+                            msg('gpu_hot_body', LANG_DEFAULT, p0=threshold, p1=GPU_HOT_SAMPLES * 5) + msg('gpu_help', LANG_DEFAULT) % PORT)
+                    _play_sound(GPU_HOT_SOUND)
         except Exception:
             pass
         time.sleep(5)
@@ -4885,6 +4942,11 @@ def _gpu_watch():
 def gpu_alert():
     with _GPU_WATCH["lock"]:
         return _GPU_WATCH["alert"]
+
+
+def gpu_hot():
+    with _GPU_WATCH["lock"]:
+        return _GPU_WATCH["hot"]
 
 
 # ---------- 磁碟快滿通知（背景，每 10 分鐘；≥90% 每 6 小時提醒一次）----------

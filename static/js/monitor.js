@@ -144,7 +144,9 @@ function renderMon(j, rerender) {
     if (g.temp_c != null) pushHist('temp', sampleTime, g.temp_c);
     const tmax = S.gpu.throttle_temp_c || 100;
     const tsrc = S.gpu.throttle_source === 'NVML slowdown threshold' ? t("mon.slowdown_threshold_c_actual_nvml_driver", {v0: S.gpu.throttle_temp_c, v1: S.gpu.shutdown_temp_c ? t("mon.shutdown_c", {v0: S.gpu.shutdown_temp_c}) : ''}) : S.gpu.throttle_temp_c ? t("mon.slowdown_threshold_about_c_estimated_from", {v0: S.gpu.throttle_temp_c}) : t("mon.gauge_maximum_100_c_slowdown_threshold");
-    cards.push(monCard('temp', t("mon.gpu_temperature"), tsrc, gaugeLeft(g.temp_c == null ? null : g.temp_c / tmax * 100, g.temp_c == null ? '—' : g.temp_c + ' °C', S.gpu.throttle_temp_c ? t("mon.c_below_slowdown_threshold", {v0: (S.gpu.throttle_temp_c - g.temp_c).toFixed(0)}) : ''), [{color: C_LINE, data: hw.hist.temp || []}], tmax, v => Math.round(v) + ' °C'));
+    // 過熱警報只在拿得到驅動降頻點時才存在；卡片底下講清楚規則，正在警報中就標紅
+    const hotHint = S.gpu.throttle_temp_c ? (j.gpu_hot ? `<span style="color:var(--danger)">${t("mon.hot_now", {v0: esc((j.gpu_hot.since || '').replace('T', ' ')), v1: j.gpu_hot.peak})}</span>` : t("mon.hot_hint", {v0: S.gpu.throttle_temp_c})) : '';
+    cards.push(monCard('temp', t("mon.gpu_temperature"), tsrc + (hotHint ? ` · ${hotHint}` : ''), gaugeLeft(g.temp_c == null ? null : g.temp_c / tmax * 100, g.temp_c == null ? '—' : g.temp_c + ' °C', S.gpu.throttle_temp_c ? t("mon.c_below_slowdown_threshold", {v0: (S.gpu.throttle_temp_c - g.temp_c).toFixed(0)}) : ''), [{color: C_LINE, data: hw.hist.temp || []}], tmax, v => Math.round(v) + ' °C'));
     hovers.push(['temp', [{color: C_LINE, data: hw.hist.temp || []}], v => v.toFixed(0) + ' °C']);
     if (g.power_w != null) pushHist('power', sampleTime, g.power_w);
     const ph = hw.hist.power || [], pmax = S.gpu.power_limit_w || Math.max(1, ...ph.map(d => d[1])) * 1.15;
