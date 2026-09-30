@@ -270,23 +270,34 @@ function renderClockPanel(cc, g, sg) {
   const hwMax = sg.max_clock_mhz ? Math.min(cc.max, Math.floor(sg.max_clock_mhz / cc.step) * cc.step) : cc.max;
   if (r.min != cc.min || r.max != hwMax) { r.min = cc.min; r.max = hwMax; r.step = cc.step; }
   const target = cc.cap_mhz || sg.app_clock_mhz || hwMax;
-  if (!hw.clockTouched) { r.value = target; sel.textContent = target + ' MHz'; }
+  // 超過原廠預設工作點：紅色。這不會更快（驅動仍以自己的功耗／溫度限制為準），只等於取消上限；按確定會再問一次
+  const paint = v => { const over = sg.app_clock_mhz && v > sg.app_clock_mhz; r.style.accentColor = over ? 'var(--danger)' : ''; sel.style.color = over ? 'var(--danger)' : ''; sel.textContent = v + ' MHz' + (over ? ' ' + t("mon.clock_over_mark") : ''); };
+  if (!hw.clockTouched) { r.value = target; paint(target); }
   r.disabled = apply.disabled = !cc.enabled; reset.disabled = !cc.enabled || !cc.cap_mhz;
   setTxt('#clockCapNow', cc.cap_mhz ? t("mon.clock_cap_now", {v0: cc.cap_mhz}) : t("mon.clock_cap_none"));
   setHtml('#clockHint', cc.enabled ? t("mon.clock_cap_hint", {v0: sg.app_clock_mhz || '—'}) : `${t("mon.clock_cap_setup_hint")} <a href="#setup">${t("setup.title")}</a>`);
   if (!hw.clockBound) {
     hw.clockBound = true;
-    r.oninput = () => { hw.clockTouched = true; sel.textContent = r.value + ' MHz'; };
+    r.oninput = () => { hw.clockTouched = true; paint(parseInt(r.value, 10)); };
     const post = async (body, btn) => {
       btn.disabled = true; const old = btn.textContent; btn.textContent = '…';
       const res = await api('/api/gpu/clock', body);
       btn.textContent = old; hw.clockTouched = false;
       if (!res.ok) { alert(res.error); btn.disabled = false; return; }
-      sel.textContent = (res.cap_mhz || sg.app_clock_mhz || hwMax) + ' MHz';
+      paint(res.cap_mhz || sg.app_clock_mhz || hwMax);
       setTxt('#clockCapNow', res.cap_mhz ? t("mon.clock_cap_now", {v0: res.cap_mhz}) : t("mon.clock_cap_none"));
       btn.disabled = false;
     };
-    apply.onclick = () => post({mhz: parseInt(r.value, 10)}, apply);
+    apply.onclick = () => {
+      const v = parseInt(r.value, 10);
+      if (sg.app_clock_mhz && v > sg.app_clock_mhz) {   // 超出原廠：先講清楚再做
+        $('#mBody').innerHTML = `<div class="panel notice danger">${t("mon.clock_over_warn", {v0: v, v1: sg.app_clock_mhz})}</div>`;
+        $('#mOk').classList.remove('hide'); $('#mOk').textContent = t("mon.clock_over_ok");
+        $('#mOk').onclick = () => { closeModal(); post({mhz: v}, apply); };
+        openModal(t("mon.clock_over_title")); return;
+      }
+      post({mhz: v}, apply);
+    };
     reset.onclick = () => post({reset: true}, reset);
   }
 }
