@@ -5,3 +5,4 @@ __pycache__/
 data/hardware.json
 data/rollback/
 data/faq/
+data/gpu-clock.json
