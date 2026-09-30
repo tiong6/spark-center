@@ -5726,7 +5726,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({'ok': False, 'error': node_error(str(e))}, 400)
         if path == "/api/setup/toggle":
             item, enable = str(data.get("item") or ""), bool(data.get("enable"))
-            if item not in ("dmidecode", "nvme", "dashboard_recheck", "node_helper", "autostart", "remote"):
+            if item not in ("gpu_clock", "dmidecode", "nvme", "dashboard_recheck", "node_helper", "autostart", "remote"):
                 return self._json({"ok": False, "error": msg("node_bad_action", LANG_DEFAULT)}, 400)
             r = setup_toggle(item, enable)
             return self._json(r, 200 if r.get("ok") else 400)
