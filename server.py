@@ -5129,7 +5129,9 @@ def fwupd_status(force=False):
         rel = (_fw_json(["get-releases", did], timeout=30) or {}).get("Releases") or []
         pick = lambda v: next(({"version": r.get("Version"), "summary": r.get("Summary"), "text": _html_text(r.get("Description")),
                                 "urgency": r.get("Urgency")} for r in rel if v and r.get("Version") == v), None)
-        return {"installed": pick(cur), "latest": pick(new) if new and new != cur else None}
+        # fwupd 的裝置名常是通用的「UEFI Device Firmware」；LVFS 的 release 名稱才分得出 SoC FW／USB-C PD FW
+        return {"installed": pick(cur), "latest": pick(new) if new and new != cur else None,
+                "lvfs_name": next((r.get("Name") for r in rel if r.get("Name")), None)}
     rows = []
     for d in devs:
         flags = d.get("Flags") or []

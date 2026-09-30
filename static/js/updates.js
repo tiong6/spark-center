@@ -93,13 +93,32 @@ async function loadFirmware(force) {
   $('#btnFwUpdate').classList.toggle('hide', !j.updates);
   const errBanner = j.error ? `<div class="panel notice danger" style="margin-bottom:10px">${esc(j.error)}</div>` : '';
   const vis = j.devices.filter(d => !d.hidden), hid = j.devices.filter(d => d.hidden);
+  // 分組＋白話：fwupd 的名字（UEFI Device Firmware ×2、KEK CA、SBAT…）一般人看不懂。
+  // 群組看 plugin；裝置名優先用 LVFS 的 release 名（GX10 SoC FW／USB-C PD FW），說明用固定表。
+  const SECURE = ['uefi_db', 'uefi_kek', 'uefi_dbx', 'uefi_sbat', 'uefi_pk'];
+  const groupOf = d => d.plugin === 'uefi_capsule' ? 'board' : SECURE.includes(d.plugin) ? 'secure' : d.plugin === 'nvme' ? 'storage' : 'peripheral';
+  const kindOf = d => { const n = [(d.notes || {}).lvfs_name, d.name, d.summary].filter(Boolean).join(' '); const p = d.plugin || '';
+    if (/SoC/i.test(n)) return 'soc'; if (/Embedded Controller/i.test(n)) return 'ec'; if (/USB-C PD|PD FW/i.test(n)) return 'pd';
+    if (p === 'uefi_capsule') return 'capsule'; if (p === 'nvme') return 'nvme'; if (p === 'uefi_dbx') return 'dbx'; if (p === 'uefi_sbat') return 'sbat';
+    if (SECURE.includes(p)) return 'cert'; if (/usb4|hub/i.test(p + n)) return 'hub'; if (/hidpp|mouse|keyboard|receiver/i.test(p + n)) return 'hid'; return 'generic'; };
+  const friendly = d => { const k = kindOf(d); return ['generic', 'cert', 'hid', 'capsule', 'dbx', 'sbat'].includes(k) ? d.name : t("updates.fwd_" + k + "_name"); };
   const row = d => { const last = d.history[0]; const st = d.mismatch ? `<span class="tag reboot">${t("updates.history_reports_success_but_version_differs")}</span>` : d.pending ? `<span class="tag sec">${t("updates.awaiting_reboot_to_apply")}</span>` : d.update_available ? `<span class="tag sec">${t("updates.new_version", {v0: esc(d.latest)})}</span>` : j.updates == null ? `<span class="tag">${t("updates.unknown_query_failed")}</span>` : `<span class="tag ok">${t("updates.up_to_date")}</span>`;
     // LVFS 的版本說明另起一列橫跨整張表：塞在 30% 寬的裝置欄裡會把一列撐到兩百多像素高、右邊三欄空著
     const n = d.notes || {}, sec = (k, label) => n[k] && (n[k].summary || n[k].text) ? `<div style="margin-top:6px"><b>${label}</b><div style="margin:2px 0 0 12px;white-space:pre-line">${esc(n[k].summary || '')}${n[k].text ? '\n' + esc(n[k].text) : ''}</div></div>` : '';
     const notes = sec('installed', t("updates.fw_notes_installed", {v: esc((n.installed || {}).version || '')})) + sec('latest', t("updates.fw_notes_latest", {v: esc((n.latest || {}).version || '')}));
     const noteRow = notes ? `<tr class="fwnote"><td colspan="4" style="padding:0 12px 10px 28px;border-top:0"><details class="sub1"><summary style="cursor:pointer">${t("updates.fw_notes_toggle")}</summary>${notes}</details></td></tr>` : '';
-    return `<tr><td><b>${esc(d.name)}</b><div class="sub1">${esc(d.summary || d.plugin || '')}</div></td><td class="mono">${esc(d.version || '—')}</td><td>${st}</td><td class="sub1">${last ? `${esc(last.old || '?')} → ${esc(last.new || '?')}，${esc(last.state_zh)}${last.error ? '：' + esc(last.error) : ''}<br>${esc((last.when || '').replace('T',' '))}` : '—'}</td></tr>${noteRow}`; };
-  let html = errBanner + `<table><thead><tr><th style="width:30%">${t("updates.device")}</th><th style="width:16%">${t("updates.current_version_2")}</th><th style="width:20%">${t("updates.status")}</th><th>${t("updates.last_update_fwupd_history")}</th></tr></thead><tbody>${vis.map(row).join('')}</tbody></table>`;
+    const raw = friendly(d) !== d.name ? `${esc(d.name)} · ` : '';
+    return `<tr><td><b>${esc(friendly(d))}</b><div class="sub1">${t("updates.fwd_" + kindOf(d))}</div><div class="sub1" style="opacity:.7">${raw}${esc(d.vendor || '')}</div></td><td class="mono">${esc(d.version || '—')}</td><td>${st}</td><td class="sub1">${last ? `${esc(last.old || '?')} → ${esc(last.new || '?')}，${esc(last.state_zh)}${last.error ? '：' + esc(last.error) : ''}<br>${esc((last.when || '').replace('T',' '))}` : '—'}</td></tr>${noteRow}`; };
+  const order = ['board', 'storage', 'peripheral', 'secure'];
+  let html = errBanner;
+  for (const g of order) {
+    const items = vis.filter(d => groupOf(d) === g); if (!items.length) continue;
+    const body = `<table><thead><tr><th style="width:30%">${t("updates.device")}</th><th style="width:16%">${t("updates.current_version_2")}</th><th style="width:20%">${t("updates.status")}</th><th>${t("updates.last_update_fwupd_history")}</th></tr></thead><tbody>${items.map(row).join('')}</tbody></table>`;
+    // 開機安全那組預設收起：憑證與撤銷清單有更新裝就好，不需要理解
+    html += g === 'secure'
+      ? `<details style="margin-top:10px"><summary class="sub1" style="cursor:pointer"><b>${t("updates.fwg_" + g)}</b>（${items.length}）· ${t("updates.fwg_" + g + "_desc")}</summary>${body}</details>`
+      : `<div style="margin-top:${html ? 14 : 0}px"><b>${t("updates.fwg_" + g)}</b> <span class="sub1">· ${t("updates.fwg_" + g + "_desc")}</span></div>${body}`;
+  }
   if (hid.length) html += `<details style="margin-top:8px"><summary class="sub1">${t("updates.hidden_devices_certificates_and_keys", {v0: hid.length})}</summary><table><tbody>${hid.map(row).join('')}</tbody></table></details>`;
   html += `<div class="sub1" style="margin-top:8px">${t("updates.version_mismatch_means_fwupd_history_records")}</div>`;
   box.innerHTML = html;
