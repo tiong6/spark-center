@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 data/hardware.json
 data/rollback/
+data/faq/

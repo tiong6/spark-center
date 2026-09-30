@@ -2,7 +2,7 @@
    題目文字在 i18n.js（faq.<id>.q／faq.<id>.a），用輕量標記：「1. 」「- 」開頭是清單、「## 」是小標、`反引號` 是程式碼；
    指令與連結跟語言無關，放在這裡。「本機」框是 /api/faq 即時讀的，和 NVIDIA 的說法分開畫；
    原文是抄進來的快照，有沒有改版由 /api/faq/source 查，查不到就講查不到。 */
-const FAQ_SOURCE = { url: 'https://forums.developer.nvidia.com/t/dgx-spark-gb10-faq/347344', version: 11, updated: '2026-08-04' };
+const FAQ_SOURCE = { url: 'https://forums.developer.nvidia.com/t/dgx-spark-gb10-faq/347344', version: 12, updated: '2026-09-29' };
 const FAQ_CATS = ['setup', 'network', 'memory', 'display', 'software', 'cluster', 'security'];
 const FAQ_APPLE_LAN = ['faq.link.apple_lan', 'https://support.apple.com/guide/mac-help/control-access-to-your-local-network-on-mac-mchla4f49138/mac'];
 const FAQ = [
@@ -12,6 +12,7 @@ const FAQ = [
     FAQ_APPLE_LAN] },
   { id: 'ssid', cat: 'setup', fe: true },
   { id: 'power_on', cat: 'setup' },
+  { id: 'airgap', cat: 'setup', links: [['faq.link.recovery', 'https://www.nvidia.com/en-us/drivers/dgx-spark-recovery-software/']] },   // 第 12 版新增
   { id: 'mac_ssh', cat: 'network', links: [FAQ_APPLE_LAN] },
   { id: 'sync_exists', cat: 'network', cmds: [
     ['Windows', 'C:\\Users\\<username>\\AppData\\Local\\NVIDIA Corporation\\Sync\\config\\ssh_config'],

@@ -19,6 +19,7 @@ import socket
 import stat
 from pathlib import Path
 import gzip
+import html as html_mod
 import json
 import os
 import re
@@ -5227,6 +5228,30 @@ def faq_local():
     return {"ok": True, "cx7": cx7_state(), "mem": mem, "wifi": wifi}
 
 
+FAQ_ARCHIVE_DIR = os.path.join(HERE, "data", "faq")
+
+
+def _faq_archive(post):
+    """每個版本的原文留一份純文字在 data/faq/v<N>.txt（本機、不進 git：原文是 NVIDIA 的）。
+    下一版出來時才有前一版可以 diff；2026-09-30 改到第 12 版時沒有第 11 版原文，只能整篇重讀。已存在就不重寫。"""
+    v = post.get("version")
+    if not v:
+        return
+    path = os.path.join(FAQ_ARCHIVE_DIR, f"v{v}.txt")
+    if os.path.exists(path):
+        return
+    d = post.get("cooked") or ""
+    d = re.sub(r'<a [^>]*class="anchor"[^>]*>.*?</a>', "", d, flags=re.S)
+    d = re.sub(r"<li>", "\n- ", d)
+    d = re.sub(r"</?(p|ul|ol|h[1-6]|pre|br)[^>]*>", "\n", d)
+    d = re.sub(r'<a [^>]*href="([^"]+)"[^>]*>(.*?)</a>', lambda m: m.group(2) if m.group(1).startswith("#") else f"{m.group(2)} [{m.group(1)}]", d, flags=re.S)
+    t = html_mod.unescape(re.sub(r"<[^>]+>", "", d))
+    t = re.sub(r"[ \t]+", " ", t); t = re.sub(r"\n\s*\n+", "\n", t).strip() + "\n"
+    os.makedirs(FAQ_ARCHIVE_DIR, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(f"# {FAQ_TOPIC} version {v} updated {(post.get('updated_at') or '')[:10]} archived {datetime.now().isoformat(timespec='seconds')}\n{t}")
+
+
 def faq_source():
     """原文的版本號與最後編輯日（Discourse 的 post version），成功的結果快取一天；失敗不快取、回 error，不假裝是最新。"""
     if _FAQ_SRC["data"] and time.time() - _FAQ_SRC["ts"] < 86400:
@@ -5238,6 +5263,7 @@ def faq_source():
             post = json.load(r)["post_stream"]["posts"][0]
         d.update(version=post.get("version"), updated=(post.get("updated_at") or "")[:10] or None,
                  checked=datetime.now().isoformat(timespec="seconds"))
+        _faq_archive(post)
         _FAQ_SRC.update(ts=time.time(), data=dict(d))
     except Exception as e:
         d["error"] = str(e)[:120]
