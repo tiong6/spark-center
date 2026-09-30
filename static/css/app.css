@@ -87,6 +87,9 @@
   .pk { display: inline-block; font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: #0f1110; border: 1px solid #2c302e; border-radius: 4px; padding: 1px 6px; margin: 2px 4px 2px 0; }
   .sub1 { color: var(--muted); font-size: 12px; }
   /* 設定分頁的開關：原生 checkbox 畫成滑動開關，狀態文字在旁邊 */
+  .clockctl { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+  .clockctl input[type="range"] { flex: 1 1 240px; min-width: 160px; accent-color: var(--accent); }
+  .clockctl b { min-width: 90px; }
   .switchrow { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--muted); }
   .switchrow input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 40px; height: 22px; border-radius: 11px; background: #2a2f2c; border: 1px solid var(--line); position: relative; cursor: pointer; margin: 0; transition: background .15s; }
   .switchrow input[type="checkbox"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #9aa19a; transition: left .15s, background .15s; }

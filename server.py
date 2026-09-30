@@ -260,6 +260,9 @@ MSG = {
         "gpu_stuck_advice": "論壇多人確認的根因是電源供應器內 USB-C PD 控制器韌體卡住。解法：拔掉電源供應器與所有 USB-C 裝置，按住電源鍵 30 秒，再等 60 秒讓電容放電，然後接回開機。只重開機沒用，PD 控制器在變壓器裡，要斷電才會重置。",
         "gpu_stuck_title": "GPU 卡在低功耗狀態",
         "gpu_hot_title": "GPU 過熱：{p0} °C",
+        "gpu_clock_not_enabled": "還沒放行改時脈：到設定分頁開啟「GPU 時脈上限」。",
+        "gpu_clock_bad_value": "只能設 {lo} 到 {hi} MHz、每 {step} MHz 一格。",
+        "gpu_clock_failed": "nvidia-smi 拒絕了：{err}",
         "gpu_hot_body": "已連續 {p1} 秒在驅動的降頻點 {p0} °C 以上。檢查出風口有沒有被擋、風扇有沒有轉；持續下去驅動會降速、更高會自己關機。",
         "disk_full_title": "根分割區快滿了",
         "transaction_failed": "交易失敗",
@@ -556,6 +559,9 @@ MSG = {
         "gpu_stuck_advice": "Multiple forum users have confirmed that the root cause is stuck firmware in the power supply's USB-C PD controller. Disconnect the power supply and all USB-C devices, hold the power button for 30 seconds, then wait another 60 seconds for the capacitors to discharge before reconnecting and powering on. Rebooting alone does not help: the PD controller is inside the power adapter and requires a power disconnect to reset.",
         "gpu_stuck_title": "GPU stuck in a low-power state",
         "gpu_hot_title": "GPU too hot: {p0} °C",
+        "gpu_clock_not_enabled": "Clock changes are not allowed yet: enable \"GPU clock cap\" on the Setup tab.",
+        "gpu_clock_bad_value": "Only {lo} to {hi} MHz in {step} MHz steps.",
+        "gpu_clock_failed": "nvidia-smi refused: {err}",
         "gpu_hot_body": "At or above the driver's slowdown point of {p0} °C for {p1} s. Check that the vents are clear and the fan is spinning; the driver will throttle, and shuts the GPU down if it keeps rising.",
         "disk_full_title": "Root partition is nearly full",
         "transaction_failed": "Transaction failed",
@@ -4062,16 +4068,93 @@ def self_update():
 # ---------- 設定分頁：選用功能的狀態與指令 ----------
 # 新手卡在「選用步驟散在 README 四處、裝完不知道還有什麼沒開」。這裡把每一項列成：給你什麼、要付出什麼、現在開了沒、
 # 路徑已填好的指令。狀態用 sudo -n -l <指令> 問「准不准」，不真的執行。
+GPU_CLOCK_MIN, GPU_CLOCK_MAX, GPU_CLOCK_STEP = 1000, 3000, 100
+GPU_CLOCK_VALUES = list(range(GPU_CLOCK_MIN, GPU_CLOCK_MAX + 1, GPU_CLOCK_STEP))
+GPU_CLOCK_FILE = os.path.join(HERE, "data", "gpu-clock.json")
+_GPU_CLOCK = {"ts": 0, "enabled": False}
+
 SUDOERS_CMDS = {
+    "gpu_clock": ["/usr/bin/nvidia-smi", "-rgc"],
     "dmidecode": ["/usr/sbin/dmidecode"],
     "nvme": ["/usr/sbin/nvme", "smart-log", "/dev/nvme0n1", "--output-format=json"],
     "dashboard_recheck": ["/usr/bin/systemctl", "restart", "dgx-dashboard-admin.service"],
 }
 
 
-def _sudo_allowed(cmd):
+def gpu_clock_state(force=False):
+    """時脈上限的狀態：sudoers 有沒有放行（60 秒快取，監控每 2 秒問一次不該每次跑 sudo）、目前存的上限。"""
+    if force or time.time() - _GPU_CLOCK["ts"] > 60:
+        _GPU_CLOCK.update(ts=time.time(), enabled=_sudo_allowed(SUDOERS_CMDS["gpu_clock"]))
+    cap = None
     try:
-        return subprocess.run(["sudo", "-n", "-l"] + cmd, capture_output=True, timeout=10).returncode == 0
+        with open(GPU_CLOCK_FILE) as f:
+            cap = int(json.load(f).get("cap_mhz") or 0) or None
+    except (OSError, ValueError):
+        pass
+    return {"enabled": _GPU_CLOCK["enabled"], "cap_mhz": cap, "min": GPU_CLOCK_MIN, "max": GPU_CLOCK_MAX, "step": GPU_CLOCK_STEP}
+
+
+def gpu_clock_set(mhz):
+    """mhz=None 還原驅動預設。只接受 sudoers 列出的那幾個值；成功才記檔，登入時 Spark Center 會重套（驅動重開機就忘）。"""
+    if READONLY:
+        return {"ok": False, "error": msg("readonly_mode", LANG_DEFAULT)}
+    if not gpu_clock_state(force=True)["enabled"]:
+        return {"ok": False, "error": msg("gpu_clock_not_enabled", LANG_DEFAULT)}
+    if mhz is not None and mhz not in GPU_CLOCK_VALUES:
+        return {"ok": False, "error": msg("gpu_clock_bad_value", LANG_DEFAULT, lo=GPU_CLOCK_MIN, hi=GPU_CLOCK_MAX, step=GPU_CLOCK_STEP)}
+    cmd = ["sudo", "-n", "/usr/bin/nvidia-smi"] + (["-rgc"] if mhz is None else ["-lgc", f"0,{mhz}"])
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+    out = (r.stdout + r.stderr).strip()
+    if r.returncode != 0:
+        return {"ok": False, "error": msg("gpu_clock_failed", LANG_DEFAULT, err=out[-300:])}
+    try:
+        if mhz is None:
+            if os.path.exists(GPU_CLOCK_FILE):
+                os.remove(GPU_CLOCK_FILE)
+        else:
+            os.makedirs(os.path.dirname(GPU_CLOCK_FILE), exist_ok=True)
+            with open(GPU_CLOCK_FILE, "w") as f:
+                json.dump({"cap_mhz": mhz, "set": datetime.now().isoformat(timespec="seconds")}, f)
+    except OSError as e:
+        return {"ok": False, "error": str(e)[:200]}
+    return {"ok": True, "output": out[-300:], **gpu_clock_state()}
+
+
+def _gpu_clock_reapply():
+    """服務啟動時（登入）：之前設過上限就重套一次。驅動的 -lgc 重開機會忘，這裡不用另外做 systemd 單元。"""
+    try:
+        st = gpu_clock_state(force=True)
+        if st["cap_mhz"] and st["enabled"]:
+            r = gpu_clock_set(st["cap_mhz"])
+            print("gpu clock cap reapplied:", st["cap_mhz"], "MHz" if r.get("ok") else r.get("error"), flush=True)
+    except Exception as e:
+        print("gpu clock reapply skipped:", e, flush=True)
+
+
+_SUDO_L = {"ts": 0, "text": ""}
+
+
+def _sudo_allowed(cmd):
+    """這條指令能不能免密碼跑。不能用 `sudo -n -l <cmd>` 的回傳值：使用者在 sudo 群組時它對任何指令都回 0
+    （「允許、但要密碼」也算允許），開關會全部顯示開啟、實際跑卻卡在要密碼。要看 `sudo -n -l` 列表裡的 NOPASSWD 行。"""
+    try:
+        if time.time() - _SUDO_L["ts"] > 30:
+            r = subprocess.run(["sudo", "-n", "-l"], capture_output=True, text=True, timeout=10)
+            _SUDO_L.update(ts=time.time(), text=r.stdout if r.returncode == 0 else "")
+        want = " ".join(cmd)
+        for line in _SUDO_L["text"].splitlines():
+            line = line.strip()
+            if "NOPASSWD:" not in line:
+                continue
+            if line.startswith("(ALL") and line.endswith(" ALL"):
+                return True   # 整體免密碼
+            allowed = [c.strip().replace("\\", "") for c in line.split("NOPASSWD:", 1)[1].split(", ")]
+            if want in allowed:
+                return True
+        return False
     except Exception:
         return False
 
@@ -4096,6 +4179,9 @@ def setup_status():
     user = os.environ.get("USER") or os.path.basename(os.path.expanduser("~"))
     q = shlex.quote
     items = []
+    items.append({"id": "gpu_clock", "enabled": _sudo_allowed(SUDOERS_CMDS["gpu_clock"]), "sudo": True, "applies": os.path.exists("/usr/bin/nvidia-smi"),
+                  "commands": [f'printf "%s\\n" "{user} ALL=(root) NOPASSWD: {SETUP_SUDOERS["gpu_clock"][1]}" | sudo tee /etc/sudoers.d/spark-center-gpu-clock',
+                               "sudo chmod 440 /etc/sudoers.d/spark-center-gpu-clock"]})
     items.append({"id": "dmidecode", "enabled": _sudo_allowed(SUDOERS_CMDS["dmidecode"]), "sudo": True,
                   "commands": [f'echo "{user} ALL=(root) NOPASSWD: /usr/sbin/dmidecode" | sudo tee /etc/sudoers.d/spark-center-dmidecode',
                                "sudo chmod 440 /etc/sudoers.d/spark-center-dmidecode"]})
@@ -4148,6 +4234,8 @@ def setup_status():
 # 開關：真的替使用者做，不只給指令。每一步都是 pkexec 跑一個系統指令（install／rm）處理一個明確的檔案，
 # 跳一次密碼視窗；沒有常駐 root、沒有任意 shell。sudoers 內容先用 visudo -c 驗過才裝。
 SETUP_SUDOERS = {
+    # 逐一列出允許的值（sudoers 逗號要寫成 \,）；沒有萬用字元，所以 -pl、-r 之類其他參數都不放行
+    "gpu_clock": ("spark-center-gpu-clock", ", ".join(["/usr/bin/nvidia-smi -rgc"] + [f"/usr/bin/nvidia-smi -lgc 0\\,{v}" for v in GPU_CLOCK_VALUES])),
     "dmidecode": ("spark-center-dmidecode", "/usr/sbin/dmidecode"),
     "nvme": ("spark-center-nvme", "/usr/sbin/nvme smart-log /dev/nvme0n1 --output-format=json"),
     "dashboard_recheck": ("spark-center-dashboard", "/usr/bin/systemctl restart dgx-dashboard-admin.service"),
@@ -4207,6 +4295,7 @@ def setup_toggle(item, enable):
         r = autostart_set(bool(enable)); ok, err = r.get("ok", False), r.get("error")
     else:
         return {"ok": False, "error": msg("node_bad_action", LANG_DEFAULT)}
+    _SUDO_L["ts"] = 0; _GPU_CLOCK["ts"] = 0   # 剛裝／刪 sudoers，快取立刻失效
     if not ok:
         return {"ok": False, "error": err, **setup_status()}
     return setup_status()
@@ -4392,6 +4481,7 @@ def hardware_live():
         "gpu": _gpu_live(),
         "gpu_alert": gpu_alert(),
         "gpu_hot": gpu_hot(),
+        "clock_cap": gpu_clock_state(),
         "sensors": _sensors(),
         "cpu": _cpu_jiffies(),
         "cpu_freq": _cpu_freqs(),
@@ -5675,6 +5765,15 @@ class Handler(BaseHTTPRequestHandler):
                 tail = (_run(["journalctl", "--user", "-u", unit, "-n", "8", "--no-pager", "-o", "cat"], timeout=15) or "").strip()
                 return self._json({"ok": False, "unit": unit, "active": act, "error": msg("npm_unit_failed", LANG_DEFAULT, unit=unit, state=act) + "\n" + tail[-1500:]}, 500)
             return self._json({"ok": True, "unit": unit, "active": act})
+        if path == "/api/gpu/clock":   # {mhz: 2200} 或 {reset: true}；拉桿按「確定」才打這裡
+            if data.get("reset"):
+                return self._json(gpu_clock_set(None))
+            try:
+                mhz = int(data.get("mhz"))
+            except (TypeError, ValueError):
+                return self._json({"ok": False, "error": msg("gpu_clock_bad_value", LANG_DEFAULT, lo=GPU_CLOCK_MIN, hi=GPU_CLOCK_MAX, step=GPU_CLOCK_STEP)}, 400)
+            r = gpu_clock_set(mhz)
+            return self._json(r, 200 if r.get("ok") else 400)
         if path == "/api/npm/plan":
             names = [n for n in data.get("names", []) if isinstance(n, str) and re.fullmatch(r"(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*", n)]
             if not names:
@@ -5843,6 +5942,7 @@ def main():
         print("snap attach skipped:", e, flush=True)
     threading.Thread(target=_disk_watch, daemon=True).start()
     threading.Thread(target=_gpu_watch, daemon=True).start()
+    threading.Thread(target=_gpu_clock_reapply, daemon=True).start()
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Spark Center on http://{HOST}:{PORT}", flush=True)
     try:

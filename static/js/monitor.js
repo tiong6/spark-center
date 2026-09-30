@@ -145,7 +145,7 @@ function renderMon(j, rerender) {
     if (g.sm_mhz != null) pushHist('clock', sampleTime, g.sm_mhz);
     const cmax = S.gpu.max_clock_mhz || Math.max(1, ...(hw.hist.clock || []).map(d => d[1])) * 1.1;
     const cref = S.gpu.app_clock_mhz && S.gpu.max_clock_mhz ? t("mon.clock_ref", {v0: S.gpu.app_clock_mhz, v1: S.gpu.max_clock_mhz}) : S.gpu.max_clock_mhz ? t("mon.clock_ref_max_only", {v0: S.gpu.max_clock_mhz}) : t("mon.clock_ref_none");
-    const csub = rs.length ? `<span style="color:var(--danger)">${t("mon.clock_throttled", {list: rs.map(esc).join('、')})}</span>` : t("mon.clock_ok");
+    const csub = rs.length ? t("mon.clock_throttled", {list: rs.join('、')}) : t("mon.clock_ok");
     cards.push(monCard('clock', t("mon.gpu_clock"), cref, gaugeLeft(g.sm_mhz == null ? null : g.sm_mhz / cmax * 100, g.sm_mhz == null ? '—' : g.sm_mhz + ' MHz', csub), [{color: C_LINE, data: hw.hist.clock || []}], cmax, v => Math.round(v) + ' MHz'));
     hovers.push(['clock', [{color: C_LINE, data: hw.hist.clock || []}], v => Math.round(v) + ' MHz']);
     if (g.temp_c != null) pushHist('temp', sampleTime, g.temp_c);
@@ -260,6 +260,37 @@ function renderMon(j, rerender) {
   if (!rerender) { hw.prevPrev = hw.prev; hw.prev = j; }
 }
 
+/* 時脈上限拉桿：拉只是選值，按「確定」才 POST；面板在卡片格外面，重繪不會打斷拖曳。
+   驅動的 -lgc 重開機會忘，服務登入啟動時會重套存起來的值。 */
+function renderClockPanel(cc, g, sg) {
+  const p = $('#clockPanel'); if (!p) return;
+  if (!cc || !g || !sg) { p.classList.add('hide'); return; }
+  p.classList.remove('hide');
+  const r = $('#clockRange'), sel = $('#clockSel'), apply = $('#clockApply'), reset = $('#clockReset');
+  const hwMax = sg.max_clock_mhz ? Math.min(cc.max, Math.floor(sg.max_clock_mhz / cc.step) * cc.step) : cc.max;
+  if (r.min != cc.min || r.max != hwMax) { r.min = cc.min; r.max = hwMax; r.step = cc.step; }
+  const target = cc.cap_mhz || sg.app_clock_mhz || hwMax;
+  if (!hw.clockTouched) { r.value = target; sel.textContent = target + ' MHz'; }
+  r.disabled = apply.disabled = !cc.enabled; reset.disabled = !cc.enabled || !cc.cap_mhz;
+  setTxt('#clockCapNow', cc.cap_mhz ? t("mon.clock_cap_now", {v0: cc.cap_mhz}) : t("mon.clock_cap_none"));
+  setHtml('#clockHint', cc.enabled ? t("mon.clock_cap_hint", {v0: sg.app_clock_mhz || '—'}) : `${t("mon.clock_cap_setup_hint")} <a href="#setup">${t("setup.title")}</a>`);
+  if (!hw.clockBound) {
+    hw.clockBound = true;
+    r.oninput = () => { hw.clockTouched = true; sel.textContent = r.value + ' MHz'; };
+    const post = async (body, btn) => {
+      btn.disabled = true; const old = btn.textContent; btn.textContent = '…';
+      const res = await api('/api/gpu/clock', body);
+      btn.textContent = old; hw.clockTouched = false;
+      if (!res.ok) { alert(res.error); btn.disabled = false; return; }
+      sel.textContent = (res.cap_mhz || sg.app_clock_mhz || hwMax) + ' MHz';
+      setTxt('#clockCapNow', res.cap_mhz ? t("mon.clock_cap_now", {v0: res.cap_mhz}) : t("mon.clock_cap_none"));
+      btn.disabled = false;
+    };
+    apply.onclick = () => post({mhz: parseInt(r.value, 10)}, apply);
+    reset.onclick = () => post({reset: true}, reset);
+  }
+}
+
 function renderGpuAlert(a) {
   const el = $('#gpuAlert'); if (!el) return;
   $('#dotMon').classList.toggle('hide', !a);
@@ -273,6 +304,7 @@ async function pollHw(staticOnly) {
   const j = await api('/api/hardware/live');
   if (!j.ok || !hw.static) return;
   renderGpuAlert(j.gpu_alert);
+  renderClockPanel(j.clock_cap, j.gpu, hw.static && hw.static.gpu);
   if (!staticOnly) { try { renderMon(j); } catch (e) { console.error(e); } }
   const m = j.memory, used = m.total - m.available, pct = Math.round(used / m.total * 100);
   setTxt('#hwMemUsed', GB(used) + ` (${pct}%)`);
