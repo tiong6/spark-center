@@ -57,6 +57,21 @@ MSG = {
     "setup_visudo_failed": "sudoers 內容沒通過 visudo 檢查，不裝：{err}",
     "setup_timeout": "等密碼視窗等太久，已放棄。",
     "setup_no_display": "服務找不到桌面（沒有 DISPLAY），請在終端機自己跑 app/spark-center-app --install。",
+    "npm_step_stop": "先停止 {unit}，讓它乾淨地關掉再換檔案",
+    "npm_step_backup": "用 {name} 自己的備份指令備份資料（可能要幾分鐘）",
+    "npm_backup_done": "已備份到 {path}（{mb} MB）",
+    "npm_backup_skipped": "{name} 的指令找不到，略過備份",
+    "npm_backup_failed_abort": "{name} 的備份失敗，這次不更新（服務已重新啟動）",
+    "npm_step_repair": "跑 {name} 自己的升級／修復步驟：{cmd}",
+    "npm_step_start": "啟動 {unit}",
+    "npm_unit_ok": "{unit} 已重新啟動並正常運作",
+    "npm_reason_schema_new": "舊版打不開新版留下的資料：{name} 在新版時已把自己的資料升成新格式，降回程式救不了。要回到新版並跑它的修復步驟，或還原更新前的備份。",
+    "npm_reason_schema": "{name} 的新版需要先升級它自己的資料檔，這一步還沒做完，所以服務起不來。",
+    "npm_reason_halfloaded": "{name} 在檔案更換途中被重啟過，載入到一半的舊程式找不到新檔案。通常重啟一次就好。",
+    "npm_reason_port": "{name} 要用的連接埠被別的程式占著，服務起不來。",
+    "npm_reason_unknown": "{name} 的服務在更新後起不來，原因不在我認得的範圍內；下面是它的日誌最後幾行。",
+    "npm_notify_title": "{name} 的服務停了",
+    "npm_notify_body": "更新後服務起不來。到 Spark Center 的更新分頁看原因和修法。",
     "npm_allow_scripts": "npm 11 預設不跑安裝腳本；依 npm 列出的清單允許一次並重裝：{pkgs}",
     "npm_unit_failed": "{unit} 在更新後沒有在跑（{state}）。日誌最後幾行：",
     "npm_unit_failed_summary": "套件裝好了，但 {units} 起不來。看工作記錄裡的日誌；程式可能要先做自己的資料遷移（例如 OpenClaw 要 openclaw doctor --fix）。",
@@ -336,6 +351,21 @@ MSG = {
     "setup_visudo_failed": "The sudoers line failed the visudo check; not installing it: {err}",
     "setup_timeout": "Gave up waiting for the password dialog.",
     "setup_no_display": "The service cannot see a desktop (no DISPLAY); run app/spark-center-app --install in a terminal instead.",
+    "npm_step_stop": "Stopping {unit} first so it shuts down cleanly before files change",
+    "npm_step_backup": "Backing up {name}'s data with its own backup command (this can take a few minutes)",
+    "npm_backup_done": "Backed up to {path} ({mb} MB)",
+    "npm_backup_skipped": "{name}'s command was not found; backup skipped",
+    "npm_backup_failed_abort": "{name}'s backup failed; not updating (the service has been started again)",
+    "npm_step_repair": "Running {name}'s own upgrade/repair step: {cmd}",
+    "npm_step_start": "Starting {unit}",
+    "npm_unit_ok": "{unit} restarted and is running",
+    "npm_reason_schema_new": "The older version cannot open data left by the newer one: {name} upgraded its own data format while it was on the newer version, so rolling the program back does not help. Go forward to the newer version and run its repair step, or restore the pre-update backup.",
+    "npm_reason_schema": "The new {name} needs to upgrade its own data files first, and that step has not completed, so the service cannot start.",
+    "npm_reason_halfloaded": "{name} was restarted while its files were being replaced; the half-loaded old program cannot find the new files. A restart usually fixes this.",
+    "npm_reason_port": "The port {name} needs is held by another program, so the service cannot start.",
+    "npm_reason_unknown": "{name}'s service did not come back after the update and the cause is not one I recognise; its last log lines are below.",
+    "npm_notify_title": "{name}'s service has stopped",
+    "npm_notify_body": "The service did not come back after the update. Open Spark Center's Updates tab for the cause and the fix.",
     "npm_allow_scripts": "npm 11 skips install scripts by default; allowing the ones npm listed, once, and reinstalling: {pkgs}",
     "npm_unit_failed": "{unit} is not running after the update ({state}). Last log lines:",
     "npm_unit_failed_summary": "The packages installed, but {units} failed to start. See the job log; the program may need its own data migration first (OpenClaw, for example, needs openclaw doctor --fix).",
@@ -1417,6 +1447,104 @@ def npm_status(force=False):
     return out
 
 
+# 認識的程式：更新前用它自己的備份指令、更新後跑它自己的升級／修復指令。只列我在真機驗證過的。
+# 為什麼要有：OpenClaw 9.7 一啟動就把資料庫升到新格式，舊版打不開；「降回」救不了，只有備份和它自己的修復指令救得了。
+NPM_KNOWN = {
+    "openclaw": {"bin": "openclaw", "backup": ["backup", "create", "--verify", "--json", "--output"], "repair": ["doctor", "--fix", "--non-interactive"],
+                 "migrates_data": True, "docs": "https://docs.openclaw.ai/reference/database-schemas", "data_dir": "~/.openclaw",
+                 "units": ["openclaw-gateway.service"]},
+}
+NPM_BACKUP_DIR = os.path.expanduser("~/.local/share/spark-center/npm-backups")
+NPM_BACKUP_KEEP = 2
+_NPM_JOB_OPTS = {"backup": True}
+
+
+def _npm_known_bin(name):
+    k = NPM_KNOWN.get(name)
+    prefix = (npm_status().get("prefix") or "").strip()
+    if not k or not prefix:
+        return None
+    p = os.path.join(prefix, "bin", k["bin"])
+    return p if os.path.exists(p) else None
+
+
+def npm_backups(name):
+    d = os.path.join(NPM_BACKUP_DIR, name)
+    try:
+        return sorted((os.path.join(d, f) for f in os.listdir(d) if f.endswith(".tar.gz")), key=os.path.getmtime, reverse=True)
+    except OSError:
+        return []
+
+
+def npm_plan(names, rollback=False, targets=None):
+    """更新（或降回）前要給使用者看的：會停哪些服務、認不認識這個程式、能不能備份、會不會升資料格式。"""
+    st = npm_status()
+    by = {e["name"]: e for e in st.get("packages", [])}
+    items = []
+    for n in names:
+        e = by.get(n, {}); k = NPM_KNOWN.get(n)
+        units = sorted({r["unit"] for r in e.get("running", []) if r.get("unit")})
+        loose = [r["pid"] for r in e.get("running", []) if not r.get("unit")]
+        items.append({"name": n, "current": e.get("current"), "target": (targets or {}).get(n) or e.get("latest"), "units": units, "loose_pids": loose,
+                      "known": bool(k), "can_backup": bool(k and _npm_known_bin(n)), "migrates_data": bool(k and k.get("migrates_data")),
+                      "data_dir": (k or {}).get("data_dir"), "docs": (k or {}).get("docs"), "backups": npm_backups(n)[:1]})
+    return {"ok": True, "items": items, "rollback": rollback}
+
+
+def _npm_units_for(names):
+    """這個套件的 systemd 使用者服務：正在跑的、認識的程式列出的、以及 ExecStart 指到這個套件的（含已 failed 的）。
+    真機 2026-09-30：降回失敗後 gateway 是 failed、沒在跑，只看「正在跑的」會找不到，救回時就不會啟動它。"""
+    st = npm_status()
+    units = {r["unit"] for e in st.get("packages", []) if e["name"] in names for r in e.get("running", []) if r.get("unit")}
+    for n in names:
+        units.update((NPM_KNOWN.get(n) or {}).get("units") or [])
+    prefix = (st.get("prefix") or "").strip()
+    if prefix:
+        listing = _run(["systemctl", "--user", "list-units", "--type=service", "--all", "--plain", "--no-legend"], timeout=15) or ""
+        for line in listing.splitlines():
+            u = line.split()[0] if line.split() else ""
+            if not u.endswith(".service") or u in units:
+                continue
+            exe = _run(["systemctl", "--user", "show", u, "-p", "ExecStart", "--value"], timeout=10) or ""
+            if any(f"/node_modules/{n}/" in exe or f"/bin/{(NPM_KNOWN.get(n) or {}).get('bin', n)} " in exe + " " for n in names):
+                units.add(u)
+    return sorted(units)
+
+
+def _npm_explain(journal, name):
+    """把服務起不來的日誌翻成一句人話，並決定給哪些按鈕。認不出來就是通用說法。"""
+    k = NPM_KNOWN.get(name) or {}
+    low = (journal or "").lower()
+    if "schema version" in low or "cannot open your existing data" in low:
+        return "npm_reason_schema_new" if "newer schema" in low or "this build supports" in low else "npm_reason_schema", k
+    if "older than the config" in low or "config was written by version" in low or "written by a newer version" in low:
+        return "npm_reason_schema_new", k   # 真機 2026-09-30：9.6 拒絕啟動，因為 config 是 9.7 寫的。救法同 schema：回新版
+    if "cannot find module" in low or "err_module_not_found" in low:
+        return "npm_reason_halfloaded", k
+    if "eaddrinuse" in low or "address already in use" in low:
+        return "npm_reason_port", k
+    return "npm_reason_unknown", k
+
+
+def _unit_active(unit):
+    """is-active 不是 active 時 rc 非零，_run 會回 None；這裡要的是字面狀態，直接讀 stdout。"""
+    try:
+        r = subprocess.run(["systemctl", "--user", "is-active", unit], capture_output=True, text=True, timeout=10)
+        return (r.stdout or "").strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _notify(title, body):
+    """桌面通知：出事時使用者多半不在看這個視窗。沒有桌面就算了。"""
+    try:
+        env = _session_env()
+        if env.get("DISPLAY") or env.get("WAYLAND_DISPLAY"):
+            subprocess.Popen(["notify-send", "-a", "Spark Center", "-u", "critical", title, body], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
 def rollback_record_npm(names):
     """npm 更新前把「目前版 → 新版」記進降回索引（不留檔案：registry 保留所有版本，降回就是 npm install -g name@old）。"""
     st = npm_status()
@@ -1726,6 +1854,158 @@ class Job:
             _NPM["ts"] = 0
             _NODE_FLOW["ts"] = 0
 
+    _npm_last_units = {}
+
+    def _npm_transaction(self, names, cmd, backup, repair, units=None):
+        """有服務在跑的套件，正確順序：停服務 → （認識的）備份 → 裝 → （認識的）修復／遷移 → 啟動 → 確認活著。
+        真機事故：跳過這些步驟直接裝，OpenClaw 9.7 在跑到一半時自己重啟、又沒做資料遷移，停了 8 分鐘。"""
+        units = _npm_units_for(names) if units is None else units
+        for n in names:
+            self._npm_last_units[n] = units
+        with self.lock:
+            self.state["steps"] = []
+        self._npm_stop(units)
+        for n in names:
+            if backup and n in NPM_KNOWN:
+                if not self._npm_backup(n):
+                    self._log(msg("npm_backup_failed_abort", LANG_DEFAULT, name=n))
+                    self._npm_start_and_check(units, n)
+                    with self.lock:
+                        self.state.update(status="error", error=msg("npm_backup_failed_abort", LANG_DEFAULT, name=n))
+                    return
+        self._step("install")
+        self._run_npm(cmd, names)
+        with self.lock:
+            ok = self.state.get("status") == "done"
+            if ok:   # 裝完不算完：後面還有修復／啟動／確認，前端看到 done 會停止輪詢
+                self.state.update(status="running", finished=None)
+        if not ok:
+            # 安裝失敗：把服務用原本的檔案拉起來，但結果仍是失敗（不讓「啟動成功」蓋掉安裝錯誤）
+            with self.lock:
+                err = self.state.get("error")
+            self._npm_start_and_check(units, names[0])
+            with self.lock:
+                self.state.update(status="error", error=err or msg("failed", LANG_DEFAULT))
+            return
+        if repair:
+            for n in names:
+                if n in NPM_KNOWN and not self._npm_repair(n):
+                    return self._npm_fail_units(units, n)
+        return self._npm_start_and_check(units, names[0])
+
+    def _step(self, step, **kw):
+        with self.lock:
+            self.state.setdefault("steps", []).append({"step": step, **kw})
+
+    def _npm_stop(self, units):
+        for u in units:
+            self._step("stop", unit=u); self._log(msg("npm_step_stop", LANG_DEFAULT, unit=u))
+            subprocess.run(["systemctl", "--user", "stop", u], capture_output=True, timeout=120)
+
+    def _npm_backup(self, name):
+        k = NPM_KNOWN[name]; b = _npm_known_bin(name)
+        if not b:
+            self._log(msg("npm_backup_skipped", LANG_DEFAULT, name=name)); return True
+        d = os.path.join(NPM_BACKUP_DIR, name); os.makedirs(d, exist_ok=True)
+        self._step("backup", name=name); self._log(msg("npm_step_backup", LANG_DEFAULT, name=name))
+        with self.lock:
+            self.state["status_text"] = msg("npm_step_backup", LANG_DEFAULT, name=name)
+        try:
+            r = subprocess.run([b] + k["backup"] + [d], capture_output=True, text=True, timeout=1800, env=_session_env())
+        except Exception as e:
+            self._log("backup: " + str(e)[:200]); return False
+        path = None
+        try:
+            path = json.loads(r.stdout).get("archivePath")
+        except ValueError:
+            pass
+        if r.returncode != 0 or not path or not os.path.isfile(path):
+            self._log((r.stderr or r.stdout).strip()[-600:]); return False
+        size = os.path.getsize(path)
+        self._log(msg("npm_backup_done", LANG_DEFAULT, path=path, mb=round(size / 1048576)))
+        with self.lock:
+            self.state["backup"] = {"name": name, "path": path, "bytes": size}
+        for old in npm_backups(name)[NPM_BACKUP_KEEP:]:
+            try:
+                os.remove(old)
+            except OSError:
+                pass
+        return True
+
+    def _npm_repair(self, name):
+        k = NPM_KNOWN[name]; b = _npm_known_bin(name)
+        if not b:
+            return True
+        self._step("repair", name=name); self._log(msg("npm_step_repair", LANG_DEFAULT, name=name, cmd=" ".join([k["bin"]] + k["repair"])))
+        with self.lock:
+            self.state["status_text"] = msg("npm_step_repair", LANG_DEFAULT, name=name, cmd=" ".join([k["bin"]] + k["repair"]))
+        try:
+            r = subprocess.run([b] + k["repair"], capture_output=True, text=True, timeout=900, env=_session_env())
+        except Exception as e:
+            self._log("repair: " + str(e)[:200]); return False
+        for line in (r.stdout + "\n" + r.stderr).splitlines():
+            t = re.sub(r"[│◇└├─]+", "", line).strip()
+            if t and re.search(r"schema|migrat|upgrade|repair|fixed|error|fail|complete", t, re.I):
+                self._log("  " + t[:200])
+        return r.returncode == 0
+
+    def _npm_start_and_check(self, units, name):
+        """啟動服務，等最多 40 秒看它真的活著。失敗：翻成人話、決定按鈕、桌面通知。"""
+        for u in units:
+            self._step("start", unit=u); self._log(msg("npm_step_start", LANG_DEFAULT, unit=u))
+            subprocess.run(["systemctl", "--user", "reset-failed", u], capture_output=True, timeout=30)
+            subprocess.run(["systemctl", "--user", "start", u], capture_output=True, timeout=120)
+        dead = []
+        for u in units:
+            state = "unknown"
+            for _ in range(20):
+                time.sleep(2)
+                state = _unit_active(u)
+                if state in ("failed", "inactive"):
+                    break
+                if state == "active":
+                    time.sleep(6)   # 活著不算，要活過幾秒：OpenClaw 是啟動幾秒後才因 schema 退出
+                    state = _unit_active(u)
+                    if state == "active":
+                        break
+            if state != "active":
+                dead.append((u, state))
+        _NPM["ts"] = 0
+        if not dead:
+            for u in units:
+                self._log(msg("npm_unit_ok", LANG_DEFAULT, unit=u))
+            with self.lock:
+                self.state.update(status="done", exit=self.state.get("exit") or "rc=0", status_text=msg("done", LANG_DEFAULT),
+                                  finished=datetime.now().isoformat(timespec="seconds"))
+            return True
+        self._npm_fail_units([u for u, _ in dead], name, {u: s for u, s in dead})
+        return False
+
+    def _npm_fail_units(self, units, name, states=None):
+        tails = []
+        for u in units:
+            tail = (_run(["journalctl", "--user", "-u", u, "-n", "12", "--no-pager", "-o", "cat"], timeout=15) or "").strip()
+            tails.append(tail)
+            self._log(msg("npm_unit_failed", LANG_DEFAULT, unit=u, state=(states or {}).get(u, "failed")))
+            for line in tail.splitlines()[-8:]:
+                self._log("  " + line[:240])
+        reason, k = _npm_explain("\n".join(tails), name)
+        with self.lock:
+            fwd = (self.state.get("forward") or {}).get(name)
+            actions = []
+            if reason == "npm_reason_schema_new" and fwd:
+                actions.append({"id": "forward", "name": name, "version": fwd})
+            if k.get("repair") and reason != "npm_reason_schema_new":
+                actions.append({"id": "repair", "name": name})
+            actions.append({"id": "restart", "units": units})
+            b = self.state.get("backup") or (npm_backups(name)[:1] and {"path": npm_backups(name)[0]}) or None
+            if b:
+                actions.append({"id": "backup_info", "name": name, "path": b["path"], "docs": k.get("docs")})
+            self.state.update(status="error", reason=reason, reason_name=name, actions=actions,
+                              error=msg("npm_unit_failed_summary", LANG_DEFAULT, units=", ".join(units)),
+                              finished=datetime.now().isoformat(timespec="seconds"))
+        _notify(msg("npm_notify_title", LANG_DEFAULT, name=name), msg("npm_notify_body", LANG_DEFAULT))
+
     def _run_npm(self, cmd, packages):
         """npm 11 起預設不跑套件的安裝腳本，只印 "install scripts not yet covered by allowScripts" 並建議 --allow-scripts=<清單>。
         使用者明確選了要更新這些套件，等同 npm 10 以前的行為：照 npm 自己列出的清單允許一次、重跑同一個安裝（有快取，幾秒）。
@@ -1736,29 +2016,10 @@ class Job:
             text = "\n".join(self.state.get("log") or [])
         m = re.search(r"--allow-scripts=([@A-Za-z0-9._/,-]+)", text) if ok and "install-scripts" in text else None
         if m:
+            with self.lock:
+                self.state.update(status="running", finished=None)   # 第一次裝完不算完，別讓前端在這裡停止輪詢
             self._log(msg("npm_allow_scripts", LANG_DEFAULT, pkgs=m.group(1)))
             self._run_subprocess(cmd[:3] + [f"--allow-scripts={m.group(1)}"] + cmd[3:], packages)
-
-    def _check_units_after_npm(self, units):
-        """更新前正在跑這些套件的 systemd 使用者服務，更新後還活著嗎？程式自己可能在檔案被換掉時重啟、而新版起不來
-        （真機：OpenClaw 9.7 要先做資料庫遷移，gateway 退出碼 78，systemd 不再重試，面板卻只顯示「沒在執行」）。
-        等 20 秒讓它們重啟完，有 failed 的就把這個工作標成錯誤並附上日誌最後幾行。"""
-        if not units:
-            return
-        time.sleep(20)
-        dead = []
-        for u in units:
-            state = (_run(["systemctl", "--user", "is-active", u], timeout=10) or "").strip() or "unknown"
-            if state in ("failed", "inactive"):
-                tail = (_run(["journalctl", "--user", "-u", u, "-n", "8", "--no-pager", "-o", "cat"], timeout=15) or "").strip().splitlines()
-                dead.append(u)
-                self._log(msg("npm_unit_failed", LANG_DEFAULT, unit=u, state=state))
-                for line in tail[-8:]:
-                    self._log("  " + line[:240])
-        if dead:
-            with self.lock:
-                self.state.update(status="error", error=msg("npm_unit_failed_summary", LANG_DEFAULT, units=", ".join(dead)))
-        _NPM["ts"] = 0
 
     def _run_ollama_pull(self, model):
         req = urllib.request.Request(OLLAMA + "/api/pull", data=json.dumps({"name": model, "stream": True}).encode(), headers={"Content-Type": "application/json"})
@@ -1923,18 +2184,30 @@ class Job:
                                       finished=datetime.now().isoformat(timespec="seconds"))
                 return
             # --engine-strict：npm 對 engines 不符預設只印警告照裝，這裡要它直接失敗
-            units = sorted({r["unit"] for e in st.get("packages", []) if e["name"] in packages for r in e.get("running", []) if r.get("unit")})
-            self._run_npm([NPM_BIN, "install", "-g", "--engine-strict"] + [f"{n}@{want[n]}" for n in packages], packages)
-            return self._check_units_after_npm(units)
+            return self._npm_transaction(packages, [NPM_BIN, "install", "-g", "--engine-strict"] + [f"{n}@{want[n]}" for n in packages],
+                                         backup=_NPM_JOB_OPTS.get("backup", True), repair=True)
         if kind == "rollback_npm":
             ents = rollback_npm_entries(packages[0], packages[1] or None)
             if not ents:
                 with self.lock:
                     self.state.update(status="error", error=msg("rollback_not_found", LANG_DEFAULT), finished=datetime.now().isoformat(timespec="seconds"))
                 return
-            units = sorted({r["unit"] for e in npm_status().get("packages", []) if e["name"] in [x["name"] for x in ents] for r in e.get("running", []) if r.get("unit")})
-            self._run_npm([NPM_BIN, "install", "-g"] + [f"{e['name']}@{e['old']}" for e in ents], [e["name"] for e in ents])
-            return self._check_units_after_npm(units)
+            names = [e["name"] for e in ents]
+            with self.lock:
+                self.state["forward"] = {e["name"]: e.get("new") for e in ents if e.get("new")}   # 降回失敗時「回到新版並修復」要用
+            # 降回不跑 repair：舊版的修復指令不會把資料格式降回去
+            return self._npm_transaction(names, [NPM_BIN, "install", "-g"] + [f"{e['name']}@{e['old']}" for e in ents], backup=_NPM_JOB_OPTS.get("backup", True), repair=False)
+        if kind == "npm_repair":   # 「讓它自己修」：跑程式自己的修復指令，再啟動服務
+            name = packages[0]
+            units = _npm_units_for([name]) or self._npm_last_units.get(name, [])
+            self._npm_stop(units)
+            if not self._npm_repair(name):
+                return self._npm_fail_units(units, name)
+            return self._npm_start_and_check(units, name)
+        if kind == "npm_forward":   # 降回失敗後：裝回新版、跑修復、啟動
+            name, ver = packages[0], packages[1]
+            units = _npm_units_for([name]) or self._npm_last_units.get(name, [])
+            return self._npm_transaction([name], [NPM_BIN, "install", "-g"] + [f"{name}@{ver}"], backup=False, repair=True, units=units)
         if kind == "rollback":
             # 為什麼不用 aptdaemon 的 install_file：它最後跑 DebPackage.check()，預設拒絕比已安裝舊的版本
             # （"A later version is already installed"），force=True 也一樣。apt-get 對本機 .deb 會照給的版本裝，
@@ -5302,10 +5575,29 @@ class Handler(BaseHTTPRequestHandler):
                 tail = (_run(["journalctl", "--user", "-u", unit, "-n", "8", "--no-pager", "-o", "cat"], timeout=15) or "").strip()
                 return self._json({"ok": False, "unit": unit, "active": act, "error": msg("npm_unit_failed", LANG_DEFAULT, unit=unit, state=act) + "\n" + tail[-1500:]}, 500)
             return self._json({"ok": True, "unit": unit, "active": act})
+        if path == "/api/npm/plan":
+            names = [n for n in data.get("names", []) if isinstance(n, str) and re.fullmatch(r"(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*", n)]
+            if not names:
+                return self._json({"ok": False, "error": msg('no_pkgs', LANG_DEFAULT)}, 400)
+            targets = {k: v for k, v in (data.get("targets") or {}).items() if isinstance(v, str) and k in names}   # 降回時目標是舊版，前端知道
+            return self._json(npm_plan(names, rollback=bool(data.get("rollback")), targets=targets))
+        if path == "/api/npm/action":
+            act, name = str(data.get("action") or ""), str(data.get("name") or "")
+            if not re.fullmatch(r"(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*", name) or act not in ("repair", "forward"):
+                return self._json({"ok": False, "error": msg('node_bad_action', LANG_DEFAULT)}, 400)
+            if act == "repair" and name not in NPM_KNOWN:
+                return self._json({"ok": False, "error": msg('node_bad_action', LANG_DEFAULT)}, 400)
+            ver = str(data.get("version") or "")
+            if act == "forward" and not re.fullmatch(r"[0-9A-Za-z.+-]+", ver):
+                return self._json({"ok": False, "error": msg('node_bad_action', LANG_DEFAULT)}, 400)
+            if not JOB.start("npm_repair" if act == "repair" else "npm_forward", [name] if act == "repair" else [name, ver]):
+                return self._json({"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 409)
+            return self._json({"ok": True})
         if path == "/api/npm/update":
             names = [n for n in data.get("names", []) if isinstance(n, str) and re.fullmatch(r"(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*", n)]
             if not names:
                 return self._json({"ok": False, "error": msg('no_pkgs', LANG_DEFAULT)}, 400)
+            _NPM_JOB_OPTS["backup"] = bool(data.get("backup", True))
             if not JOB.start("npm", names):
                 return self._json({"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 409)
             return self._json({"ok": True})
@@ -5318,6 +5610,7 @@ class Handler(BaseHTTPRequestHandler):
                 sim = {"ok": True, "npm": True, "changes": [{"name": e["name"], "action": "downgrade", "from": e.get("new") or "", "to": e["old"], "requested": True} for e in ents]}
                 if data.get("simulate"):
                     return self._json(sim)
+                _NPM_JOB_OPTS["backup"] = bool(data.get("backup", True))
                 if not JOB.start("rollback_npm", [job_id, name]):
                     return self._json({"ok": False, "error": msg("job_running", LANG_DEFAULT)}, 409)
                 return self._json({"ok": True})
