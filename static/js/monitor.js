@@ -141,6 +141,13 @@ function renderMon(j, rerender) {
     const rs = (g.event_reasons || []).filter(r => r !== t("mon.gpu_idle"));
     cards.push(monCard('gpu', t("mon.gpu_utilization"), t("mon.source", {v0: S.gpu.name, v1: g.pstate ? ' · ' + g.pstate : '', v2: rs.length ? t("mon.slowdown_reasons_with_value", {value: rs.join('、')}) : '', v3: g.source || S.gpu.source || '—'}), gaugeLeft(g.util_pct, fmtPct(g.util_pct), g.source === 'NVML' ? 'NVML utilization.gpu' : 'nvidia-smi utilization.gpu'), [{color: C_LINE, data: hw.hist.gpu || []}], 100, fmtPct));
     hovers.push(['gpu', [{color: C_LINE, data: hw.hist.gpu || []}], fmtPct]);
+    // GPU 時脈：滿載時停在驅動的預設工作點（2418），不是硬體上限（3003）；降頻旗標直接寫在卡片上
+    if (g.sm_mhz != null) pushHist('clock', sampleTime, g.sm_mhz);
+    const cmax = S.gpu.max_clock_mhz || Math.max(1, ...(hw.hist.clock || []).map(d => d[1])) * 1.1;
+    const cref = S.gpu.app_clock_mhz && S.gpu.max_clock_mhz ? t("mon.clock_ref", {v0: S.gpu.app_clock_mhz, v1: S.gpu.max_clock_mhz}) : S.gpu.max_clock_mhz ? t("mon.clock_ref_max_only", {v0: S.gpu.max_clock_mhz}) : t("mon.clock_ref_none");
+    const csub = rs.length ? `<span style="color:var(--danger)">${t("mon.clock_throttled", {list: rs.map(esc).join('、')})}</span>` : t("mon.clock_ok");
+    cards.push(monCard('clock', t("mon.gpu_clock"), cref, gaugeLeft(g.sm_mhz == null ? null : g.sm_mhz / cmax * 100, g.sm_mhz == null ? '—' : g.sm_mhz + ' MHz', csub), [{color: C_LINE, data: hw.hist.clock || []}], cmax, v => Math.round(v) + ' MHz'));
+    hovers.push(['clock', [{color: C_LINE, data: hw.hist.clock || []}], v => Math.round(v) + ' MHz']);
     if (g.temp_c != null) pushHist('temp', sampleTime, g.temp_c);
     const tmax = S.gpu.throttle_temp_c || 100;
     const tsrc = S.gpu.throttle_source === 'NVML slowdown threshold' ? t("mon.slowdown_threshold_c_actual_nvml_driver", {v0: S.gpu.throttle_temp_c, v1: S.gpu.shutdown_temp_c ? t("mon.shutdown_c", {v0: S.gpu.shutdown_temp_c}) : ''}) : S.gpu.throttle_temp_c ? t("mon.slowdown_threshold_about_c_estimated_from", {v0: S.gpu.throttle_temp_c}) : t("mon.gauge_maximum_100_c_slowdown_threshold");

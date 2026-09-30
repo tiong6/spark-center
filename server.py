@@ -2913,7 +2913,9 @@ def _gpu_static_nvml():
     shutdown = _nvml_uint("nvmlDeviceGetTemperatureThreshold", 0)
     gpu_max = _nvml_uint("nvmlDeviceGetTemperatureThreshold", 3)
     max_sm = _nvml_uint("nvmlDeviceGetMaxClockInfo", 1)
+    app_sm = _nvml_uint("nvmlDeviceGetApplicationsClock", 1)   # 驅動的預設工作點（GB10 是 2418），滿載時實際跑的就是這個，不是 max
     return {
+        "app_clock_mhz": app_sm or None, "max_clock_mhz": max_sm or None,
         "name": _nvml_str("nvmlDeviceGetName"), "driver": _nvml_str("nvmlSystemGetDriverVersion", on_device=False),
         "vbios": _nvml_str("nvmlDeviceGetVbiosVersion"), "bus": None,
         "max_sm_mhz": f"{max_sm} MHz" if max_sm else None, "memory_total": None, "cuda": cuda_v,
