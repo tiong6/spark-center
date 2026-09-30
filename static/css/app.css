@@ -90,9 +90,9 @@
   .clockctl { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
   .clockslide { flex: 1 1 260px; min-width: 180px; position: relative; padding-bottom: 16px; }
   .clockslide input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
-  .clockscale { position: relative; height: 14px; font-size: 10px; color: var(--muted); }
+  .clockscale { position: relative; height: 26px; font-size: 10px; color: var(--muted); }
   .clockscale span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
-  .clockscale span.def { color: var(--accent); }
+  .clockscale span.def { color: var(--accent); top: 12px; }
   .clockscale span.def::before { content: ""; position: absolute; left: 50%; top: -8px; width: 1px; height: 7px; background: var(--accent); }
   .clockctl b { min-width: 90px; }
   .switchrow { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--muted); }

@@ -267,7 +267,8 @@ function renderClockPanel(cc, g, sg) {
   if (!cc || !g || !sg) { p.classList.add('hide'); return; }
   p.classList.remove('hide');
   const r = $('#clockRange'), sel = $('#clockSel'), apply = $('#clockApply'), reset = $('#clockReset');
-  const hwMax = sg.max_clock_mhz ? Math.min(cc.max, Math.floor(sg.max_clock_mhz / cc.step) * cc.step) : cc.max;
+  const factory = sg.app_clock_mhz ? Math.ceil(sg.app_clock_mhz / cc.step) * cc.step : null;   // 2418 → 2500 那一格＝原廠、不設上限
+  const hwMax = factory ? Math.min(cc.max, factory) : (sg.max_clock_mhz ? Math.min(cc.max, Math.floor(sg.max_clock_mhz / cc.step) * cc.step) : cc.max);
   if (r.min != cc.min || r.max != hwMax) {
     r.min = cc.min; r.max = hwMax; r.step = cc.step;
     // 刻度：每一格一個 tick（datalist），下面每 500 標數字，原廠預設工作點另標
@@ -275,12 +276,11 @@ function renderClockPanel(cc, g, sg) {
     $('#clockTicks').innerHTML = ticks.join('');
     const pos = v => ((v - cc.min) / (hwMax - cc.min) * 100).toFixed(1) + '%';
     const labels = []; for (let v = cc.min; v <= hwMax; v += 500) labels.push(`<span style="left:${pos(v)}">${v}</span>`);
-    if (sg.app_clock_mhz) labels.push(`<span class="def" style="left:${pos(sg.app_clock_mhz)}">${t("mon.clock_factory_mark", {v0: sg.app_clock_mhz})}</span>`);
+    if (factory) labels.push(`<span class="def" style="left:${pos(hwMax)}">${t("mon.clock_factory_mark", {v0: sg.app_clock_mhz})}</span>`);
     $('#clockScale').innerHTML = labels.join('');
   }
-  const target = cc.cap_mhz || sg.app_clock_mhz || hwMax;
-  // 超過原廠預設工作點：紅色。這不會更快（驅動仍以自己的功耗／溫度限制為準），只等於取消上限；按確定會再問一次
-  const paint = v => { const over = sg.app_clock_mhz && v > sg.app_clock_mhz; r.style.accentColor = over ? 'var(--danger)' : ''; sel.style.color = over ? 'var(--danger)' : ''; sel.textContent = v + ' MHz' + (over ? ' ' + t("mon.clock_over_mark") : ''); };
+  const target = cc.cap_mhz && cc.cap_mhz < hwMax ? cc.cap_mhz : hwMax;
+  const paint = v => { sel.textContent = v >= hwMax && factory ? t("mon.clock_factory_sel", {v0: sg.app_clock_mhz}) : v + ' MHz'; };
   if (!hw.clockTouched) { r.value = target; paint(target); }
   r.disabled = apply.disabled = !cc.enabled; reset.disabled = !cc.enabled || !cc.cap_mhz;
   setTxt('#clockCapNow', cc.cap_mhz ? t("mon.clock_cap_now", {v0: cc.cap_mhz}) : t("mon.clock_cap_none"));
@@ -293,20 +293,11 @@ function renderClockPanel(cc, g, sg) {
       const res = await api('/api/gpu/clock', body);
       btn.textContent = old; hw.clockTouched = false;
       if (!res.ok) { alert(res.error); btn.disabled = false; return; }
-      paint(res.cap_mhz || sg.app_clock_mhz || hwMax);
+      paint(res.cap_mhz && res.cap_mhz < hwMax ? res.cap_mhz : hwMax);
       setTxt('#clockCapNow', res.cap_mhz ? t("mon.clock_cap_now", {v0: res.cap_mhz}) : t("mon.clock_cap_none"));
       btn.disabled = false;
     };
-    apply.onclick = () => {
-      const v = parseInt(r.value, 10);
-      if (sg.app_clock_mhz && v > sg.app_clock_mhz) {   // 超出原廠：先講清楚再做
-        $('#mBody').innerHTML = `<div class="panel notice danger">${t("mon.clock_over_warn", {v0: v, v1: sg.app_clock_mhz})}</div>`;
-        $('#mOk').classList.remove('hide'); $('#mOk').textContent = t("mon.clock_over_ok");
-        $('#mOk').onclick = () => { closeModal(); post({mhz: v}, apply); };
-        openModal(t("mon.clock_over_title")); return;
-      }
-      post({mhz: v}, apply);
-    };
+    apply.onclick = () => { const v = parseInt(r.value, 10); post(factory && v >= hwMax ? {reset: true} : {mhz: v}, apply); };   // 最右格＝原廠＝不設上限
     reset.onclick = () => post({reset: true}, reset);
   }
 }
