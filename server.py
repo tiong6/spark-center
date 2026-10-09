@@ -5,7 +5,8 @@
 - 清單：python-apt 讀本機 apt cache（和 `apt list --upgradable` 同一份）。
 - 影響範圍：安裝前一律用 python-apt 在記憶體模擬，把「實際會動到的套件」列給使用者。
 - 安裝：走 aptdaemon 的 D-Bus 介面（和 DGX Dashboard 同一個後端），授權由 polkit 桌面視窗處理。
-- 重開機：只讀 /var/run/reboot-required，有才提示，程式本身絕不重開。
+- 重開機：只讀 /var/run/reboot-required 與 fwupd 的等重開狀態，有才提示；程式本身絕不自動重開，
+  只有使用者按「重新開機」鈕（/api/reboot）才執行，且沒有東西等重開就拒絕。
 """
 import concurrent.futures
 import glob
@@ -223,6 +224,8 @@ MSG = {
         "npm_missing": "找不到 npm，沒有全域套件可查",
         "npm_restart_bad_unit": "{unit} 不是目前正在執行 npm 全域套件的 systemd 使用者服務，不重啟",
         "npm_restart_failed": "重啟 {unit} 失敗：{err}",
+        "reboot_nothing_pending": "沒有等重開機套用的韌體，也沒有 reboot-required 旗標；不重開。",
+        "reboot_failed": "重開機指令失敗：{err}",
         "node_release_failed": "查不到 Node 官方版本表：{err}",
         "npm_target_unknown": "查不到 {pkgs} 的目標版本，不更新（不會退回 @latest 亂裝）。{err}",
         "npm_engine_blocked": "新版 {ver} 要求 Node {need}，你的是 {node}，不給更新",
@@ -522,6 +525,8 @@ MSG = {
         "npm_missing": "npm not found; no global packages to check",
         "npm_restart_bad_unit": "{unit} is not a systemd user service currently running an npm global package; not restarting",
         "npm_restart_failed": "Restarting {unit} failed: {err}",
+        "reboot_nothing_pending": "No firmware is awaiting a reboot and there is no reboot-required flag; not rebooting.",
+        "reboot_failed": "Reboot command failed: {err}",
         "node_release_failed": "Could not read the official Node release table: {err}",
         "npm_target_unknown": "Could not determine the target version for {pkgs}; not updating (no silent fallback to @latest). {err}",
         "npm_engine_blocked": "version {ver} requires Node {need}; yours is {node}, so no update is offered",
@@ -5772,6 +5777,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(lan_sweep())
             except Exception as e:
                 return self._json({"ok": False, "error": str(e)}, 500)
+        if path == "/api/reboot":
+            # 只有使用者在畫面上按「重新開機」才會到這裡；而且只在真的有東西等重開（fwupd 排入的 capsule
+            # 或 /var/run/reboot-required）時才執行，避免誤觸。授權走 logind 的 polkit（使用者服務已是 allow_active）。
+            fw = fwupd_status(force=True)
+            if not (fw.get("pending") or os.path.exists(REBOOT_FLAG)):
+                return self._json({"ok": False, "error": msg("reboot_nothing_pending", LANG_DEFAULT)}, 400)
+            r = subprocess.run(["systemctl", "reboot"], capture_output=True, text=True, timeout=30, env=_ENV_C)
+            if r.returncode != 0:
+                return self._json({"ok": False, "error": msg("reboot_failed", LANG_DEFAULT, err=(r.stderr or r.stdout).strip()[:200])}, 500)
+            return self._json({"ok": True})
         if path == "/api/npm/restart":
             unit = str(data.get("unit") or "")
             # 只准重啟「目前正在執行某個 npm 全域套件」的 systemd 使用者服務，名稱從即時掃描來，不接受任意單元

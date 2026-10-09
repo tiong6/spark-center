@@ -91,6 +91,7 @@ async function loadFirmware(force) {
   const q = v => v == null ? '—' : v;
   $('#fwMeta').textContent = (j.bios ? t("updates.fw_bios", {v: j.bios.version, d: j.bios.date}) + ' · ' : '') + t("updates.fwupd_updatable_devices_updates_available_version", {v0: j.fwupd_version || '—', v1: j.devices.length, v2: q(j.updates), v3: q(j.mismatches), v4: q(j.pending), v5: j.generated.replace('T',' ')});
   $('#btnFwUpdate').classList.toggle('hide', !j.updates);
+  $('#btnFwReboot').classList.toggle('hide', !j.pending);   // capsule 已排入 EFI 分割區，要重開才燒錄；按了才重開，不自動
   const errBanner = j.error ? `<div class="panel notice danger" style="margin-bottom:10px">${esc(j.error)}</div>` : '';
   const vis = j.devices.filter(d => !d.hidden), hid = j.devices.filter(d => d.hidden);
   // 分組＋白話：fwupd 的名字（UEFI Device Firmware ×2、KEK CA、SBAT…）一般人看不懂。
@@ -274,6 +275,23 @@ function renderNpmFailure(j) {
 }
 
 /* npm 更新完：還在跑舊版檔案的程序要重啟。systemd 使用者服務給一鍵重啟（不需密碼）；不是服務的只提醒 */
+/* fwupd 更新完：capsule 寫進 EFI 分割區、下次開機由 UEFI 燒錄。卡片要講清楚「還沒生效」，並給一個按了才重開的按鈕。 */
+async function offerFwReboot() {
+  const j = await api('/api/firmware?force=1'); loadFirmware(true);
+  const box = document.createElement('div'); box.className = 'sub1'; box.style.marginTop = '8px';
+  if (!j.ok || j.pending == null) { box.textContent = t("updates.fw_staged_unknown"); $('#jobactions').appendChild(box); return; }
+  if (!j.pending) { box.textContent = t("updates.fw_staged_none"); $('#jobactions').appendChild(box); return; }
+  const names = j.devices.filter(d => d.pending).map(d => `${esc(d.name)} → ${esc((d.history[0] || {}).new || '?')}`).join(LANG === 'zh-TW' ? '、' : ', ');
+  box.innerHTML = `<b>${t("updates.fw_staged", {n: j.pending})}</b><div style="margin-top:4px">${names}</div><div style="margin-top:4px">${t("updates.fw_staged_power")}</div><button class="small primary" id="jobReboot" style="margin-top:8px">${t("updates.reboot_now")}</button>`;
+  $('#jobactions').appendChild(box); $('#jobReboot').onclick = () => rebootNow($('#jobReboot'));
+}
+async function rebootNow(btn) {
+  if (!confirm(t("updates.reboot_confirm"))) return;
+  btn.disabled = true; btn.textContent = t("updates.rebooting");
+  const r = await api('/api/reboot', {});
+  if (!r.ok) { btn.disabled = false; btn.textContent = t("updates.reboot_now"); alert(r.error); }
+}
+$('#btnFwReboot').onclick = () => rebootNow($('#btnFwReboot'));
 async function offerNpmRestart(names) {
   const j = await api('/api/npm?force=1');
   if (!j.ok) return;
@@ -472,6 +490,7 @@ async function pollJob() {
     const closeCard = () => { clearInterval(state.autoClose); state.autoClose = null; $('#jobcard').classList.add('hide'); };
     $('#jobClose').onclick = closeCard;
     let holdOpen = false;
+    if (j.status === 'done' && j.kind === 'shell' && (j.packages || [])[0] === 'fwupd_update') holdOpen = true, offerFwReboot();   // fwupd 的「Successfully installed」只是排入，沒重開不算裝好
     if (j.status === 'done' && j.kind === 'npm') holdOpen = true, offerNpmRestart(j.packages || []);   // 有程序在跑舊版：給重啟鈕，卡片不自動收
     if (j.status === 'done' && !holdOpen) {   // 成功的 15 秒後自動收起；失敗的留著，要讓人看到
       // 只在看得到的時候倒數：視窗在背景或滑鼠停在卡片上就暫停，更新跑完時人不在座位也不會錯過結果
