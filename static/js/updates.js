@@ -104,9 +104,15 @@ async function loadFirmware(force) {
   const friendly = d => { const k = kindOf(d); return ['generic', 'cert', 'hid', 'capsule', 'dbx', 'sbat'].includes(k) ? d.name : t("updates.fwd_" + k + "_name"); };
   const row = d => { const last = d.history[0]; const st = d.mismatch ? `<span class="tag reboot">${t("updates.history_reports_success_but_version_differs")}</span>` : d.pending ? `<span class="tag sec">${t("updates.awaiting_reboot_to_apply")}</span>` : d.update_available ? `<span class="tag sec">${t("updates.new_version", {v0: esc(d.latest)})}</span>` : j.updates == null ? `<span class="tag">${t("updates.unknown_query_failed")}</span>` : `<span class="tag ok">${t("updates.up_to_date")}</span>`;
     // LVFS 的版本說明另起一列橫跨整張表：塞在 30% 寬的裝置欄裡會把一列撐到兩百多像素高、右邊三欄空著
-    const n = d.notes || {}, sec = (k, label) => n[k] && (n[k].summary || n[k].text) ? `<div style="margin-top:6px"><b>${label}</b><div style="margin:2px 0 0 12px;white-space:pre-line">${esc(n[k].summary || '')}${n[k].text ? '\n' + esc(n[k].text) : ''}</div></div>` : '';
-    const notes = sec('installed', t("updates.fw_notes_installed", {v: esc((n.installed || {}).version || '')})) + sec('latest', t("updates.fw_notes_latest", {v: esc((n.latest || {}).version || '')}));
-    const noteRow = notes ? `<tr class="fwnote"><td colspan="4" style="padding:0 12px 10px 28px;border-top:0"><details class="sub1"><summary style="cursor:pointer">${t("updates.fw_notes_toggle")}</summary>${notes}</details></td></tr>` : '';
+    // ASUS 的說明只寫「check NV's release note」卻沒連結：抓 OTA 代號（26=年、07=月，對過官方頁面 2604=四月、2607=七月）補上 NVIDIA 釋出說明連結，標「依編號推定」
+    const otaLink = txt => { const m = /OTA\s?(\d{2})(\d{2})(\.\d+)?/.exec(txt || ''); if (!m) return '';
+      const y = 2000 + +m[1], mo = +m[2]; if (mo < 1 || mo > 12) return '';
+      const when = LANG === 'zh-TW' ? `${y} 年 ${mo} 月` : `${new Date(y, mo - 1, 1).toLocaleString('en', {month: 'long'})} ${y}`;
+      return `<div style="margin-top:4px">${t("updates.fw_notes_ota", {code: esc(m[0]), when})} <a href="https://docs.nvidia.com/dgx/dgx-spark/release-notes.html" target="_blank" rel="noopener">${t("updates.fw_notes_ota_link")}</a></div>`; };
+    const n = d.notes || {}, sec = (k, label) => n[k] && (n[k].summary || n[k].text) ? `<div style="margin-top:6px"><b>${label}</b> <span style="opacity:.7">· ${t("updates.fw_notes_released", {d: esc(n[k].date || '—')})}</span><div style="margin:2px 0 0 12px;white-space:pre-line">${esc(n[k].summary || '')}${n[k].text ? '\n' + esc(n[k].text) : ''}${otaLink(n[k].text)}</div></div>` : '';
+    // 有新版時使用者要看的是「新版改了什麼」：新版排前、預設展開
+    const notes = sec('latest', t("updates.fw_notes_latest", {v: esc((n.latest || {}).version || '')})) + sec('installed', t("updates.fw_notes_installed", {v: esc((n.installed || {}).version || '')}));
+    const noteRow = notes ? `<tr class="fwnote"><td colspan="4" style="padding:0 12px 10px 28px;border-top:0"><details class="sub1"${d.update_available && n.latest ? ' open' : ''}><summary style="cursor:pointer">${t("updates.fw_notes_toggle")}</summary>${notes}</details></td></tr>` : '';
     const raw = friendly(d) !== d.name ? `${esc(d.name)} · ` : '';
     return `<tr><td><b>${esc(friendly(d))}</b><div class="sub1">${t("updates.fwd_" + kindOf(d))}</div><div class="sub1" style="opacity:.7">${raw}${esc(d.vendor || '')}</div></td><td class="mono">${esc(d.version || '—')}</td><td>${st}</td><td class="sub1">${last ? `${esc(last.old || '?')} → ${esc(last.new || '?')}，${esc(last.state_zh)}${last.error ? '：' + esc(last.error) : ''}<br>${esc((last.when || '').replace('T',' '))}` : '—'}</td></tr>${noteRow}`; };
   const order = ['board', 'storage', 'peripheral', 'secure'];

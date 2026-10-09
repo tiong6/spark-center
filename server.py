@@ -5128,7 +5128,10 @@ def fwupd_status(force=False):
         """LVFS 上這個裝置每一版的說明（廠商有上傳才有；ASUS 的 EC／SoC／PD 韌體有）。給「已裝的這版」與「可升級的新版」。"""
         rel = (_fw_json(["get-releases", did], timeout=30) or {}).get("Releases") or []
         pick = lambda v: next(({"version": r.get("Version"), "summary": r.get("Summary"), "text": _html_text(r.get("Description")),
-                                "urgency": r.get("Urgency")} for r in rel if v and r.get("Version") == v), None)
+                                "urgency": r.get("Urgency"), "size": r.get("Size"),
+                                # LVFS 的 Created 是廠商上傳的釋出日；沒有就 None，前端顯示「—」
+                                "date": datetime.fromtimestamp(r["Created"]).strftime("%Y-%m-%d") if r.get("Created") else None}
+                               for r in rel if v and r.get("Version") == v), None)
         # fwupd 的裝置名常是通用的「UEFI Device Firmware」；LVFS 的 release 名稱才分得出 SoC FW／USB-C PD FW
         return {"installed": pick(cur), "latest": pick(new) if new and new != cur else None,
                 "lvfs_name": next((r.get("Name") for r in rel if r.get("Name")), None)}
