@@ -406,7 +406,7 @@ $('#btnGo').onclick = async () => {
     closeModal();
     const r = await api('/api/install', {packages: names});
     if (!r.ok) { alert(t("updates.could_not_start_with_value", {value: r.error})); return; }
-    state.selected.clear(); startPolling(t("updates.updating_with_value", {value: names.join(', ')}));
+    state.selected.clear(); startPolling(names.length > 6 ? t("updates.updating_n", {n: names.length}) : t("updates.updating_with_value", {value: names.join(', ')}));
   };
   openModal(t("updates.confirm_changes"));
 };
@@ -420,7 +420,8 @@ $('#mCancel').onclick = closeModal;
 
 function jobTitle(j) {   // 重新整理頁面或服務重啟後接回工作時，標題要對得上實際在做的事
   const pk = (j.packages || []).join(', ');
-  return ({ node_source: t('node.title'), refresh: t("job.refresh_apt_sources"), install: t("job.apt_install_with_value", {value: pk}), remove: t("job.apt_remove_with_value", {value: pk}),
+  const many = (j.packages || []).length > 6;   // 134 個名字塞標題會變一面牆；名單放卡片裡的折疊區
+  return ({ node_source: t('node.title'), refresh: t("job.refresh_apt_sources"), install: many ? t("updates.updating_n", {n: j.packages.length}) : t("job.apt_install_with_value", {value: pk}), remove: t("job.apt_remove_with_value", {value: pk}),
             aptclean: t("job.clear_apt_cache"), snap: t("job.snap_update_with_value", {value: pk}), flatpak: t("job.flatpak_update_with_value", {value: pk}),
             ollama_pull: 'ollama pull ' + pk, shell: t("job.system_action_with_value", {value: pk}),
             npm: t("job.npm_update_with_value", {value: pk}), npm_repair: t("job.npm_repair_with_value", {value: pk}), npm_forward: t("job.npm_forward_with_value", {value: (j.packages || [])[0] || pk}),
@@ -429,7 +430,7 @@ function jobTitle(j) {   // 重新整理頁面或服務重啟後接回工作時�
 }
 function startPolling(title) {
   const c = $('#jobcard'); c.className = 'panel notice';
-  $('#jobtitle').textContent = title; $('#jobactions').innerHTML = '';
+  $('#jobtitle').textContent = title; $('#jobactions').innerHTML = ''; $('#jobpkgs').innerHTML = ''; $('#jobphase').classList.add('hide');
   clearInterval(state.polling); state.polling = setInterval(pollJob, 1000); pollJob();
 }
 async function pollJob() {
@@ -446,11 +447,24 @@ async function pollJob() {
   if (j.progress == null) $('#jobprog').removeAttribute('value'); else $('#jobprog').value = j.progress;
   const x = j.status === 'running' && j.xfer && j.xfer.total ? j.xfer : null;
   const xferText = x ? t("job.downloaded_mb", {v0: (x.done/1e6).toFixed(1), v1: (x.total/1e6).toFixed(1)}) + (x.speed ? ` · ${(x.speed/1e6).toFixed(1)} MB/s` : '') + (x.eta > 0 ? t("job.about_remaining", {v0: x.eta >= 60 ? t("job.min_with_value", {value: Math.round(x.eta/60)}) : t("job.sec_with_value", {value: x.eta})}) : '') : '';
-  $('#jobstatus').textContent = (j.status_text || '') + (j.details ? ' · ' + j.details : '') + (j.status==='running' && j.progress != null ? ` · ${j.progress}%` : '') + xferText;
+  const elapsed = (() => { if (!j.started || j.status !== 'running') return ''; const sec = Math.max(0, Math.round((Date.now() - new Date(j.started)) / 1000));
+    return ' · ' + t("job.elapsed", {v: sec >= 60 ? t("job.min_with_value", {value: Math.floor(sec / 60)}) + (sec % 60 ? ' ' + t("job.sec_with_value", {value: sec % 60}) : '') : t("job.sec_with_value", {value: sec})}); })();
+  if (j.phase && j.status === 'running') {   // apt 更新：留舊版 → 下載 → 安裝 三段，每段顯示第幾項／共幾項；拿不到步數就不給百分比
+    const ORDER = ['prepare', 'wait', 'download', 'install', 'finish'], at = ORDER.indexOf(j.phase);
+    $('#jobphase').classList.remove('hide');
+    $('#jobphase').innerHTML = ['prepare', 'download', 'install'].map(ph => { const i = ORDER.indexOf(ph); const cls = i < at && !(ph === 'download' && j.phase === 'wait') ? 'done' : i === at ? 'cur' : ''; return `<span class="${cls}">${t("job.phase_" + ph)}</span>`; }).join('');
+    const st = j.step ? ` · ${t("job.step_of", {i: j.step[0] + (j.phase === 'prepare' ? 1 : 0), n: j.step[1]})}` : '';
+    const cur = j.phase === 'prepare' && j.details ? ` · ${t("job.now_item", {v: j.details})}` : j.phase === 'install' && j.details ? ` · ${j.details}` : j.phase === 'wait' ? ` · ${j.status_text || ''}` : '';
+    $('#jobstatus').textContent = t("job.phase_" + j.phase) + st + cur + (j.phase === 'download' ? xferText : '') + elapsed;
+    if (j.kind === 'install' && (j.packages || []).length > 6 && !$('#jobpkgs').innerHTML) $('#jobpkgs').innerHTML = `<details><summary style="cursor:pointer">${t("job.package_list", {n: j.packages.length})}</summary><div style="margin-top:4px;line-height:1.7">${j.packages.map(esc).join(', ')}</div></details>`;
+  } else {
+    $('#jobphase').classList.add('hide');
+    $('#jobstatus').textContent = (j.status_text || '') + (j.details ? ' · ' + j.details : '') + (j.status==='running' && j.progress != null ? ` · ${j.progress}%` : '') + xferText + elapsed;
+  }
   $('#joblog').textContent = (j.log || []).join('\n');
   if (j.status === 'done' || j.status === 'error') {
     clearInterval(state.polling); state.polling = null;
-    $('#jobcard').className = 'panel notice ' + (j.status === 'done' ? 'ok' : 'danger');
+    $('#jobcard').className = 'panel notice ' + (j.status === 'done' ? 'ok' : 'danger'); $('#jobphase').classList.add('hide');
     $('#jobstatus').textContent = j.status === 'done' ? t("job.completed", {v0: j.finished}) : t("job.failed", {v0: j.error || t("job.unknown_error")});
     $('#jobactions').innerHTML = `<button id="jobClose">${t("job.close")}</button>`;
     if (j.status === 'error' && j.reason) renderNpmFailure(j);   // 人話原因 + 可以按的修法

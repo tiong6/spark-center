@@ -978,8 +978,9 @@ def _fetch_file(url, dest, max_bytes):
     return True, None
 
 
-def rollback_prepare(names, log=lambda s: None, status=lambda s: None):
-    """在升級前呼叫。回這次的紀錄（也已寫進 index）。任何一個套件失敗都不影響升級本身。"""
+def rollback_prepare(names, log=lambda s: None, status=lambda s: None, step=lambda i, n, name: None):
+    """在升級前呼叫。回這次的紀錄（也已寫進 index）。任何一個套件失敗都不影響升級本身。
+    step(i, n, name)：正在處理第 i 個（從 0 起）／共 n 個，給進度卡用；134 個套件逐一去 Launchpad 抓，沒步數會像當掉。"""
     cache = apt.Cache()
     job_id = datetime.now().strftime("%Y%m%dT%H%M%S")
     job_dir = os.path.join(ROLLBACK_DIR, job_id)
@@ -990,7 +991,8 @@ def rollback_prepare(names, log=lambda s: None, status=lambda s: None):
         targets = _rollback_changes(cache, names)
     except Exception as e:
         log("rollback simulate failed: " + str(e)); targets = [(n, True) for n in names]
-    for name, selected in targets:
+    for idx, (name, selected) in enumerate(targets):
+        step(idx, len(targets), name)
         pkg = cache.get(name)
         entry = {"name": name, "selected": selected, "old": None, "new": None, "arch": None, "deb": None, "source": None, "verified": None, "reason": None}
         rec["packages"].append(entry)
@@ -1792,6 +1794,8 @@ class Job:
             "status_text": "",
             "details": "",
             "xfer": None,          # apt 下載明細：{"done","total","speed","eta","items","items_total"}，aptdaemon progress-details
+            "phase": None,         # apt 更新的階段：prepare（留舊版）| wait（鎖、解相依）| download | install | finish；其他工作為 None
+            "step": None,          # 目前階段的 [已完成, 總數]；拿不到就 None（前端顯示不定進度條，不假裝百分比）
             "exit": None,
             "error": None,
             "log": [],
@@ -2160,10 +2164,16 @@ class Job:
         if kind == "install":   # 升級前先把舊版留下來；失敗不影響升級
             try:
                 with self.lock:
-                    self.state["status_text"] = msg("rollback_preparing", LANG_DEFAULT, name=", ".join(packages), old="")
-                rollback_prepare(packages, self._log, lambda txt: self.state.__setitem__("status_text", txt))
+                    self.state.update(phase="prepare", step=None, progress=None,
+                                      status_text=msg("rollback_preparing", LANG_DEFAULT, name=", ".join(packages), old=""))
+                def _step(i, n, name):
+                    with self.lock:
+                        self.state.update(step=[i, n], details=name, progress=int(i / n * 100) if n else None)
+                rollback_prepare(packages, self._log, lambda txt: self.state.__setitem__("status_text", txt), _step)
             except Exception as e:
                 self._log("rollback prepare failed: " + str(e))
+            with self.lock:   # 留舊版結束；接下來的階段由 aptdaemon 的狀態決定，進度歸零不沿用
+                self.state.update(phase="wait", step=None, details="", progress=None)
         if kind == 'node_source':
             action, target, token = packages
             if not node_helper_ready():
@@ -2242,10 +2252,17 @@ class Job:
             else:
                 trans = client.upgrade_packages(packages)
 
+            PHASE_OF = {aenums.STATUS_DOWNLOADING: "download", aenums.STATUS_DOWNLOADING_REPO: "download",
+                        aenums.STATUS_COMMITTING: "install", aenums.STATUS_SETTING_UP: "install", aenums.STATUS_CLEANING_UP: "install",
+                        aenums.STATUS_FINISHED: "finish"}
             def on_status(t, status):
                 text = aenums.get_status_string_from_enum(status)
                 with self.lock:
                     self.state["status_text"] = text
+                    if kind == "install":   # 只有 install 走三段式；refresh／remove 的卡片維持單行
+                        self.state["phase"] = PHASE_OF.get(status, "wait")
+                        if self.state["phase"] != "download":
+                            self.state["step"] = None
                 self._log(text)
 
             def on_details(t, d):
@@ -2263,6 +2280,8 @@ class Job:
                 with self.lock:
                     self.state["xfer"] = ({"done": int(done), "total": int(total), "speed": int(speed), "eta": int(eta),
                                            "items": int(items), "items_total": int(items_total)} if total > 0 else None)
+                    if kind == "install" and self.state["phase"] == "download" and items_total > 0:
+                        self.state["step"] = [int(items), int(items_total)]
 
             def on_error(t, code, details):
                 msg = f"{aenums.get_error_string_from_enum(code)}: {details}"
