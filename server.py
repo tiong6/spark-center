@@ -62,6 +62,8 @@ MSG = {
     "npm_step_stop": "先停止 {unit}，讓它乾淨地關掉再換檔案",
     "npm_step_backup": "用 {name} 自己的備份指令備份資料（可能要幾分鐘）",
     "npm_backup_done": "已備份到 {path}（{mb} MB）",
+    "npm_backup_writing": "備份檔已寫 {gb} GB",
+    "npm_backup_verifying": "備份檔 {gb} GB 寫完，校驗中",
     "npm_backup_skipped": "{name} 的指令找不到，略過備份",
     "npm_backup_failed_abort": "{name} 的備份失敗，這次不更新（服務已重新啟動）",
     "npm_step_repair": "跑 {name} 自己的升級／修復步驟：{cmd}",
@@ -363,6 +365,8 @@ MSG = {
     "npm_step_stop": "Stopping {unit} first so it shuts down cleanly before files change",
     "npm_step_backup": "Backing up {name}'s data with its own backup command (this can take a few minutes)",
     "npm_backup_done": "Backed up to {path} ({mb} MB)",
+    "npm_backup_writing": "backup file at {gb} GB so far",
+    "npm_backup_verifying": "backup file complete at {gb} GB, verifying",
     "npm_backup_skipped": "{name}'s command was not found; backup skipped",
     "npm_backup_failed_abort": "{name}'s backup failed; not updating (the service has been started again)",
     "npm_step_repair": "Running {name}'s own upgrade/repair step: {cmd}",
@@ -1477,6 +1481,18 @@ NPM_BACKUP_KEEP = 2
 _NPM_JOB_OPTS = {"backup": True}
 
 
+def _newest_file_size(folder, since):
+    """folder 裡修改時間 ≥ since 的最新檔案大小（bytes）；沒有就 None。給沒有進度輸出的長指令當進度用。"""
+    try:
+        cands = [os.path.join(folder, f) for f in os.listdir(folder)]
+        cands = [f for f in cands if os.path.isfile(f) and os.path.getmtime(f) >= since - 1]
+        if not cands:
+            return None
+        return os.path.getsize(max(cands, key=os.path.getmtime))
+    except OSError:
+        return None
+
+
 def _npm_known_bin(name):
     k = NPM_KNOWN.get(name)
     prefix = (npm_status().get("prefix") or "").strip()
@@ -1922,7 +1938,7 @@ class Job:
             self._step("stop", unit=u); self._log(msg("npm_step_stop", LANG_DEFAULT, unit=u))
             subprocess.run(["systemctl", "--user", "stop", u], capture_output=True, timeout=120)
 
-    def _npm_backup(self, name):
+    def _npm_backup(self, name):   # 備份進度看檔案大小：_newest_file_size
         k = NPM_KNOWN[name]; b = _npm_known_bin(name)
         if not b:
             self._log(msg("npm_backup_skipped", LANG_DEFAULT, name=name)); return True
@@ -1930,10 +1946,31 @@ class Job:
         self._step("backup", name=name); self._log(msg("npm_step_backup", LANG_DEFAULT, name=name))
         with self.lock:
             self.state["status_text"] = msg("npm_step_backup", LANG_DEFAULT, name=name)
-        try:
-            r = subprocess.run([b] + k["backup"] + [d], capture_output=True, text=True, timeout=1800, env=_session_env())
-        except Exception as e:
-            self._log("backup: " + str(e)[:200]); return False
+        # openclaw backup 沒有進度輸出，幾 GB 的壓縮＋校驗會讓卡片停在 0% 幾分鐘像當掉。
+        # 做法：備份指令在另一條執行緒跑（保持 subprocess.run，隔離測試才 mock 得到），這裡每 2 秒看輸出目錄裡
+        # 這次新建的檔案長到多大；大小停住就是在校驗（--verify 會整個讀回來），拿不到檔案就什麼都不說。
+        box = {}
+        def _run_backup():
+            try:
+                box["r"] = subprocess.run([b] + k["backup"] + [d], capture_output=True, text=True, timeout=1800, env=_session_env())
+            except Exception as e:
+                box["e"] = e
+        th = threading.Thread(target=_run_backup, daemon=True); since = time.time(); th.start()
+        last = None
+        while th.is_alive():
+            th.join(2)
+            cur = _newest_file_size(d, since)
+            if cur is None:
+                continue
+            key = "npm_backup_verifying" if last is not None and cur == last else "npm_backup_writing"
+            with self.lock:
+                self.state["details"] = msg(key, LANG_DEFAULT, gb=f"{cur / 1e9:.1f}")
+            last = cur
+        with self.lock:
+            self.state["details"] = ""
+        if "e" in box:
+            self._log("backup: " + str(box["e"])[:200]); return False
+        r = box["r"]
         path = None
         try:
             path = json.loads(r.stdout).get("archivePath")
