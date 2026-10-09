@@ -3849,11 +3849,19 @@ HW_TTL = 3600                                   # 硬體不會變，快取 1 小
 HW_SNAPSHOT = os.path.join(HERE, "data", "hardware.json")
 
 
+def _boot_id():
+    return (_read("/proc/sys/kernel/random/boot_id") or "").strip() or None
+
+
 def _hw_snapshot_load():
+    """服務啟動時載回上次的硬體快照，省一次慢掃描。只在同一次開機內有效：BIOS、核心、韌體版本只會在重開機後變，
+    重開後若服務在一小時內重啟，照舊載回就會把舊 BIOS 版本顯示到按「重新掃描」為止（2026-10-09 實際發生）。"""
     try:
         with open(HW_SNAPSHOT) as f:
             d = json.load(f)
         if isinstance(d, dict) and d.get("generated"):
+            if d.get("boot_id") != _boot_id():
+                return   # 不同次開機：作廢，下次 /api/hardware 重新掃描
             d.pop("printers", None)   # 舊版快照含印表機；印表機已改走即時端點，過期的不再供應
             _HW_CACHE.update(data=d, ts=os.path.getmtime(HW_SNAPSHOT))
     except (OSError, ValueError):
@@ -3888,6 +3896,7 @@ def hardware_static(force=False):
         "pci": _list_cmd(["lspci"]),
         "pci_devices": _pci_devices(),
         "generated": datetime.now().isoformat(timespec="seconds"),
+        "boot_id": _boot_id(),   # 快照只在這次開機內可信（見 _hw_snapshot_load）
     }
     _HW_CACHE.update(ts=time.time(), data=data)
     try:
