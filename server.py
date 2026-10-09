@@ -28,7 +28,7 @@ import subprocess
 import threading
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import apt
@@ -912,8 +912,43 @@ def _firmware_usage(pkg, cache):
 # ESM 的 pool 要授權、第三方多半不留，這些誠實標「未保留」與原因。保留最近 5 次更新，每個檔案上限 150 MB。
 ROLLBACK_DIR = os.path.join(HERE, "data", "rollback")
 ROLLBACK_KEEP = 5
+ROLLBACK_MAX_AGE_DAYS = 30   # 降回只在更新後幾天內有意義：超過這個天數的紀錄連檔案一起清（次數與天數先到先刪）
 ROLLBACK_MAX_MB = 150
 _ROLLBACK_LOCK = threading.Lock()
+
+
+def _rollback_job_bytes(job):
+    """這筆工作留下來的 .deb 總大小（npm 不留檔，算 0）。"""
+    total = 0
+    for p in job.get("packages", []):
+        if p.get("deb"):
+            try:
+                total += os.path.getsize(os.path.join(ROLLBACK_DIR, p["deb"]))
+            except OSError:
+                pass
+    return total
+
+
+def rollback_prune(max_age_days=None, everything=False):
+    """刪掉超過 max_age_days 的紀錄（everything=True 全刪）。回 {"removed": n, "bytes": 釋放的位元組}。索引鎖內做，和新增互斥。"""
+    cutoff = None if max_age_days is None else datetime.now() - timedelta(days=max_age_days)
+    removed, freed = 0, 0
+    with _ROLLBACK_LOCK:
+        keep = []
+        for j in _rollback_index_load():
+            try:
+                started = datetime.fromisoformat(j.get("started") or "")
+            except ValueError:
+                started = None
+            old = everything or (cutoff is not None and (started is None or started < cutoff))
+            if old:
+                freed += _rollback_job_bytes(j); removed += 1
+                shutil.rmtree(os.path.join(ROLLBACK_DIR, j["id"]), ignore_errors=True)
+            else:
+                keep.append(j)
+        if removed:
+            _rollback_index_save(keep)
+    return {"removed": removed, "bytes": freed}
 
 
 def _rollback_index_load():
@@ -1082,6 +1117,7 @@ def _rollback_index_add(rec):
         for old_job in jobs[ROLLBACK_KEEP:]:
             shutil.rmtree(os.path.join(ROLLBACK_DIR, old_job["id"]), ignore_errors=True)
         _rollback_index_save(jobs[:ROLLBACK_KEEP])
+    rollback_prune(ROLLBACK_MAX_AGE_DAYS)
 
 
 def rollback_deb_paths(job_id, name=None):
@@ -5624,7 +5660,17 @@ class Handler(BaseHTTPRequestHandler):
                         p["installed"] = pkg.installed.version if pkg and pkg.installed else None
             except Exception:
                 pass
-            self._json({"ok": True, "jobs": jobs, "keep": ROLLBACK_KEEP, "max_mb": ROLLBACK_MAX_MB})
+            # 同一個套件後來又被更新過（更新的那筆在索引前面）：舊那筆的 .deb 降回去會跨兩版，不算「還能降回」
+            seen = set()
+            for j in jobs:   # 索引是新到舊
+                j["bytes"] = _rollback_job_bytes(j)
+                for p in j.get("packages", []):
+                    p["superseded"] = p.get("name") in seen
+                for p in j.get("packages", []):
+                    if p.get("deb") or p.get("kind") == "npm":
+                        seen.add(p.get("name"))
+            self._json({"ok": True, "jobs": jobs, "keep": ROLLBACK_KEEP, "max_mb": ROLLBACK_MAX_MB, "max_age_days": ROLLBACK_MAX_AGE_DAYS,
+                        "total_bytes": sum(j["bytes"] for j in jobs)})
         elif path == "/api/autostart":
             self._json(autostart_status())
         elif path == "/api/hardware":
@@ -5876,6 +5922,16 @@ class Handler(BaseHTTPRequestHandler):
             if not JOB.start("npm", names):
                 return self._json({"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 409)
             return self._json({"ok": True})
+        if path == "/api/rollback/prune":
+            # 只有使用者按鈕按下才來；days 限定在 0..365，0 = 全清
+            try:
+                days = int(data.get("days", ROLLBACK_MAX_AGE_DAYS))
+            except (TypeError, ValueError):
+                return self._json({"ok": False, "error": "bad days"}, 400)
+            if not 0 <= days <= 365:
+                return self._json({"ok": False, "error": "bad days"}, 400)
+            r = rollback_prune(None if days == 0 else days, everything=(days == 0))
+            return self._json({"ok": True, **r})
         if path == "/api/rollback":
             job_id, name = str(data.get("job") or ""), str(data.get("name") or "")
             if not re.fullmatch(r"\d{8}T\d{6}", job_id) or (name and not re.fullmatch(r"(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._+-]*", name)):
@@ -6019,6 +6075,7 @@ def main():
     threading.Thread(target=_disk_watch, daemon=True).start()
     threading.Thread(target=_gpu_watch, daemon=True).start()
     threading.Thread(target=_gpu_clock_reapply, daemon=True).start()
+    threading.Thread(target=lambda: rollback_prune(ROLLBACK_MAX_AGE_DAYS), daemon=True).start()   # 過期的降回紀錄開機就清
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Spark Center on http://{HOST}:{PORT}", flush=True)
     try:
