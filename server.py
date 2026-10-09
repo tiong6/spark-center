@@ -5419,7 +5419,12 @@ def faq_local():
         except (OSError, ValueError, subprocess.TimeoutExpired):
             pass
         wifi = {"name": iface, "state": _read(f"/sys/class/net/{iface}/operstate"), "ipv4": ips}
-    return {"ok": True, "cx7": cx7_state(), "mem": mem, "wifi": wifi}
+    # Ubuntu 的版本升級提示：Prompt=lts/normal 會在新 LTS 出來時跳「軟體更新」視窗要你升到 26.04；DGX OS 沒有官方升級路徑
+    release = {"prompt": None, "flag": os.path.exists("/var/lib/ubuntu-release-upgrader/release-upgrade-available")}
+    for line in (_read("/etc/update-manager/release-upgrades") or "").splitlines():
+        if line.strip().lower().startswith("prompt="):
+            release["prompt"] = line.split("=", 1)[1].strip()
+    return {"ok": True, "cx7": cx7_state(), "mem": mem, "wifi": wifi, "release": release}
 
 
 FAQ_ARCHIVE_DIR = os.path.join(HERE, "data", "faq")

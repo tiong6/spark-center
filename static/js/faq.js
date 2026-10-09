@@ -31,6 +31,12 @@ const FAQ = [
   { id: 'nvcc_openmp', cat: 'software', cmds: [
     ['faq.cmd.cmake', 'target_compile_options(mytarget PRIVATE\n    $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fopenmp>\n)'],
     ['faq.cmd.nvcc', 'nvcc -Xcompiler=-fopenmp ...']] },
+  { id: 'release_upgrade', cat: 'software', own: true, local: 'release', cmds: [
+    ['faq.cmd.release_never', "sudo sed -i 's/^Prompt=.*/Prompt=never/' /etc/update-manager/release-upgrades"],
+    ['faq.cmd.release_check', 'grep ^Prompt /etc/update-manager/release-upgrades']], links: [
+    ['faq.link.forum_2510', 'https://forums.developer.nvidia.com/t/dgx-spark-ubuntu-upgrade-to-25-10/356468'],
+    ['faq.link.forum_2604', 'https://forums.developer.nvidia.com/t/ubuntu-26-04-lts-kernel-6-17-0-arm64-on-dgx-spark-anyone/350517'],
+    ['faq.link.dgxos7', 'https://docs.nvidia.com/dgx/dgx-os-7-user-guide/additional_software.html']] },
   { id: 'nemoclaw', cat: 'software', links: [
     ['faq.link.nemoclaw', 'https://github.com/NVIDIA/NemoClaw/discussions'],
     ['faq.link.nemoclaw_faq', 'https://github.com/NVIDIA/NemoClaw/discussions/categories/q-a?discussions_q=category%3AQ%26A+is%3Aclosed+author%3AzNeill+'],
@@ -77,6 +83,7 @@ function faqItem(it) {
   const isNew = it.since === FAQ_SOURCE.version;   // 只標「目前這一版」新增的；下一版出來自然退掉
   const tags = (isNew ? `<span class="tag new" title="${esc(t('faq.tag_new_hint', {v: FAQ_SOURCE.version, d: FAQ_SOURCE.updated}))}">${t('faq.tag_new')}</span>` : '')
     + (it.local ? `<span class="tag ok">${t('faq.tag_local')}</span>` : '')
+    + (it.own ? `<span class="tag" title="${esc(t('faq.tag_own_hint'))}">${t('faq.tag_own')}</span>` : '')   // 自己整理的題，和 NVIDIA 原文分開標
     + (it.fe ? `<span class="tag" title="${esc(t('faq.tag_fe_hint'))}">${t('faq.tag_fe')}</span>` : '');
   const cmds = (it.cmds || []).map(([l, cmd]) =>
     `<div class="fcmd"><div class="sub1">${esc(label(l))}</div><div class="fbox"><pre>${esc(cmd)}</pre><button class="small" data-copy>${t('faq.copy')}</button></div></div>`).join('');
@@ -117,6 +124,13 @@ function faqLocalRows(kind) {
     const dash = d && d.ok ? (d.installed ? `<a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.url)}</a>` : esc(t('faq.l.not_installed'))) : esc(t('faq.l.unreadable'));
     return row(t('faq.l.memory'), esc(t('faq.l.mem_used', {used, total: fmtBytes(m.total), avail})) + ` · <a href="#monitor" data-goto="monitor">${t('faq.goto_monitor')}</a>`)
       + row(t('faq.l.dashboard'), dash);
+  }
+  if (kind === 'release') {
+    const r = L.release;
+    if (!r || !r.prompt) return na('faq.l.release_prompt');
+    const never = r.prompt.toLowerCase() === 'never';
+    return row(t('faq.l.release_prompt'), `<code>Prompt=${esc(r.prompt)}</code> · <span class="fv ${never ? 'ok' : 'warn'}">${esc(t(never ? 'faq.l.release_quiet' : 'faq.l.release_nags'))}</span>`)
+      + row(t('faq.l.release_flag'), esc(t(r.flag ? 'faq.l.release_flag_yes' : 'faq.l.release_flag_no')));
   }
   if (kind === 'wifi') {
     const w = L.wifi;
