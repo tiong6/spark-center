@@ -5819,6 +5819,21 @@ class Handler(BaseHTTPRequestHandler):
             self.rfile.read(int(self.headers.get("Content-Length") or 0))
             return self._json({"ok": False, "error": msg("bad_origin", self.lang, why=why)}, 403)
         data = self._body()
+        if path == "/api/open":
+            # 外部連結交給系統預設瀏覽器。PWA 視窗裡 target=_blank 會在 Spark Center 自己的 Chrome profile 開一個
+            # 完整瀏覽器，久了它就長成第二個瀏覽器（2026-10-10 盤點：3,823 筆別站紀錄、同步進 17 個擴充功能）。
+            # 只收 http/https；沒桌面就回 503 讓前端退回新分頁。
+            url = str(data.get("url") or "")
+            if len(url) > 2048 or not re.fullmatch(r"https?://[^\s\x00-\x1f\"'<>\\]+", url):
+                return self._json({"ok": False, "error": "bad_url"}, 400)
+            env = _session_env()
+            if not (env.get("DISPLAY") or env.get("WAYLAND_DISPLAY")):
+                return self._json({"ok": False, "error": "no_display"}, 503)
+            try:
+                subprocess.Popen(["xdg-open", url], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            except OSError as e:
+                return self._json({"ok": False, "error": str(e)}, 500)
+            return self._json({"ok": True})
         if path == "/api/simulate":
             names = [n for n in data.get("packages", []) if isinstance(n, str)]
             if not names:
