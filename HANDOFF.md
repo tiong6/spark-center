@@ -4,6 +4,8 @@
 
 ## 已部署
 
+- 拉取欄位原為相鄰 inline 控制項，gap 約 0、輸入框 38.47px／按鈕 27.48px；改為獨立 flex 容器、10px gap、36px 同高、固定單排，移除 input 的 inline 最小寬度以允許縮小。實際中英文模型頁 DOM 輸出：inputHeight=35.995、buttonHeight=35.995、gap=9.994、sameRow=true、pageOverflow=false。tools/check.sh 通過（18 tests in 6.565s；9 個既有 CSS 警告），服務 idle 時重啟，/api/llm ok=true；未觸發模型下載。
+
 - 檔案資訊改以共用資料夾、相對檔名與縮寫的 Ollama 雜湊呈現，單一檔案可再展開完整路徑。Strata 的不同目錄同名檔保持可區別；保留輪詢前的展開狀態與清單捲動位置。僅改畫面，未更名或移動模型。
 
 - 同日修正模型列控制項間距：保留 10px gap、32px 高度，操作項固定單排，表格依內容分配操作欄寬；極窄時只在表格內橫向捲動。真實中英文畫面三列均確認 sameRow=true、fitsCell=true，既有檢查通過。
