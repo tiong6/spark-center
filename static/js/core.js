@@ -42,7 +42,7 @@ function showTab(t) {
   if (t === 'monitor') startMon(); else stopHw();
   if (t === 'hardware') showHardware();
   if (t === 'disk') loadDisk(); else if (hw.diskTimer) { clearInterval(hw.diskTimer); hw.diskTimer = null; }
-  if (t === 'llm') { pollLlm(); hw.llmTimer = setInterval(pollLlm, 10000); loadStores(); } else if (hw.llmTimer) { clearInterval(hw.llmTimer); hw.llmTimer = null; }
+  if (t === 'llm') startLlm(); else stopLlm();
 }
 document.querySelectorAll('nav.tabs a').forEach(a => a.onclick = () => showTab(a.dataset.tab));
 

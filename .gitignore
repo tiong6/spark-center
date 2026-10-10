@@ -6,3 +6,9 @@ data/hardware.json
 data/rollback/
 data/faq/
 data/gpu-clock.json
+
+data/model-sources.json
+data/model-inventory.json
+data/model-inventory.tmp
+data/llm-residency.lock
+data/llm-guard*

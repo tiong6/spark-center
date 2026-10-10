@@ -53,6 +53,10 @@ APT_LISTS = "/var/lib/apt/lists"
 LANG_DEFAULT = "zh-TW"
 MSG = {
     "zh-TW": {
+    "llm_no_completion": "此模型未回報文字生成能力，或能力查詢失敗；不執行文字量測。",
+    "llm_strata_resident": "Strata 正在駐留或啟動；請先停止 Strata，再載入或量測 Ollama 模型。",
+    "llm_strata_unknown": "無法確認 Strata 是否佔用記憶體；暫停 Ollama 載入，請檢查 Strata 服務。",
+    "llm_guard_unavailable": "模型載入防護服務無法連線；已停止載入，請檢查 spark-ollama-guard。",
     "sweep_disabled": "主動掃描網段已停用（SPARK_CENTER_NO_SWEEP=1）。",
     "usbc_default_note": "{product} 內建預設對應（依作者同款機器校準）；插裝置即可重新校準",
     "setup_no_display_toggle": "找不到桌面（沒有 DISPLAY），密碼視窗沒地方跳。請展開這一項的「自己動手也可以」，把指令貼到終端機執行。",
@@ -357,6 +361,10 @@ MSG = {
         "trash_cleared": "已清空垃圾桶"
     },
     "en": {
+    "llm_no_completion": "This model does not report completion capability, or its capability query failed; text benchmark refused.",
+    "llm_strata_resident": "Strata is resident or starting. Stop Strata before loading or benchmarking Ollama models.",
+    "llm_strata_unknown": "Strata residency is unknown. Check the Strata service before loading Ollama.",
+    "llm_guard_unavailable": "Model admission guard unavailable. Loading stopped; check spark-ollama-guard.",
     "sweep_disabled": "The subnet sweep is disabled (SPARK_CENTER_NO_SWEEP=1).",
     "usbc_default_note": "Built-in default for {product} (calibrated on the author's identical machine); plug in a device to recalibrate",
     "setup_no_display_toggle": "No desktop found (no DISPLAY), so there is nowhere to show the password dialog. Open this item's \"Do it by hand instead\" and run the commands in a terminal.",
@@ -4604,6 +4612,7 @@ def hardware_live():
 # ---------- 本機 LLM 探針（偷師 sparkDash；它沒做 Ollama，這裡補上）----------
 import urllib.request
 import urllib.error
+from tools import model_inventory
 
 LLM_TARGETS = [
     {"kind": "ollama", "url": "http://127.0.0.1:11434"},
@@ -4629,19 +4638,21 @@ def llm_status():
         base = t["url"]
         if t["kind"] == "ollama":
             ver = _http_json(base + "/api/version")
-            if ver is None:
-                continue
-            ps = _http_json(base + "/api/ps") or {}
-            tags = _http_json(base + "/api/tags") or {}
+            ps = _http_json(base + "/api/ps")
+            tags = _http_json(base + "/api/tags")
+            ps_ok = isinstance(ps, dict) and isinstance(ps.get("models"), list)
+            tags_ok = isinstance(tags, dict) and isinstance(tags.get("models"), list)
             out.append({
-                "kind": "Ollama", "url": base, "version": ver.get("version"),
+                "kind": "Ollama", "url": base, "version": (ver or {}).get("version"),
+                "state": "online" if ver is not None and ps_ok and tags_ok else "unavailable",
+                "loaded_state": "known" if ps_ok else "unknown", "installed_state": "known" if tags_ok else "unknown",
                 "loaded": [{"name": m.get("name"), "size": m.get("size"), "size_vram": m.get("size_vram"),
                             "context": m.get("context_length"), "expires_at": m.get("expires_at"),
                             "quant": ((m.get("details") or {}).get("quantization_level")),
-                            "params": ((m.get("details") or {}).get("parameter_size"))} for m in ps.get("models", [])],
+                            "params": ((m.get("details") or {}).get("parameter_size"))} for m in ps["models"]] if ps_ok else None,
                 "installed": [{"name": m.get("name"), "size": m.get("size"), "modified": (m.get("modified_at") or "")[:10],
                                "quant": ((m.get("details") or {}).get("quantization_level")), "params": ((m.get("details") or {}).get("parameter_size")),
-                               "family": ((m.get("details") or {}).get("family"))} for m in tags.get("models", [])],
+                               "family": ((m.get("details") or {}).get("family")), "digest": m.get("digest")} for m in tags["models"]] if tags_ok else None,
                 "bench": True,
                 "note": msg('ollama_metrics', LANG_DEFAULT),
             })
@@ -4663,11 +4674,15 @@ def llm_status():
                            "capabilities": ["vision"] if health.get("images") else []}] if name else []
                 version = (props.get("build_info") or "").removeprefix("Strata ") or None
                 out.append({"kind": "Strata", "url": base, "version": version,
-                            "loaded": models if health.get("loaded") is True else [],
+                            "state": "online", "loaded_state": "known" if isinstance(health.get("loaded"), bool) else "unknown",
+                            "loaded": models if health.get("loaded") is True else ([] if health.get("loaded") is False else None),
                             "installed": models, "bench": False,
                             "note": msg('strata_source', LANG_DEFAULT)})
                 continue
             if props is None:
+                if any(s.get("type") == "strata" for s in model_inventory.snapshot().get("sources", [])):
+                    out.append({"kind": "Strata", "url": base, "state": "unavailable",
+                                "loaded": None, "installed": None, "loaded_state": "unknown", "bench": False})
                 continue
             slots = _http_json(base + "/slots") or []
             out.append({"kind": "llama.cpp", "url": base, "version": (props.get("build_info") or None),
@@ -4685,13 +4700,52 @@ def llm_status():
 
 
 OLLAMA = "http://127.0.0.1:11434"
+OLLAMA_GUARDED = "http://127.0.0.1:11436"
 _SHOW_CACHE = {}
 
 
-def ollama_show(name):
+def llm_guard():
+    g = _http_json(OLLAMA_GUARDED + "/guard/status", timeout=4)
+    if not isinstance(g, dict) or g.get("ok") is not True:
+        return {"ok": False, "blocked": True, "reason": "guard_unavailable"}
+    return g
+
+
+def llm_admission(model, completion=False):
+    if completion:
+        show = _http_json(OLLAMA + "/api/show", {"model": model})
+        if not isinstance(show, dict) or "completion" not in (show.get("capabilities") or []):
+            return msg('llm_no_completion', LANG_DEFAULT), 422
+    g = llm_guard()
+    if g["blocked"]:
+        return msg('llm_' + g['reason'], LANG_DEFAULT), 409
+    return None, 200
+
+
+def llm_request(url, data=None, timeout=600):
+    # Keep proxy refusals actionable; never silently fall back to port 11434.
+    req = urllib.request.Request(url, data=json.dumps(data).encode() if data is not None else None,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read())
+        except ValueError:
+            detail = {}
+        code = detail.get("code")
+        raise RuntimeError(msg('llm_' + code, LANG_DEFAULT) if code in ('strata_resident', 'strata_unknown')
+                           else str(detail.get('error') or exc)) from exc
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(msg('llm_guard_unavailable', LANG_DEFAULT)) from exc
+
+
+def ollama_show(name, digest=None):
     """/api/show 的精華：家族、參數量、量化、上下文長度、能力。快取（模型不變就不重查）。"""
-    if name in _SHOW_CACHE:
-        return _SHOW_CACHE[name]
+    key = (name, digest)
+    if key in _SHOW_CACHE and time.monotonic() - _SHOW_CACHE[key][0] < 60:
+        return _SHOW_CACHE[key][1]
     j = _http_json(OLLAMA + "/api/show", {"name": name}, timeout=20) or {}
     det = j.get("details") or {}
     mi = j.get("model_info") or {}
@@ -4700,7 +4754,7 @@ def ollama_show(name):
            "context": ctx, "capabilities": j.get("capabilities") or [], "arch": mi.get("general.architecture"),
            "param_count": mi.get("general.parameter_count")}
     if j:
-        _SHOW_CACHE[name] = res
+        _SHOW_CACHE[key] = (time.monotonic(), res)
     return res
 
 
@@ -4716,39 +4770,7 @@ def ollama_config():
 
 
 def llm_stores():
-    """三個模型倉庫並排，找重複：Ollama（主機）、LM Studio（~/.lmstudio/models）、Open WebUI 容器內的 Ollama（docker 卷）。"""
-    def norm(n):
-        toks = re.split(r"[-_:. ]+", n.lower().split("/")[-1])
-        toks = [t for t in toks if t and not re.fullmatch(r"(\d+(\.\d+)?[bm]|a\d+b|q\d\w*|mxfp\d|f16|bf16|gguf|instruct|it|chat|latest|\d+k)", t)]
-        return "".join(toks)
-    ol = [{"name": m["name"], "bytes": m.get("size") or 0} for m in (_http_json(OLLAMA + "/api/tags") or {}).get("models", [])]
-    lm = []
-    lmdir = os.path.join(HOME, ".lmstudio", "models")
-    if os.path.isdir(lmdir):
-        for pub in os.listdir(lmdir):
-            pd = os.path.join(lmdir, pub)
-            if not os.path.isdir(pd):
-                continue
-            for mdl in os.listdir(pd):
-                md = os.path.join(pd, mdl)
-                if os.path.isdir(md):
-                    size = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(md) for f in fs)
-                    lm.append({"name": f"{pub}/{mdl}", "bytes": size})
-    vol = {"available": False, "models": [], "bytes": None}
-    if _run(["docker", "volume", "inspect", "open-webui-ollama"], timeout=10):
-        out = _run(["docker", "run", "--rm", "-v", "open-webui-ollama:/v:ro", "busybox", "sh", "-c",
-                    "ls /v/models/manifests/registry.ollama.ai/library 2>/dev/null; echo ---; du -sk /v/models 2>/dev/null | cut -f1"], timeout=90)
-        if out is not None:
-            names, _, kb = out.partition("---")
-            vol = {"available": True, "models": [n for n in names.split() if n], "bytes": int(kb.strip()) * 1024 if kb.strip().isdigit() else None}
-    groups = {}
-    for src, items in (("Ollama", ol), ("LM Studio", lm), (msg('webui_volume', LANG_DEFAULT), [{"name": n, "bytes": None} for n in vol["models"]])):
-        for it in items:
-            groups.setdefault(norm(it["name"].split(":")[0]), []).append({"source": src, **it})
-    dups = [{"key": k, "items": v} for k, v in groups.items() if len({x["source"] for x in v}) > 1]
-    dups.sort(key=lambda d: -sum((x["bytes"] or 0) for x in d["items"]))
-    return {"ollama": ol, "lmstudio": lm, "openwebui_volume": vol, "duplicates": dups,
-            "note": msg('duplicate_note', LANG_DEFAULT)}
+    return model_inventory.snapshot()
 
 
 _LLM_BENCH = {"lock": threading.Lock(), "state": {"status": "idle"}}
@@ -4785,25 +4807,29 @@ def llm_bench_start(model, num_predict=128):
 
 def _llm_bench_run_concurrent(model, n, num_predict):
     """n 個請求同時送，總 tok/s = 所有回應的 eval_count 合計 ÷ 牆鐘時間。OLLAMA_NUM_PARALLEL 小於 n 時會排隊，數字會反映排隊。"""
-    base = OLLAMA
+    base = OLLAMA_GUARDED
     prompts = [f"Write {i+1} short paragraphs about the history of the number {i+7}. " * 2 for i in range(n)]
     try:
-        warm = _http_json(base + "/api/generate", {"model": model, "prompt": "hi", "stream": False, "options": {"num_predict": 1, "temperature": 0}}, timeout=600)
+        warm = llm_request(base + "/api/generate", {"model": model, "prompt": "hi", "stream": False, "options": {"num_predict": 1, "temperature": 0}}, timeout=600)
         if warm is None:
             raise RuntimeError(msg('warm_failed', LANG_DEFAULT))
         with _LLM_BENCH["lock"]:
             _LLM_BENCH["state"]["phase"] = msg('bench_concurrent_phase', LANG_DEFAULT, p0=n, p1=num_predict)
         results = [None] * n
+        errors = [None] * n
         def one(i):
-            results[i] = _http_json(base + "/api/generate", {"model": model, "prompt": prompts[i], "stream": False,
-                                                            "options": {"num_predict": num_predict, "temperature": 0}}, timeout=1800)
+            try:
+                results[i] = llm_request(base + "/api/generate", {"model": model, "prompt": prompts[i], "stream": False,
+                                                               "options": {"num_predict": num_predict, "temperature": 0}}, timeout=1800)
+            except RuntimeError as exc:
+                errors[i] = str(exc)
         t0 = time.time()
         ths = [threading.Thread(target=one, args=(i,)) for i in range(n)]
         [t.start() for t in ths]; [t.join() for t in ths]
         wall = time.time() - t0
         ok = [r for r in results if r]
         if not ok:   # 全部失敗：這不是成績，是失敗；不寫歷史
-            raise RuntimeError(msg('bench_all_failed', LANG_DEFAULT, n=n))
+            raise RuntimeError(next((e for e in errors if e), msg('bench_all_failed', LANG_DEFAULT, n=n)))
         toks = sum(r.get("eval_count") or 0 for r in ok)
         per = [round((r.get("eval_count") or 0) / (r.get("eval_duration") or 1) * 1e9, 1) for r in ok]
         cfg = ollama_config()
@@ -4812,7 +4838,7 @@ def _llm_bench_run_concurrent(model, n, num_predict):
                "per_request_tps": per, "wall_s": round(wall, 1), "failed": n - len(ok), "prefill_tps": None,
                "num_parallel": cfg.get("num_parallel"),
                "note": (msg('bench_partial_failed', LANG_DEFAULT, failed=n - len(ok), n=n) + " " if len(ok) < n else "") + msg('bench_concurrent_note', LANG_DEFAULT, p0=n, p1=num_predict, p2=cfg.get('num_parallel')) + (msg('requests_queued', LANG_DEFAULT) if (cfg.get("num_parallel") or 1) < n else msg('requests_parallel', LANG_DEFAULT))}
-        for m in (_http_json(base + "/api/ps") or {}).get("models", []):
+        for m in (llm_request(base + "/api/ps") or {}).get("models", []):
             if m.get("name") == model:
                 det = m.get("details") or {}
                 res.update({"size": m.get("size"), "quant": det.get("quantization_level"), "params": det.get("parameter_size"), "context": m.get("context_length")})
@@ -4836,16 +4862,16 @@ def llm_bench_start_concurrent(model, n, num_predict=128):
 def _llm_bench_run(model, num_predict=128):
     """Ollama decode/prefill 基準：先暖機 1 token（把載入時間隔開），再量 128 token。
     數字直接取自 Ollama 回應的 eval_count/eval_duration，不是估的。"""
-    base = LLM_TARGETS[0]["url"]
+    base = OLLAMA_GUARDED
     prompt = "Explain, in plain prose without lists, why the sky appears blue during the day and red at sunset. " * 4
     try:
-        warm = _http_json(base + "/api/generate", {"model": model, "prompt": "hi", "stream": False,
+        warm = llm_request(base + "/api/generate", {"model": model, "prompt": "hi", "stream": False,
                                                     "options": {"num_predict": 1, "temperature": 0}}, timeout=600)
         if warm is None:
             raise RuntimeError(msg('warm_request_failed', LANG_DEFAULT))
         with _LLM_BENCH["lock"]:
             _LLM_BENCH["state"]["phase"] = msg('bench_phase', LANG_DEFAULT, p0=num_predict)
-        r = _http_json(base + "/api/generate", {"model": model, "prompt": prompt, "stream": False,
+        r = llm_request(base + "/api/generate", {"model": model, "prompt": prompt, "stream": False,
                                                  "options": {"num_predict": num_predict, "temperature": 0}}, timeout=900)
         if r is None:
             raise RuntimeError(msg('bench_failed', LANG_DEFAULT))
@@ -4853,7 +4879,7 @@ def _llm_bench_run(model, num_predict=128):
         pc, pd = r.get("prompt_eval_count") or 0, r.get("prompt_eval_duration") or 0
         # 模型資訊（大小／量化／參數量）從 /api/ps 抓，寫進歷史方便比較
         info = {}
-        for m in (_http_json(base + "/api/ps") or {}).get("models", []):
+        for m in (llm_request(base + "/api/ps") or {}).get("models", []):
             if m.get("name") == model:
                 det = m.get("details") or {}
                 info = {"size": m.get("size"), "size_vram": m.get("size_vram"), "quant": det.get("quantization_level"),
@@ -5771,9 +5797,9 @@ class Handler(BaseHTTPRequestHandler):
                 servers = llm_status()
                 for sv in servers:
                     if sv["kind"] == "Ollama":
-                        for m in sv["installed"]:
-                            m.update({k: v for k, v in ollama_show(m["name"]).items() if k in ("context", "capabilities")})
-                self._json({"ok": True, "servers": servers, "bench": bench, "history": llm_hist_load()[::-1][:40], "config": ollama_config()})
+                        for m in sv["installed"] or []:
+                            m.update({k: v for k, v in ollama_show(m["name"], m.get("digest")).items() if k in ("context", "capabilities")})
+                self._json({"ok": True, "servers": servers, "bench": bench, "history": llm_hist_load()[::-1][:40], "config": ollama_config(), "guard": llm_guard(), "inventory": llm_stores()})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/llm/stores":
@@ -6020,13 +6046,26 @@ class Handler(BaseHTTPRequestHandler):
                                 "at": datetime.now().isoformat(timespec="seconds")}
             usbc_map_save(m)
             return self._json({"ok": True, "calib": m})
+        if path == "/api/llm/stores/refresh":
+            started = model_inventory.refresh()
+            return self._json({"ok": True, "started": started})
+        if path in ("/api/llm/load", "/api/llm/bench", "/api/llm/bench_concurrent"):
+            model = data.get("model")
+            if not isinstance(model, str) or not model:
+                return self._json({"ok": False, "error": msg('missing_model', LANG_DEFAULT)}, 400)
+            error, status = llm_admission(model, completion=path != "/api/llm/load")
+            if error:
+                return self._json({"ok": False, "error": error}, status)
         if path in ("/api/llm/load", "/api/llm/unload"):
             model = data.get("model")
             if not model or not isinstance(model, str):
                 return self._json({"ok": False, "error": msg('missing_model', LANG_DEFAULT)}, 400)
             ka = "0" if path.endswith("unload") else (data.get("keep_alive") or "5m")
-            r = _http_json(OLLAMA + "/api/generate", {"model": model, "keep_alive": ka}, timeout=600)
-            return self._json({"ok": r is not None, "error": None if r is not None else msg('ollama_no_response', LANG_DEFAULT)}, 200 if r is not None else 502)
+            try:
+                llm_request(OLLAMA_GUARDED + "/api/generate", {"model": model, "keep_alive": ka, "stream": False}, timeout=600)
+                return self._json({"ok": True})
+            except RuntimeError as exc:
+                return self._json({"ok": False, "error": str(exc)}, 409)
         if path == "/api/llm/pull":
             model = data.get("model")
             if not model or not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9._/:-]+", model):

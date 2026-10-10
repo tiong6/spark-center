@@ -99,11 +99,9 @@
   </section>
 
   <section id="tab-llm" class="hide">
-    <div class="panel"><div class="panel-h"><h2 data-i18n="common.servers">伺服器</h2><span class="sub" id="llmSrvSub" data-i18n="common.detecting">偵測中…</span></div><div id="llmCfg"></div></div>
-    <div class="panel"><div class="panel-h"><h2 data-i18n="llm.loaded">已載入</h2><span class="sub" data-i18n="common.models_in_memory_ready_for_inference">在記憶體裡、隨時可推論的模型</span></div><div id="llmLoaded"></div></div>
-    <div class="panel"><div class="panel-h"><h2 data-i18n="llm.installed_reported">已安裝／服務回報</h2><span class="sub" id="llmInstSub"></span><div class="actions"><input type="search" id="llmPullName" placeholder="拉取新模型，例如 qwen3.5:8b" data-i18n-placeholder="common.pull_a_new_model_e_g" style="min-width:260px"><button id="llmPullBtn" class="small primary" data-i18n="common.pull">拉取</button></div></div><div id="llmInstalled"></div></div>
-    <div class="panel"><div class="panel-h"><h2 data-i18n="common.benchmark">量測</h2><span class="sub" data-i18n="common.runs_actual_generation_numbers_come_from">真的跑生成，數字取自 Ollama 回應的 token 計數</span></div><div id="llmBench"></div></div>
-    <div class="panel"><div class="panel-h"><h2 data-i18n="common.model_stores">模型倉庫</h2><span class="sub" id="llmStoresSub" data-i18n="llm.scanning">掃描中…</span><div class="actions"><button id="btnStores" class="small" data-i18n="mon.rescan">重新掃描</button></div></div><div id="llmStores"></div></div>
+    <div class="panel"><div class="panel-h"><h2 data-i18n="llm.runtime_title">目前運行</h2><span class="sub" id="llmSrvSub" data-i18n="common.detecting">偵測中…</span></div><div id="llmCfg"></div><div id="llmLoaded"></div></div>
+    <div class="panel"><div class="panel-h"><h2 data-i18n="llm.inventory_title">模型檔案與儲存位置</h2><div class="actions"><button id="btnStores" class="small" data-i18n="llm.refresh_files">重新檢查檔案</button></div></div><p class="sub1" id="llmInstSub"></p><p class="sub1" id="llmStoresSub"></p><div id="llmInstalled"></div><details style="margin-top:12px"><summary data-i18n="common.pull">拉取</summary><input type="search" id="llmPullName" data-i18n-placeholder="common.pull_a_new_model_e_g" placeholder="拉取新模型，例如 qwen3.5:8b" style="min-width:260px"><button id="llmPullBtn" class="small primary" data-i18n="common.pull">拉取</button></details></div>
+    <div class="panel"><div class="panel-h"><h2 data-i18n="llm.benchmark_title">量測與歷史</h2><span class="sub" data-i18n="llm.benchmark_scope">只列出已確認支援文字生成的 Ollama 模型</span></div><div id="llmBench"></div></div>
   </section>
 
   <section id="tab-disk" class="hide">
