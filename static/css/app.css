@@ -54,6 +54,9 @@
   .llm-row-actions > select, .llm-row-actions > button { flex: 0 0 auto; height: 32px; white-space: nowrap; }
   button:disabled { opacity: .45; cursor: not-allowed; }
   input[type=search] { background: #0f1110; border: 1px solid #3a3f3c; color: var(--text); padding: 8px 12px; border-radius: 6px; font: inherit; font-size: 14px; min-width: 220px; }
+  .llm-switch-controls { display: flex; align-items: center; gap: 12px; margin: 12px 0 8px; }
+  .llm-switch-controls > button { flex: 0 0 auto; min-height: 32px; white-space: nowrap; }
+  .llm-switch-error { color: var(--danger); }
   .llm-pull-controls { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; width: 100%; max-width: 480px; margin-top: 8px; }
   .llm-pull-controls > input { flex: 1 1 0; min-width: 0; height: 36px; }
   .llm-pull-controls > button { flex: 0 0 auto; height: 36px; white-space: nowrap; }
@@ -124,7 +127,7 @@
   /* 唯讀模式：後端已把所有 POST 擋成 403，這裡只是把動作按鈕藏起來，讓人一眼看出「這個模式什麼都不會動」 */
   .ro-badge { border: 1px solid var(--warn); color: var(--warn); border-radius: 999px; padding: 2px 10px; font-size: 12px; margin-right: 10px; }
   .ro #btnRefresh, .ro #btnAll, .ro #btnNone, .ro #btnGo, .ro #btnFwRefresh, .ro #btnFwUpdate, .ro #btnNpmRefresh, .ro #btnNpmUpdate,
-  .ro #llmPullBtn, .ro #llmBenchBtn, .ro #btnCalib, .ro #btnCalibReset, .ro #mOk,
+  .ro #llmSwitchStrata, .ro #llmPullBtn, .ro #llmBenchBtn, .ro #btnCalib, .ro #btnCalibReset, .ro #mOk,
   .ro [data-upd], .ro [data-unload], .ro [data-rm], .ro [data-olrm], .ro [data-load], .ro [data-act], .ro [data-npm], .ro [data-rb-job], .ro [data-node], .ro [data-restart],
   .ro input[data-pkg], .ro input[data-group], .ro input[data-passive] { display: none !important; }
   td a, .sub1 a, .pr-top a { color: var(--accent); text-decoration: none; } td a:hover, .sub1 a:hover, .pr-top a:hover { text-decoration: underline; }   /* 內文連結：瀏覽器預設的深藍在深底上看不見 */

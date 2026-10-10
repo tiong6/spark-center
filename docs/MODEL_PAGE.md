@@ -74,6 +74,20 @@ wrapper 先取得 exclusive flock，確認 Ollama `/api/ps` 為空才啟動 Stra
 
 OpenClaw 的 Ollama provider 改用 `http://127.0.0.1:11436`；OpenAI 相容 provider 改用 `http://127.0.0.1:11436/v1`。保留原本憑證、模型與其他 provider。除了主設定，也要核對 agent 的 `models.json`：目前安裝的 OpenClaw 合併流程可能保留舊 baseUrl。修改前將含憑證的設定私下備份為權限 0600，勿加入本 repo。
 
+## 按鍵切換 Strata 與 Ollama
+
+在「目前運行」區按「切換至 Strata」；Strata 駐留時，在已安裝的 Ollama 模型旁按「切換並載入」，可沿用該列的駐留時間。進度與失敗原因顯示在「目前運行」區，每次模型頁輪詢更新。NAS 備份不提供載入按鍵。
+
+切換由 `tools/llm_switch.py` 執行；`POST /api/llm/switch` 只接受 `target: strata|ollama`、已安裝的 Ollama `model` 和 `keep_alive: 5m|30m|2h|-1`。GET 同一路徑可讀進度。只控制固定的 `strata-server.service` 使用者服務，而且要求其 ExecStart 已配置本專案的防護 wrapper。沒有自動下載、變更開機啟動或繞過防護。
+
+- Strata 至 Ollama：先確認所選模型已安裝；檢查 Strata 沒有生成／排隊請求，再停止服務。確認 service 已停止、Strata 引擎程序已退出且防護放行後，經 11436 載入並核對 `/api/ps`。
+- Ollama 至 Strata：先取得 exclusive lease 並檢查 pending。逐一卸載目前駐留模型，確認 `/api/ps` 清空，再釋放 lease、啟動 Strata；wrapper 重新取得租約。只有 service active、`/health loaded:true`、Ollama 無駐留時才顯示完成。
+- 忙碌、狀態不明或卸載失敗時停止切換；重複點擊不產生第二個切換。切換期間 Spark Center 的載入、卸載、刪除與量測暫停。失敗後不自動回載原模型。
+
+Strata 的忙碌檢查與服務停止不是原子操作。請先結束對話，切換期間不要從其他視窗或排程送出新請求；剛進來的 Strata 請求仍可能被停止。Ollama 卸載與 wrapper 取鎖之間若外部請求搶先，wrapper 會拒絕啟動，頁面顯示失敗，需等請求完成後重試。直接呼叫原連接埠的限制仍與上述防護範圍相同。
+
+重啟 Spark Center 前也要確認 `/api/llm/switch` 不是 `running`；切換進度存於伺服器記憶體。關閉或重新整理網頁不會取消後端切換。
+
 ## 驗證與本次部署
 
 2026-10-11 在 ASUS Ascent GX10、DGX OS 7.6.0 測試：
@@ -83,7 +97,7 @@ OpenClaw 的 Ollama provider 改用 `http://127.0.0.1:11436`；OpenAI 相容 pro
 - 真實 API：Strata 駐留時，使用不存在的測試模型呼叫防護入口，Ollama 與 OpenAI 請求均回 409；Spark Center 載入回 409，embedding 量測回 422。未載入第二個大型模型。
 - 真實頁面：三區分開、SSD Strata 與 NAS 備份可見、歷史預設收合、Strata 駐留時載入與量測停用。
 - OpenClaw 主設定已熱更新；對應 agent 快取同時修正。沒有執行排程報告或發送訊息。
-- 使用者防護服務已啟動並啟用；Strata drop-in 已安裝，**目前執行中的 Strata 沒有重啟**。現在由健康檢查／程序檢查拒絕 Ollama；wrapper 的完整模型啟動仍待下一次正常啟動驗證。
-- 大模型成功推論、完整 NAS 雜湊、OpenClaw 實際排程端到端回覆，均未在這次測試中執行。
+- 按鍵實測完成 Strata → Ollama `qwen3.5:4b` → Strata，兩個模型都實際回答「切換測試成功」。切至 Ollama 約 9.12 秒，回 Strata 約 66.65 秒，來自本次 API started/finished 差值，不是效能保證。最後 Strata `loaded:true`、Ollama `/api/ps models:[]`；wrapper 已經這次完整啟動驗證，並持有 exclusive lease。
+- 模型切換測試涵蓋 16 項隔離案例，加上原有 18 項模型頁／防護測試與 JS 測試。繁體中文與英文進度、按鍵停用與單排排列已在真實頁面確認。完整 NAS 雜湊、長文件壓力測試、OpenClaw 實際排程端到端回覆，未在這次執行。
 
 回復外部設定時，先停止有關模型工作，再依私下備份回復 OpenClaw baseUrl，移除 Strata 的 `llm-admission.conf` drop-in，執行 daemon-reload。Spark Center 新版仍依賴防護入口；若停用防護，須同步回復本次程式版本，不能讓新版偷偷直連 11434。

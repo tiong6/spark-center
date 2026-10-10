@@ -53,6 +53,8 @@ APT_LISTS = "/var/lib/apt/lists"
 LANG_DEFAULT = "zh-TW"
 MSG = {
     "zh-TW": {
+    "llm_switch_invalid": "切換目標或載入時間無效。",
+    "llm_switch_busy": "已有模型切換在進行中。",
     "llm_no_completion": "此模型未回報文字生成能力，或能力查詢失敗；不執行文字量測。",
     "llm_strata_resident": "Strata 正在駐留或啟動；請先停止 Strata，再載入或量測 Ollama 模型。",
     "llm_strata_unknown": "無法確認 Strata 是否佔用記憶體；暫停 Ollama 載入，請檢查 Strata 服務。",
@@ -361,6 +363,8 @@ MSG = {
         "trash_cleared": "已清空垃圾桶"
     },
     "en": {
+    "llm_switch_invalid": "Invalid switch target or keep-alive duration.",
+    "llm_switch_busy": "A model switch is already running.",
     "llm_no_completion": "This model does not report completion capability, or its capability query failed; text benchmark refused.",
     "llm_strata_resident": "Strata is resident or starting. Stop Strata before loading or benchmarking Ollama models.",
     "llm_strata_unknown": "Strata residency is unknown. Check the Strata service before loading Ollama.",
@@ -4612,7 +4616,7 @@ def hardware_live():
 # ---------- 本機 LLM 探針（偷師 sparkDash；它沒做 Ollama，這裡補上）----------
 import urllib.request
 import urllib.error
-from tools import model_inventory
+from tools import model_inventory, llm_switch
 
 LLM_TARGETS = [
     {"kind": "ollama", "url": "http://127.0.0.1:11434"},
@@ -5795,13 +5799,21 @@ class Handler(BaseHTTPRequestHandler):
                 with _LLM_BENCH["lock"]:
                     bench = dict(_LLM_BENCH["state"])
                 servers = llm_status()
+                guard = llm_guard()
+                control = llm_switch.control_info()
                 for sv in servers:
+                    if (sv["kind"] == "Strata" and sv.get("state") == "unavailable"
+                            and control["available"] and control["service_state"] in ("inactive", "failed")
+                            and guard.get("ok") is True and guard.get("blocked") is False):
+                        sv.update(state="offline", loaded=[], loaded_state="known")
                     if sv["kind"] == "Ollama":
                         for m in sv["installed"] or []:
                             m.update({k: v for k, v in ollama_show(m["name"], m.get("digest")).items() if k in ("context", "capabilities")})
-                self._json({"ok": True, "servers": servers, "bench": bench, "history": llm_hist_load()[::-1][:40], "config": ollama_config(), "guard": llm_guard(), "inventory": llm_stores()})
+                self._json({"ok": True, "servers": servers, "bench": bench, "history": llm_hist_load()[::-1][:40], "config": ollama_config(), "guard": guard, "inventory": llm_stores(), "switch": llm_switch.SWITCH.snapshot(), "switch_control": control})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/llm/switch":
+            self._json({"ok": True, "switch": llm_switch.SWITCH.snapshot()})
         elif path == "/api/llm/stores":
             try:
                 self._json({"ok": True, **llm_stores()})
@@ -6046,6 +6058,19 @@ class Handler(BaseHTTPRequestHandler):
                                 "at": datetime.now().isoformat(timespec="seconds")}
             usbc_map_save(m)
             return self._json({"ok": True, "calib": m})
+        if path == "/api/llm/switch":
+            with _LLM_BENCH["lock"]:
+                if _LLM_BENCH["state"]["status"] == "running":
+                    return self._json({"ok": False, "error": msg('bench_running', self.lang)}, 409)
+            try:
+                llm_switch.SWITCH.start(data.get('target'), data.get('model'), data.get('keep_alive', '5m'))
+                return self._json({"ok": True, "switch": llm_switch.SWITCH.snapshot()}, 202)
+            except llm_switch.SwitchError as exc:
+                return self._json({"ok": False, "error": msg('llm_switch_' + exc.code, self.lang)}, 409)
+        if (path in ("/api/llm/load", "/api/llm/unload", "/api/llm/bench", "/api/llm/bench_concurrent")
+                or (path == "/api/disk/action" and data.get('action') == 'ollama_delete')):
+            if llm_switch.SWITCH.snapshot()['status'] == 'running':
+                return self._json({"ok": False, "error": msg('llm_switch_busy', self.lang)}, 409)
         if path == "/api/llm/stores/refresh":
             started = model_inventory.refresh()
             return self._json({"ok": True, "started": started})

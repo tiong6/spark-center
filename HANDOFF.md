@@ -4,6 +4,10 @@
 
 ## 已部署
 
+- 新增 Strata／Ollama 順序切換按鍵：目前運行區「切換至 Strata」，Ollama 列在 Strata 駐留時提供「切換並載入」。後端 tools/llm_switch.py、/api/llm/switch；沿用既有 lease、pending 與 wrapper，不下載模型。busy、未知狀態、卸載失敗、重複切換均停止／拒絕；進度及錯誤雙語顯示。Strata 正常停止且 guard 核對無程序時顯示「已停止」。
+- 2026-10-11 真實瀏覽器按鍵完成 Strata → qwen3.5:4b（9.12 秒）→ Strata（66.65 秒），數字為本次 started/finished 差值。兩端真實回覆均為「切換測試成功」；最終 Strata loaded=true、Ollama models=[]、pending_count=0，Strata 主程序已是 guard wrapper 並持 EX lease。沒有更改模型或 context 設定。
+- 最新 tools/check.sh 通過：18 個既有模型測試＋16 個切換測試，以及 JS 輪詢／進度／錯誤測試。CSS 保留 9 個既有警告。真實中英文頁面確認切換中按鍵停用、中文最終三個操作列 sameRow=true/ fitsCell=true、pageOverflow=false。
+
 - 拉取欄位原為相鄰 inline 控制項，gap 約 0、輸入框 38.47px／按鈕 27.48px；改為獨立 flex 容器、10px gap、36px 同高、固定單排，移除 input 的 inline 最小寬度以允許縮小。實際中英文模型頁 DOM 輸出：inputHeight=35.995、buttonHeight=35.995、gap=9.994、sameRow=true、pageOverflow=false。tools/check.sh 通過（18 tests in 6.565s；9 個既有 CSS 警告），服務 idle 時重啟，/api/llm ok=true；未觸發模型下載。
 
 - 檔案資訊改以共用資料夾、相對檔名與縮寫的 Ollama 雜湊呈現，單一檔案可再展開完整路徑。Strata 的不同目錄同名檔保持可區別；保留輪詢前的展開狀態與清單捲動位置。僅改畫面，未更名或移動模型。
@@ -16,7 +20,7 @@
 - 本機登錄來源有 Ollama、Strata 設定、GPT-OSS 120B NAS 備份、Qwen 122B NAS 備份、空的 LM Studio 目錄。目前共 6 筆模型資料。機器路徑與快照在忽略的 `data/model-sources.json` / `data/model-inventory.json`，勿 commit。
 - `spark-ollama-guard.service` 使用者服務已啟動且 enabled：11436 代理 11434。Strata 駐留、啟動或狀態不明時拒絕生成／載入，卸載可通過；有桌面提醒及最近拒絕紀錄。
 - OpenClaw 主設定與 main agent models.json 的 ollama/vllm baseUrl 改到 11436（保留 /v1）。私下備份在 `~/.local/state/spark-center/llm-guard-backup-20261011/`，權限 0600。config 驗證成功，gateway 日誌確認 hot reload，CLI 列模型後再次核對兩個檔案的 URL 沒回到原埠。
-- Strata 的 user service 新增 `strata-server.service.d/llm-admission.conf`，下次啟動透過 wrapper 取得獨占租約，並要求 Ollama 無駐留模型。現有 Strata 程序未重啟，仍由 HTTP／程序偵測擋下 Ollama。
+- Strata 的 user service 使用 `strata-server.service.d/llm-admission.conf`，透過 wrapper 取得獨占租約並要求 Ollama 無駐留模型；已於這次切換實測重啟並成功推論。
 - 啟動、來源登錄、復原與適用範圍見 `docs/MODEL_PAGE.md`。
 
 ## 真實驗證輸出
@@ -39,13 +43,13 @@ PASS: one timer, no overlapping requests, exit cleanup, late-response isolation,
 ## 範圍與未驗證
 
 - 防護不是全系統封鎖：直連原 11434、獨立 11435 embeddings、其他服務／繞過 wrapper 的 Strata 不受完整互斥控制。
-- 沒有執行 OpenClaw 排程報告或傳送訊息；沒有重啟 Strata 做完整模型載入；沒有重算 NAS 模型 SHA-256。不要宣稱這些通過。
+- 沒有執行 OpenClaw 排程報告或傳送訊息、長文件壓力測試、NAS 模型 SHA-256。Strata 忙碌檢查與停止不是原子操作，切換期間勿從別的視窗／排程發新請求。Ollama 卸載與 wrapper 取鎖交接若被外部請求搶先，會安全失敗，需等其完成後重試；失敗不自動回載原模型。
 - `data/llm-guard-pending/` 非空表示上次請求可能未結束；不要因 `/api/ps` 暫時空就刪掉。先確認 Ollama 服務與 runner 已停止，按文件復原。
 - 本次開始時 main 已比 origin/main 多 3 個既有 commit。這次保留本機提交，未將既有未發布提交一併推送。
 
 ## 固定操作紀律
 
-- 重啟 Spark Center 前看 `/api/job` 必須 idle，避免遺失記憶體內工作狀態。
+- 重啟 Spark Center 前看 `/api/job` 無執行中工作，且 `/api/llm/switch` 不是 running，避免遺失記憶體內工作／切換狀態。
 - 測拒絕用隔離服務，真服務只用不存在的測試模型；不得用大型載入嘗試撞 OOM。
 - git add 列檔名，勿加入 data 或含憑證的 OpenClaw 備份。
 - 先前 Node helper 確認／恢復與 dpkg 中斷修復的未驗證項目仍未在這次處理；詳見前版 HANDOFF 的 Git 歷史。

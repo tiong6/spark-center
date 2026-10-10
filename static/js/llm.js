@@ -37,20 +37,45 @@ function renderLlm(j) {
   const ol = j.servers.find(s => s.kind === 'Ollama');
   const cfg = j.config || {}, guard = j.guard || {blocked: true, reason: 'guard_unavailable'};
   const known = ol?.state === 'online';
-  $('#llmSrvSub').textContent = j.servers.map(s => `${s.kind} · ${t(s.state === 'unavailable' ? 'llm.unavailable' : 'llm.online')}`).join(' / ');
+  hw.llmSwitchState = j.switch || {status: 'idle'};
+  const switching = hw.llmSwitchSubmitting || hw.llmSwitchState.status === 'running';
+  hw.llmSwitchBusy = switching;
+  hw.llmSwitchAvailable = j.switch_control?.available === true;
+  $('#llmSrvSub').textContent = j.servers.map(s => `${s.kind} · ${t(s.state === 'unavailable' ? 'llm.unavailable' : s.state === 'offline' ? 'llm.offline' : 'llm.online')}`).join(' / ');
   $('#llmCfg').innerHTML = `<div class="panel notice ${guard.blocked ? 'warn' : ''}" style="padding:10px 14px">${t('llm.' + (guard.blocked ? guard.reason : 'guard_ready'))}<div class="sub1">${t('llm.guard_scope')}</div></div>`;
   if (guard.last_block) $('#llmCfg').innerHTML += `<div class="sub1">${t('llm.last_block', {time: esc(new Date(guard.last_block.at * 1000).toLocaleString(LANG)), model: esc(guard.last_block.model)})}</div>`;
   $('#llmCfg').innerHTML += `<details><summary>${t('llm.service_details')}</summary>${j.servers.map(s => `<div class="sub1">${esc(s.kind)} ${esc(s.version || '—')} · ${esc(s.url)}</div>`).join('')}<div class="sub1">OLLAMA_NUM_PARALLEL: ${cfg.num_parallel ?? '—'} · OLLAMA_MAX_LOADED_MODELS: ${cfg.max_loaded ?? '—'}</div></details>`;
+  renderLlmSwitch(j, switching);
   const loaded = j.servers.flatMap(s => (s.loaded || []).map(m => ({...m, service: s.kind})));
   const unknown = j.servers.filter(s => s.loaded == null).map(s => s.kind);
-  $('#llmLoaded').innerHTML = (unknown.length ? `<p class="sub1">${t('llm.unknown_services', {services: esc(unknown.join(', '))})}</p>` : '') + (loaded.length ? `<table><thead><tr><th>${t('tab.models')}</th><th>${t('llm.reported_memory')}</th><th>${t('llm.runtime_context')}</th><th></th></tr></thead><tbody>${loaded.map(m => `<tr><td>${esc(m.name)} <span class="tag">${esc(m.service)}</span></td><td>${m.size_vram == null ? '—' : llmBytes(m.size_vram)}</td><td>${m.context == null ? '—' : m.context.toLocaleString(LANG)}</td><td>${m.service === 'Ollama' ? `<button class="small" data-unload="${esc(m.name)}" ${hw.llmPending.has(m.name) ? 'disabled' : ''}>${t('llm.unload')}</button>` : ''}</td></tr>`).join('')}</tbody></table>` : `<p class="sub1">${t(unknown.length ? 'llm.runtime_unknown' : 'llm.no_models_are_currently_in_memory')}</p>`);
+  $('#llmLoaded').innerHTML = (unknown.length ? `<p class="sub1">${t('llm.unknown_services', {services: esc(unknown.join(', '))})}</p>` : '') + (loaded.length ? `<table><thead><tr><th>${t('tab.models')}</th><th>${t('llm.reported_memory')}</th><th>${t('llm.runtime_context')}</th><th></th></tr></thead><tbody>${loaded.map(m => `<tr><td>${esc(m.name)} <span class="tag">${esc(m.service)}</span></td><td>${m.size_vram == null ? '—' : llmBytes(m.size_vram)}</td><td>${m.context == null ? '—' : m.context.toLocaleString(LANG)}</td><td>${m.service === 'Ollama' ? `<button class="small" data-unload="${esc(m.name)}" ${switching || hw.llmPending.has(m.name) ? 'disabled' : ''}>${t('llm.unload')}</button>` : ''}</td></tr>`).join('')}</tbody></table>` : `<p class="sub1">${t(unknown.length ? 'llm.runtime_unknown' : 'llm.no_models_are_currently_in_memory')}</p>`);
   $('#llmLoaded').querySelectorAll('[data-unload]').forEach(b => b.onclick = () => llmAction(b, '/api/llm/unload', b.dataset.unload));
   $('#llmPullBtn').disabled = $('#llmPullName').disabled = !known;
   renderInventory(j.inventory || {}, ol, guard);
   const inst = (ol?.installed || []).filter(m => (m.capabilities || []).includes('completion'));
   const running = j.bench?.status === 'running';
-  const disabled = running || guard.blocked || !known || !inst.length;
+  const disabled = switching || running || guard.blocked || !known || !inst.length;
   renderBench(j, ol, cfg, inst, running, disabled);
+}
+function renderLlmSwitch(j, switching) {
+  const state = j.switch || {status: 'idle'};
+  const strataLoaded = j.servers.some(s => s.kind === 'Strata' && (s.loaded || []).length);
+  const target = state.target === 'strata' ? 'Strata' : `Ollama · ${state.model || ''}`;
+  let progress = '';
+  if (state.status === 'running') progress = t('llm.switch_phase_' + state.phase);
+  if (state.status === 'done') progress = t('llm.switch_done', {target});
+  if (state.status === 'error') progress = t('llm.switch_error_' + state.error) + (state.detail ? ` (${state.detail})` : '');
+  $('#llmSwitch').innerHTML = `<div class="llm-switch-controls"><button id="llmSwitchStrata" class="small" ${switching || strataLoaded || !hw.llmSwitchAvailable || j.bench?.status === 'running' ? 'disabled' : ''}>${t(strataLoaded ? 'llm.strata_loaded' : 'llm.switch_strata')}</button><span class="sub1">${t(hw.llmSwitchAvailable ? 'llm.switch_hint' : 'llm.switch_error_service_unconfigured')}</span></div><div role="status" class="sub1 ${state.status === 'error' ? 'llm-switch-error' : ''}">${esc(progress)}</div>`;
+  $('#llmSwitchStrata').onclick = () => llmSwitchAction('strata');
+}
+async function llmSwitchAction(target, model, keep_alive = '5m') {
+  if (hw.llmSwitchBusy || hw.llmSwitchSubmitting) return;
+  hw.llmSwitchSubmitting = true;
+  document.querySelectorAll('#llmSwitch button, #llmInstalled [data-load], #llmInstalled [data-rm], #llmLoaded button, #llmBenchBtn').forEach(b => b.disabled = true);
+  try {
+    const r = await llmApi('/api/llm/switch', {target, model, keep_alive});
+    if (!r.ok) alert(r.error);
+  } finally { hw.llmSwitchSubmitting = false; await pollLlm(); }
 }
 async function llmAction(button, path, model, extra = {}) {
   if (hw.llmPending.has(model)) return;
@@ -111,11 +136,11 @@ function renderInventory(inventory, ol, guard) {
     const m = s.type === 'ollama' ? (ol?.installed || []).find(x => aliases.includes(x.name)) : null;
     const resident = m && (ol?.loaded || []).some(x => x.name === m.name);
     const status = s.state === 'unavailable' ? 'unavailable' : r.state;
-    return `<tr><td>${esc(r.name)} <span class="tag">${esc(r.provider)}</span>${llmFileDetails(r, openPaths)}</td><td>${esc(s.storage || '—')}</td><td>${r.bytes == null ? '—' : llmBytes(r.bytes)}</td><td class="sub1">${t('llm.file_' + status)}<br>${s.checked_at ? esc(new Date(s.checked_at * 1000).toLocaleString(LANG)) : '—'}</td><td>${m ? `<div class="llm-row-actions">${resident ? `<span class="tag ok">${t('llm.loaded')}</span>` : `<select data-ka="${esc(m.name)}" style="${selStyle}">${['5m','30m','2h','-1'].map(k => `<option value="${k}" ${((hw.llmKeep[m.name] || '5m') === k) ? 'selected' : ''}>${k === '-1' ? t('llm.keep_loaded') : k}</option>`).join('')}</select> <button class="small" data-load="${esc(m.name)}" ${guard.blocked || ol.state !== 'online' || hw.llmPending.has(m.name) ? 'disabled' : ''}>${t('llm.load')}</button>`} <button class="small" data-rm="${esc(m.name)}" ${hw.llmPending.has(m.name) ? 'disabled' : ''}>${t('disk.delete')}</button></div>` : `<span class="sub1">${t(s.type === 'ollama_archive' ? 'llm.archive_only' : 'llm.no_service_action')}</span>`}</td></tr>`;
+    return `<tr><td>${esc(r.name)} <span class="tag">${esc(r.provider)}</span>${llmFileDetails(r, openPaths)}</td><td>${esc(s.storage || '—')}</td><td>${r.bytes == null ? '—' : llmBytes(r.bytes)}</td><td class="sub1">${t('llm.file_' + status)}<br>${s.checked_at ? esc(new Date(s.checked_at * 1000).toLocaleString(LANG)) : '—'}</td><td>${m ? `<div class="llm-row-actions">${resident ? `<span class="tag ok">${t('llm.loaded')}</span>` : `<select data-ka="${esc(m.name)}" style="${selStyle}">${['5m','30m','2h','-1'].map(k => `<option value="${k}" ${((hw.llmKeep[m.name] || '5m') === k) ? 'selected' : ''}>${k === '-1' ? t('llm.keep_loaded') : k}</option>`).join('')}</select> <button class="small" data-load="${esc(m.name)}" ${hw.llmSwitchBusy || (guard.blocked && !(guard.reason === 'strata_resident' && hw.llmSwitchAvailable)) || ol.state !== 'online' || hw.llmPending.has(m.name) ? 'disabled' : ''}>${t(guard.reason === 'strata_resident' && hw.llmSwitchAvailable ? 'llm.switch_load' : 'llm.load')}</button>`} <button class="small" data-rm="${esc(m.name)}" ${hw.llmSwitchBusy || hw.llmPending.has(m.name) ? 'disabled' : ''}>${t('disk.delete')}</button></div>` : `<span class="sub1">${t(s.type === 'ollama_archive' ? 'llm.archive_only' : 'llm.no_service_action')}</span>`}</td></tr>`;
   }).join('')}</tbody></table>`;
   $('#llmInstalled').querySelectorAll('.llm-file-details').forEach(el => { el.scrollTop = fileScroll.get(el.parentElement.dataset.pathKey) || 0; });
   $('#llmInstalled').querySelectorAll('[data-ka]').forEach(s => s.onchange = () => { hw.llmKeep[s.dataset.ka] = s.value; });
-  $('#llmInstalled').querySelectorAll('[data-load]').forEach(b => b.onclick = () => llmAction(b, '/api/llm/load', b.dataset.load, {keep_alive: hw.llmKeep[b.dataset.load] || '5m'}));
+  $('#llmInstalled').querySelectorAll('[data-load]').forEach(b => b.onclick = () => guard.reason === 'strata_resident' && hw.llmSwitchAvailable ? llmSwitchAction('ollama', b.dataset.load, hw.llmKeep[b.dataset.load] || '5m') : llmAction(b, '/api/llm/load', b.dataset.load, {keep_alive: hw.llmKeep[b.dataset.load] || '5m'}));
   $('#llmInstalled').querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => {
     const name = b.dataset.rm;
     if (!confirm(t('llm.delete_if_other_tags_of_the', {v0: name}))) return;
