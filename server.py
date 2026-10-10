@@ -201,6 +201,7 @@ MSG = {
         "ollama_metrics": "Ollama 不提供 Prometheus 指標，tok/s 只能靠實際跑一段生成量測（下方按鈕）。",
         "lmstudio_metrics": "LM Studio 的 /v1/models 只列可用模型，不給效能指標。",
         "llamacpp_source": "來源 /props 與 /slots。",
+        "strata_source": "Strata 回報的模型與駐留狀態；服務離線時不列出。大小未回報時顯示 —。",
         "vllm_metrics": "vLLM 的 Prometheus /metrics 尚未解析，這裡只列模型。",
         "ollama_config": "改設定要 root：sudo systemctl edit ollama，在 [Service] 加 Environment=OLLAMA_NUM_PARALLEL=4 後 restart。本工具不提權，只顯示。",
         "webui_volume": "Open WebUI 卷",
@@ -504,6 +505,7 @@ MSG = {
         "ollama_metrics": "Ollama does not provide Prometheus metrics; tok/s can only be measured by running actual generation (using the button below).",
         "lmstudio_metrics": "LM Studio's /v1/models only lists available models; it does not provide performance metrics.",
         "llamacpp_source": "Based on /props and /slots.",
+        "strata_source": "Model and residency reported by Strata; omitted when the service is offline. Unreported sizes are shown as —.",
         "vllm_metrics": "vLLM's Prometheus /metrics is not parsed yet; only models are listed here.",
         "ollama_config": "Changing settings requires root: run sudo systemctl edit ollama, add Environment=OLLAMA_NUM_PARALLEL=4 under [Service], then restart. This tool only displays settings and does not elevate privileges.",
         "webui_volume": "Open WebUI volume",
@@ -4651,7 +4653,20 @@ def llm_status():
                         "loaded": [{"name": m.get("id")} for m in models.get("data", [])], "installed": [], "bench": False,
                         "note": msg('lmstudio_metrics', LANG_DEFAULT)})
         elif t["kind"] == "llama.cpp":
+            health = _http_json(base + "/health") or {}
             props = _http_json(base + "/props")
+            if health.get("service") == "strata":
+                props = props or {}
+                name = health.get("model") or props.get("model_alias")
+                models = [{"name": name, "context": health.get("max_context"),
+                           "path": props.get("model_path"),
+                           "capabilities": ["vision"] if health.get("images") else []}] if name else []
+                version = (props.get("build_info") or "").removeprefix("Strata ") or None
+                out.append({"kind": "Strata", "url": base, "version": version,
+                            "loaded": models if health.get("loaded") is True else [],
+                            "installed": models, "bench": False,
+                            "note": msg('strata_source', LANG_DEFAULT)})
+                continue
             if props is None:
                 continue
             slots = _http_json(base + "/slots") or []
