@@ -50,7 +50,7 @@
   button svg.ic { width: 14px; height: 14px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .rowbtns { display: flex; gap: 6px; justify-content: flex-end; }
   .rowbtns button { white-space: nowrap; }
-  .llm-row-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .llm-row-actions { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; width: max-content; }
   .llm-row-actions > select, .llm-row-actions > button { flex: 0 0 auto; height: 32px; white-space: nowrap; }
   button:disabled { opacity: .45; cursor: not-allowed; }
   input[type=search] { background: #0f1110; border: 1px solid #3a3f3c; color: var(--text); padding: 8px 12px; border-radius: 6px; font: inherit; font-size: 14px; min-width: 220px; }
@@ -58,6 +58,9 @@
   .chip { border: 1px solid #3a3f3c; border-radius: 999px; padding: 4px 12px; font-size: 13px; cursor: pointer; color: var(--muted); }
   .chip.active { color: var(--accent-text); background: var(--accent); border-color: var(--accent); }
   table { width: 100%; border-collapse: collapse; margin-top: 16px; table-layout: fixed; }
+  #llmInstalled { overflow-x: auto; }
+  #llmInstalled table { table-layout: auto; }
+  #llmInstalled th:last-child, #llmInstalled td:last-child { width: 1%; white-space: nowrap; }
   th, td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
   th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
   tr:last-child td { border-bottom: none; }
