@@ -1,5 +1,10 @@
 const STR = {
   "zh-TW": {
+    "llm.folder_location": "資料夾：{path}",
+    "llm.source_config": "設定檔：{name}",
+    "llm.file_aliases": "別名：{names}",
+    "llm.hash_filenames": "Ollama 使用雜湊作檔名；點選檔案可查看完整路徑。",
+    "llm.ollama_data_file": "Ollama 資料檔",
     "llm.runtime_title": "目前運行",
     "llm.inventory_title": "模型檔案與儲存位置",
     "llm.benchmark_title": "量測與歷史",
@@ -1081,6 +1086,11 @@ const STR = {
     "faq.dot_hint": "NVIDIA 已改版原文，本頁可能缺題"
   },
   "en": {
+    "llm.folder_location": "Folder: {path}",
+    "llm.source_config": "Config: {name}",
+    "llm.file_aliases": "Aliases: {names}",
+    "llm.hash_filenames": "Ollama names files by hash. Select a file to see its full path.",
+    "llm.ollama_data_file": "Ollama data file",
     "llm.runtime_title": "Running now",
     "llm.inventory_title": "Model files and storage",
     "llm.benchmark_title": "Benchmarks and history",

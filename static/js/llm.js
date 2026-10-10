@@ -58,8 +58,44 @@ async function llmAction(button, path, model, extra = {}) {
   try { const r = await llmApi(path, {model, ...extra}); if (!r.ok) alert(r.error); }
   finally { hw.llmPending.delete(model); await pollLlm(); }
 }
+function llmFileDetails(row, openPaths) {
+  const source = row.source;
+  const files = row.files || [], missing = row.missing || [];
+  const allPaths = [...files.map(f => f.path), ...missing];
+  // Use the files' common parent: a Strata source path is its config, not its data directory.
+  const parents = allPaths.map(p => p.split('/').slice(0, -1));
+  let common = parents[0] || [];
+  for (const parts of parents.slice(1)) {
+    const mismatch = common.findIndex((v, i) => v !== parts[i]);
+    if (mismatch >= 0) common = common.slice(0, mismatch);
+  }
+  const folder = common.join('/') || (allPaths.length ? '/' : '');
+  const rowKey = JSON.stringify([source.id || source.path, row.name, allPaths[0] || '']);
+  const keyAttr = path => {
+    const key = JSON.stringify([rowKey, path]);
+    return `data-path-key="${esc(key)}"${openPaths.has(key) ? ' open' : ''}`;
+  };
+  const short = value => value.length > 58 ? value.slice(0, 29) + '…' + value.slice(-25) : value;
+  const item = (label, path) => `<details ${keyAttr(path)}><summary title="${esc(path)}">${esc(label)}</summary><code class="llm-full-path">${esc(path)}</code></details>`;
+  const folderLabel = folder === '/' ? '/' : folder ? '…/' + folder.split('/').filter(Boolean).slice(-2).join('/') : '';
+  const aliases = row.aliases || [];
+  let content = folder ? item(t('llm.folder_location', {path: folderLabel}), folder) : '';
+  if (source.type === 'strata' && source.path) content += item(t('llm.source_config', {name: source.path.split('/').pop()}), source.path);
+  if (aliases.length > 1) content += `<div class="sub1">${t('llm.file_aliases', {names: aliases.map(esc).join(', ')})}</div>`;
+  if (allPaths.some(p => /\/sha256-[a-f0-9]{64}$/.test(p))) content += `<p class="sub1">${t('llm.hash_filenames')}</p>`;
+  content += [...files.map(f => ({path:f.path})), ...missing.map(path => ({path, missing:true}))].map(f => {
+    const name = f.path.split('/').pop();
+    const relative = folder ? f.path.slice(folder === '/' ? 1 : folder.length + 1) : f.path;
+    const label = /^sha256-[a-f0-9]{64}$/.test(name) ? t('llm.ollama_data_file') + ' · ' + name.slice(7, 19) + '…' + name.slice(-8) : short(relative);
+    return item(f.missing ? t('llm.missing_file', {path:label}) : label, f.path);
+  }).join('');
+  if (!allPaths.length && source.path && source.path !== '—') content += item(short(source.path), source.path);
+  return `<details ${keyAttr('overview')}><summary>${t('llm.paths')}</summary><div class="llm-file-details">${content || '—'}</div></details>`;
+}
 function renderInventory(inventory, ol, guard) {
   const sources = inventory.sources || [], rows = [];
+  const openPaths = new Set([...$('#llmInstalled').querySelectorAll('details[data-path-key][open]')].map(d => d.dataset.pathKey));
+  const fileScroll = new Map([...$('#llmInstalled').querySelectorAll('.llm-file-details')].map(el => [el.parentElement.dataset.pathKey, el.scrollTop]));
   for (const source of sources) {
     for (const r of source.rows || []) rows.push({...r, source});
     if (!(source.rows || []).length && source.state === 'unavailable') rows.push({name: source.id, provider: source.type, state: 'unavailable', source, files: []});
@@ -75,8 +111,9 @@ function renderInventory(inventory, ol, guard) {
     const m = s.type === 'ollama' ? (ol?.installed || []).find(x => aliases.includes(x.name)) : null;
     const resident = m && (ol?.loaded || []).some(x => x.name === m.name);
     const status = s.state === 'unavailable' ? 'unavailable' : r.state;
-    return `<tr><td>${esc(r.name)} <span class="tag">${esc(r.provider)}</span><details><summary>${t('llm.paths')}</summary><div class="sub1" style="overflow-wrap:anywhere">${esc(s.path)}${aliases.length > 1 ? '<br>' + aliases.map(esc).join(', ') : ''}${(r.files || []).map(f => '<br>' + esc(f.path)).join('')}${(r.missing || []).map(f => '<br>' + t('llm.missing_file', {path: esc(f)})).join('')}</div></details></td><td>${esc(s.storage || '—')}</td><td>${r.bytes == null ? '—' : llmBytes(r.bytes)}</td><td class="sub1">${t('llm.file_' + status)}<br>${s.checked_at ? esc(new Date(s.checked_at * 1000).toLocaleString(LANG)) : '—'}</td><td>${m ? `<div class="llm-row-actions">${resident ? `<span class="tag ok">${t('llm.loaded')}</span>` : `<select data-ka="${esc(m.name)}" style="${selStyle}">${['5m','30m','2h','-1'].map(k => `<option value="${k}" ${((hw.llmKeep[m.name] || '5m') === k) ? 'selected' : ''}>${k === '-1' ? t('llm.keep_loaded') : k}</option>`).join('')}</select> <button class="small" data-load="${esc(m.name)}" ${guard.blocked || ol.state !== 'online' || hw.llmPending.has(m.name) ? 'disabled' : ''}>${t('llm.load')}</button>`} <button class="small" data-rm="${esc(m.name)}" ${hw.llmPending.has(m.name) ? 'disabled' : ''}>${t('disk.delete')}</button></div>` : `<span class="sub1">${t(s.type === 'ollama_archive' ? 'llm.archive_only' : 'llm.no_service_action')}</span>`}</td></tr>`;
+    return `<tr><td>${esc(r.name)} <span class="tag">${esc(r.provider)}</span>${llmFileDetails(r, openPaths)}</td><td>${esc(s.storage || '—')}</td><td>${r.bytes == null ? '—' : llmBytes(r.bytes)}</td><td class="sub1">${t('llm.file_' + status)}<br>${s.checked_at ? esc(new Date(s.checked_at * 1000).toLocaleString(LANG)) : '—'}</td><td>${m ? `<div class="llm-row-actions">${resident ? `<span class="tag ok">${t('llm.loaded')}</span>` : `<select data-ka="${esc(m.name)}" style="${selStyle}">${['5m','30m','2h','-1'].map(k => `<option value="${k}" ${((hw.llmKeep[m.name] || '5m') === k) ? 'selected' : ''}>${k === '-1' ? t('llm.keep_loaded') : k}</option>`).join('')}</select> <button class="small" data-load="${esc(m.name)}" ${guard.blocked || ol.state !== 'online' || hw.llmPending.has(m.name) ? 'disabled' : ''}>${t('llm.load')}</button>`} <button class="small" data-rm="${esc(m.name)}" ${hw.llmPending.has(m.name) ? 'disabled' : ''}>${t('disk.delete')}</button></div>` : `<span class="sub1">${t(s.type === 'ollama_archive' ? 'llm.archive_only' : 'llm.no_service_action')}</span>`}</td></tr>`;
   }).join('')}</tbody></table>`;
+  $('#llmInstalled').querySelectorAll('.llm-file-details').forEach(el => { el.scrollTop = fileScroll.get(el.parentElement.dataset.pathKey) || 0; });
   $('#llmInstalled').querySelectorAll('[data-ka]').forEach(s => s.onchange = () => { hw.llmKeep[s.dataset.ka] = s.value; });
   $('#llmInstalled').querySelectorAll('[data-load]').forEach(b => b.onclick = () => llmAction(b, '/api/llm/load', b.dataset.load, {keep_alive: hw.llmKeep[b.dataset.load] || '5m'}));
   $('#llmInstalled').querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => {

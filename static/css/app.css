@@ -59,6 +59,10 @@
   .chip.active { color: var(--accent-text); background: var(--accent); border-color: var(--accent); }
   table { width: 100%; border-collapse: collapse; margin-top: 16px; table-layout: fixed; }
   #llmInstalled { overflow-x: auto; }
+  .llm-file-details { max-width: 360px; max-height: 320px; overflow: auto; margin-top: 8px; padding: 4px 0; }
+  .llm-file-details details { margin: 6px 0; }
+  .llm-file-details summary { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; cursor: pointer; list-style-position: inside; }
+  .llm-full-path { display: block; max-width: 360px; overflow-x: auto; white-space: pre; padding: 8px; margin: 4px 0; background: var(--surface2); border-radius: 6px; font-size: 11px; user-select: all; }
   #llmInstalled table { table-layout: auto; }
   #llmInstalled th:last-child, #llmInstalled td:last-child { width: 1%; white-space: nowrap; }
   th, td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
