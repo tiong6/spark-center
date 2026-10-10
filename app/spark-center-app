@@ -13,6 +13,8 @@ mkdir -p "$PROFILE"
 APPNAME="Spark Center"; case "$URL" in *:11001) ;; *) APPNAME="Spark Center (${URL##*:})";; esac
 APPID=$(grep -ls -- "--user-data-dir=$PROFILE" "$HOME"/.local/share/applications/chrome-*-Default.desktop 2>/dev/null \
         | xargs -r grep -lx "Name=$APPNAME" 2>/dev/null | head -1 | sed -E 's/.*chrome-([a-p]{32})-Default\.desktop$/\1/')
+# --disable-extensions：這個 profile 若登入過 Google 帳號，同步會把平常用的擴充功能（Grammarly、MetaMask…）全拉進來；
+# Spark Center 是純 localhost 頁面用不到它們，載入只會拖慢啟動、多開一堆背景程序（2026-10-10 實測多吃約 2 GB）。
 for b in google-chrome google-chrome-stable chromium brave-browser; do
   if command -v "$b" >/dev/null 2>&1; then
     if [ "$1" = "--install" ]; then
@@ -29,9 +31,9 @@ for b in google-chrome google-chrome-stable chromium brave-browser; do
         sed -i "s/^StartupWMClass=.*/StartupWMClass=crx_$APPID/" "$OURS"
         update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
       fi
-      exec "$b" --app-id="$APPID" --user-data-dir="$PROFILE" --no-first-run --no-default-browser-check "$@"
+      exec "$b" --app-id="$APPID" --user-data-dir="$PROFILE" --disable-extensions --no-first-run --no-default-browser-check "$@"
     fi
-    exec "$b" --app="$URL/" --class=SparkCenter --user-data-dir="$PROFILE" --window-size=1280,900 --no-first-run --no-default-browser-check "$@"
+    exec "$b" --app="$URL/" --class=SparkCenter --user-data-dir="$PROFILE" --window-size=1280,900 --disable-extensions --no-first-run --no-default-browser-check "$@"
   fi
 done
 exec xdg-open "$URL"
