@@ -4,6 +4,7 @@ async function showHardware() {      // 硬體分頁：靜態清單只渲染一�
   pollHw(true);
   pollPorts(); hw.portTimer = setInterval(pollPorts, 2000);
   loadPrinters(); hw.prTimer = setInterval(loadPrinters, 30000);
+  loadDiskCheck(); hw.dcTimer = setInterval(loadDiskCheck, 30000);
   loadLan();
 }
 /* 區網裝置：只看得到本機所在網段（VLAN）裡最近有通訊的鄰居，被動查，不掃描。名字來源：反查 DNS（路由器的 DHCP 主機名）或 mDNS；查不到就「—」 */
@@ -145,7 +146,7 @@ async function pollRear() {
 async function pollPorts() { return pollRear(); }
 $('#btnCalib').onclick = () => { hw.calibMode = !hw.calibMode; hw.calibSlot = null; $('#btnCalib').textContent = hw.calibMode ? t("hw.finish_calibration") : t("hw.calibrate_ports"); pollRear(); };
 $('#btnCalibReset').onclick = async () => { if (!confirm(t("hw.clear_all_port_mappings_including_the"))) return; await api('/api/hardware/usbc-map', {reset: true}); hw.calibSlot = null; pollRear(); };
-function stopHw() { hw.epoch++; if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } if (hw.wifiTimer) { clearInterval(hw.wifiTimer); hw.wifiTimer = null; } if (hw.portTimer) { clearInterval(hw.portTimer); hw.portTimer = null; } if (hw.prTimer) { clearInterval(hw.prTimer); hw.prTimer = null; } if (hw.llmTimer) { clearInterval(hw.llmTimer); hw.llmTimer = null; } if (hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; } }
+function stopHw() { hw.epoch++; if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } if (hw.wifiTimer) { clearInterval(hw.wifiTimer); hw.wifiTimer = null; } if (hw.portTimer) { clearInterval(hw.portTimer); hw.portTimer = null; } if (hw.prTimer) { clearInterval(hw.prTimer); hw.prTimer = null; } if (hw.dcTimer) { clearInterval(hw.dcTimer); hw.dcTimer = null; } if (hw.llmTimer) { clearInterval(hw.llmTimer); hw.llmTimer = null; } if (hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; } }
 function renderHwStatic() {
   const j = hw.static, S = j.system, C = j.cpu, G = j.gpu, D = j.dmi || {available:false};
   $('#hwNote').textContent = t("hw.static_data_is_cached_for_60_with_value", {value: t("hw.hardware_data_is_cached_for_1_with_value", {value: D.available ? t("hw.serial_numbers_and_memory_modules_come") : ''})}) + (D.available ? '' : ' ' + (D.note || ''));
@@ -237,8 +238,80 @@ function renderHwStatic() {
       `<details style="margin-top:8px"><summary class="sub1">${t("hw.raw_lspci_output")}</summary><pre class="raw">${esc((j.pci || []).join('\n'))}</pre></details>`
     : (j.pci ? `<pre class="raw">${esc(j.pci.join('\n'))}</pre>` : `<div class="empty">${t("hw.lspci_unavailable")}</div>`)) + `</div>`;
   const printer = `<div class="panel" id="hwPrinters"></div>`;   // 內容由 renderPrinters() 填（即時端點，不跟靜態快取）
-  $('#hw').innerHTML = sys + cpu + mem + dimm + gpu + disks + nvmeHtml + net + bt + printer + sens + usb + pci;
-  renderPrinters();
+  const diskcheck = `<div class="panel" id="hwDiskCheck"></div>`;   // 內容由 renderDiskCheck() 填（檢測進度會變，也不跟靜態快取）
+  $('#hw').innerHTML = sys + cpu + mem + dimm + gpu + disks + nvmeHtml + diskcheck + net + bt + printer + sens + usb + pci;
+  renderPrinters(); renderDiskCheck();
+}
+/* 磁碟檢查：chkdsk 在 Linux 上對應的三件事——被動彙整（ext4 錯誤計數、核心日誌、TRIM；零權限）、SSD 自我檢測（控制器自己掃媒體，
+   需 sudoers 放行 nvme 自我檢測那組指令）、開機檔案系統檢查（根分割掛載中不能 fsck，只能排到下次開機；需放行 tune2fs 那組）。
+   沒有壞軌掃描：SSD 的壞區由控制器重對應，從 LBA 掃看不到。檢測中每 5 秒輪詢，平常 30 秒。 */
+async function loadDiskCheck(force) {
+  const j = await api('/api/hardware/diskcheck' + (force ? '?force=1' : ''));
+  hw.diskcheck = j; renderDiskCheck();
+  const running = j.ok && j.selftest && j.selftest.running;
+  if (running && !hw.dcFast) hw.dcFast = setInterval(() => loadDiskCheck(true), 5000);
+  if (!running && hw.dcFast) { clearInterval(hw.dcFast); hw.dcFast = null; }
+}
+function dcSetupLink(id) { return `<div class="sub1">${t("hw.dc_need_setup", {v0: t("setup." + id + ".title")})} <a href="#setup">${t("setup.title")}</a></div>`; }
+function dcResult(r) { const k = "hw.dc_res_" + r; const s = t(k); return s === k ? `result=${r}` : s; }
+function renderDiskCheck() {
+  const box = $('#hwDiskCheck'); if (!box) return;
+  const D = hw.diskcheck;
+  const head = sub => `<div class="panel-h"><h2>${t("hw.disk_check")}</h2><span class="sub">${sub}</span><div class="actions"><button id="btnDcReload" class="small">${t("hw.pr_refresh")}</button></div></div>`;
+  if (!D) { box.innerHTML = head(t("updates.loading")); return; }
+  if (!D.ok) { box.innerHTML = head('') + `<div class="empty">${t("apps.could_not_load", {v0: esc(D.error)})}</div>`; return; }
+  const E = D.ext4 || {}, K = D.kernel || {}, T = D.trim || {}, S = D.selftest || {}, F = D.fsck || {};
+  // 1. 被動彙整
+  const fsLine = !E.available ? `<span class="tag sec">—</span> ${t("hw.dc_fs_na", {v0: esc(E.fstype || '—')})}`
+    : E.errors_count === 0 ? `<span class="tag ok">${t("hw.dc_fs_ok")}</span>`
+    : `<span class="tag bad">${t("hw.dc_fs_err", {n: E.errors_count, t: esc(E.last_error || '—')})}</span>${E.last_error_func ? ` <span class="mono">${esc(E.last_error_func)}</span>` : ''}`;
+  const kLine = !K.available ? `<span class="tag sec">—</span> ${t("hw.dc_kernel_na")}`
+    : K.count === 0 ? `<span class="tag ok">${t("hw.dc_kernel_none")}</span>`
+    : `<span class="tag bad">${t("hw.dc_kernel_some", {n: K.count})}</span><div class="sub1 mono">${esc(K.last)}</div>`;
+  const tLine = !T.available ? '—' : T.active ? `<span class="tag ok">${t("hw.dc_trim_on")}</span> <span class="sub1">${t("hw.dc_trim_last", {v0: esc(T.last || '—'), v1: esc(T.next || '—')})}</span>` : `<span class="tag warn">${t("hw.dc_trim_off")}</span>`;
+  const passive = `<dl class="kv" style="margin-top:10px"><dt>${t("hw.dc_fs")}</dt><dd>${fsLine}</dd><dt>${t("hw.dc_kernel", {d: K.days || 30})}</dt><dd>${kLine}</dd><dt>${t("hw.dc_trim")}</dt><dd>${tLine}</dd></dl>`;
+  // 2. SSD 自我檢測
+  let st;
+  if (S.applies === false) st = `<div class="sub1">—</div>`;
+  else if (!S.available && !S.supported) st = `<div class="sub1">${esc(S.note || '—')}</div>` + dcSetupLink('disk_selftest');
+  else if (S.supported === false) st = `<div class="sub1"><span class="tag sec">${t("hw.dc_unsupported")}</span></div>`;
+  else if (!S.available) st = `<div class="sub1">${esc(S.note || '—')}</div>`;
+  else {
+    const extMin = S.extended_minutes ? t("hw.dc_ext_min", {n: S.extended_minutes}) : '';
+    const status = S.running ? `<span class="tag warn">${t("hw.dc_running", {v0: S.progress ?? '—', v1: t("hw.dc_code_" + S.current_code) === "hw.dc_code_" + S.current_code ? `code ${S.current_code}` : t("hw.dc_code_" + S.current_code)})}</span>${meter(S.progress || 0, 101, 101)}`
+      : `<span class="tag ok">${t("hw.dc_idle")}</span>`;
+    const btns = S.running ? `<button class="small" data-dc="abort">${t("hw.dc_abort")}</button>`
+      : `<button class="small primary" data-dc="short">${t("hw.dc_short")}</button> <button class="small" data-dc="extended">${t("hw.dc_extended", {v0: extMin})}</button>`;
+    const hist = (S.entries || []).length ? `<ul class="sub1" style="margin:6px 0 0 18px">${S.entries.map(e => `<li>${t("hw.dc_entry", {v0: t("hw.dc_code_" + e.code) === "hw.dc_code_" + e.code ? `code ${e.code ?? '—'}` : t("hw.dc_code_" + e.code), v1: dcResult(e.result), v2: e.power_on_hours ?? '—'})}</li>`).join('')}</ul>`
+      : `<div class="sub1">${t("hw.dc_no_history")}</div>`;
+    st = `<div style="margin-top:6px">${status}</div><div class="actions" style="margin-top:8px">${btns}</div><div class="sub1" style="margin-top:8px"><b>${t("hw.dc_history")}</b></div>${hist}`;
+  }
+  const selftest = `<h3 style="margin-top:14px">${t("hw.dc_selftest")}</h3><div class="sub1">${t("hw.dc_selftest_hint")}</div>${st}`;
+  // 3. 開機檔案系統檢查
+  let fs;
+  if (F.applies === false) fs = `<div class="sub1">${esc(F.note || '—')}</div>`;
+  else if (!F.available) fs = `<div class="sub1">${esc(F.note || '—')}</div>` + dcSetupLink('disk_fsck') + (F.last_result ? `<div class="sub1">${t("hw.dc_fsck_result", {v0: esc(F.last_result.checked_at), v1: esc(F.last_result.state || '—')})}</div>` : '');
+  else {
+    const stateTag = F.state === 'clean' ? `<span class="tag ok">${esc(F.state)}</span>` : `<span class="tag bad">${esc(F.state || '—')}</span>`;
+    const sched = F.scheduled ? `<span class="tag warn">${t("hw.dc_fsck_scheduled")}</span> <button class="small" data-dc="fsck-cancel">${t("hw.dc_fsck_cancel")}</button>`
+      : `<button class="small" data-dc="fsck-schedule">${t("hw.dc_fsck_schedule")}</button>`;
+    fs = `<dl class="kv" style="margin-top:6px"><dt>${t("hw.dc_fsck_state")}</dt><dd>${stateTag} <span class="sub1">${t("hw.dc_mount_count", {v0: F.mount_count ?? '—'})} · errors=${esc(F.errors_behavior || '—')}</span></dd>` +
+      `<dt>${t("hw.dc_fsck_last")}</dt><dd>${F.last_checked ? esc(F.last_checked) : t("hw.dc_fsck_never")}${F.ran_this_boot ? ` <span class="tag ok">${t("hw.dc_fsck_this_boot")}</span>` : ''}</dd>` +
+      `<dt>${t("hw.dc_fsck_next")}</dt><dd>${sched}</dd></dl>` +
+      (F.last_result ? `<div class="sub1">${t("hw.dc_fsck_result", {v0: esc(F.last_result.checked_at), v1: esc(F.last_result.state || '—')})}</div>` : '');
+  }
+  const fsck = `<h3 style="margin-top:14px">${t("hw.dc_fsck")}</h3><div class="sub1">${t("hw.dc_fsck_hint")}</div>${fs}`;
+  box.innerHTML = head(t("hw.dc_sub", {v0: esc((D.generated || '').slice(11))})) + passive + selftest + fsck + `<div class="sub1" style="margin-top:12px">${t("hw.dc_no_badblocks")}</div>`;
+  $('#btnDcReload').onclick = async () => { const b = $('#btnDcReload'); b.disabled = true; await loadDiskCheck(true); };
+  box.querySelectorAll('button[data-dc]').forEach(b => b.onclick = async () => {
+    const act = b.dataset.dc;
+    if (act === 'extended' && !confirm(t("hw.dc_ext_confirm", {n: S.extended_minutes ?? '—'}))) return;
+    if (act === 'fsck-schedule' && !confirm(t("hw.dc_fsck_confirm"))) return;
+    b.disabled = true;
+    const r = act.startsWith('fsck') ? await api('/api/hardware/fsck', {schedule: act === 'fsck-schedule'}) : await api('/api/hardware/selftest', {action: act});
+    if (!r.ok) alert(r.error || 'error');
+    await loadDiskCheck(true);
+  });
 }
 /* 印表機：會開關機、會缺紙缺碳粉，所以不跟硬體靜態快取（1 小時＋快照）走——曾因此印表機開機後仍顯示「掃不到」。
    進分頁問一次、之後每 30 秒（伺服器快取 15 秒）。狀態、警示、耗材量是印表機自己用 IPP 回報的；

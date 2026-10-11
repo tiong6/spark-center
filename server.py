@@ -2342,6 +2342,8 @@ SUDOERS_CMDS = {
     "dmidecode": ["/usr/sbin/dmidecode"],
     "nvme": ["/usr/sbin/nvme", "smart-log", "/dev/nvme0n1", "--output-format=json"],
     "dashboard_recheck": ["/usr/bin/systemctl", "restart", "dgx-dashboard-admin.service"],
+    "disk_selftest": hardware.SELFTEST_CMDS["id_ctrl"],   # 放行偵測看這組裡的第一條；放行時整組一起寫
+    "disk_fsck": hardware.FSCK_CMDS["info"],
 }
 
 
@@ -2460,6 +2462,12 @@ def setup_status():
     items.append({"id": "nvme", "enabled": _sudo_allowed(SUDOERS_CMDS["nvme"]), "sudo": True,
                   "commands": [f'echo "{user} ALL=(root) NOPASSWD: /usr/sbin/nvme smart-log /dev/nvme0n1 --output-format=json" | sudo tee /etc/sudoers.d/spark-center-nvme',
                                "sudo chmod 440 /etc/sudoers.d/spark-center-nvme"]})
+    for sid, cmds, applies in (("disk_selftest", hardware.SELFTEST_CMDS, os.path.exists(hardware.NVME_CTRL)),
+                               ("disk_fsck", hardware.FSCK_CMDS, hardware.fsck_applies())):
+        fn, line = SETUP_SUDOERS[sid]
+        items.append({"id": sid, "enabled": _sudo_allowed(SUDOERS_CMDS[sid]), "sudo": True, "applies": applies,
+                      "commands": [f'printf "%s\\n" "{user} ALL=(root) NOPASSWD: {line}" | sudo tee /etc/sudoers.d/{fn}',
+                                   f"sudo chmod 440 /etc/sudoers.d/{fn}"]})
     items.append({"id": "dashboard_recheck", "enabled": _sudo_allowed(SUDOERS_CMDS["dashboard_recheck"]), "sudo": True,
                   "applies": os.path.exists("/opt/nvidia/dgx-dashboard"),
                   "commands": [f'echo "{user} ALL=(root) NOPASSWD: /usr/bin/systemctl restart dgx-dashboard-admin.service" | sudo tee /etc/sudoers.d/spark-center-dashboard',
@@ -2511,6 +2519,9 @@ SETUP_SUDOERS = {
     "dmidecode": ("spark-center-dmidecode", "/usr/sbin/dmidecode"),
     "nvme": ("spark-center-nvme", "/usr/sbin/nvme smart-log /dev/nvme0n1 --output-format=json"),
     "dashboard_recheck": ("spark-center-dashboard", "/usr/bin/systemctl restart dgx-dashboard-admin.service"),
+    # 磁碟檢查：裝置路徑與參數都寫死在 backend/hardware.py 的指令表，沒有萬用字元
+    "disk_selftest": ("spark-center-disk-selftest", ", ".join(" ".join(c) for c in hardware.SELFTEST_CMDS.values())),
+    "disk_fsck": ("spark-center-disk-fsck", ", ".join(" ".join(c) for c in hardware.FSCK_CMDS.values())),
 }
 NODE_POLICY = "/usr/share/polkit-1/actions/io.github.tiong6.spark-center.node-source.policy"
 
@@ -2574,6 +2585,7 @@ def setup_toggle(item, enable):
     else:
         return {"ok": False, "error": msg("node_bad_action", LANG_DEFAULT)}
     _SUDO_L["ts"] = 0; _GPU_CLOCK["ts"] = 0   # 剛裝／刪 sudoers，快取立刻失效
+    hardware.disk_check_reset()
     if not ok:
         return {"ok": False, "error": err, **setup_status()}
     return setup_status()
@@ -3566,6 +3578,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, **hardware.printers(force="force=1" in (self.path.split("?", 1) + [""])[1])})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/hardware/diskcheck":
+            try:
+                self._json({"ok": True, **hardware.disk_check(force="force=1" in (self.path.split("?", 1) + [""])[1])})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/setup":
             try:
                 self._json(setup_status())
@@ -3743,7 +3760,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({'ok': False, 'error': node_error(str(e))}, 400)
         if path == "/api/setup/toggle":
             item, enable = str(data.get("item") or ""), bool(data.get("enable"))
-            if item not in ("gpu_clock", "dmidecode", "nvme", "dashboard_recheck", "node_helper", "autostart", "remote", "model_guard"):
+            if item not in ("gpu_clock", "dmidecode", "nvme", "dashboard_recheck", "node_helper", "autostart", "remote", "model_guard", "disk_selftest", "disk_fsck"):
                 return self._json({"ok": False, "error": msg("node_bad_action", LANG_DEFAULT)}, 400)
             r = setup_toggle(item, enable)
             return self._json(r, 200 if r.get("ok") else 400)
@@ -3864,6 +3881,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(autostart_set(bool(data.get("enabled"))))
             except OSError as e:
                 return self._json({"ok": False, "error": msg('autostart_write_failed', LANG_DEFAULT, p0=e)}, 500)
+        if path == "/api/hardware/selftest":
+            # {"action": "short"|"extended"|"abort"}：控制器自己跑，立刻返回；進度在 /api/hardware/diskcheck
+            if data.get("action") not in ("short", "extended", "abort"):
+                return self._json({"ok": False, "error": msg("node_bad_action", LANG_DEFAULT)}, 400)
+            r = hardware.selftest_start(data["action"])
+            return self._json(r, 200 if r.get("ok") else 409)
+        if path == "/api/hardware/fsck":
+            # {"schedule": true|false}：只動 tune2fs 的最大掛載次數，不重開機
+            r = hardware.fsck_schedule(bool(data.get("schedule")))
+            return self._json(r, 200 if r.get("ok") else 409)
         if path == "/api/hardware/usbc-map":
             # {"slot": 0-3, "controller": "NVDA8000:0x" | null, "note": "..."}；或 {"reset": true}
             if data.get("reset"):
@@ -3997,6 +4024,7 @@ def main():
     stability.start()
     threading.Thread(target=model_capabilities.snapshot, daemon=True).start()
     hardware.load_snapshot()   # 有快照就先用，服務重啟後硬體分頁不用等
+    threading.Thread(target=hardware.fsck_state, daemon=True).start()   # 上次排程的開機檢查做完了就恢復設定並記錄結果
     # 服務重啟時 snapd 可能還在跑上一輪更新，接回來才不會讓畫面顯示成「沒事發生」
     try:
         out = _run(["snap", "changes"], timeout=20) or ""

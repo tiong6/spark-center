@@ -10,6 +10,7 @@ python3 tools/test_npm_safe.py 2>&1 | tail -1 | grep -q "^OK" && echo "npm safe-
 python3 tools/test_gpu_hot.py 2>&1 | tail -1 | grep -q "^OK" && echo "GPU overheat tests OK" || { python3 tools/test_gpu_hot.py; exit 1; }
 
 python3 tools/test_backend_modules.py
+python3 tools/test_disk_check.py 2>&1 | tail -1 | grep -q "^OK" && echo "disk check tests OK" || { python3 tools/test_disk_check.py; exit 1; }   # 隔離：mock sudo／tune2fs，不碰真 SSD
 python3 tools/test_stability.py
 python3 tools/test_model_compat.py
 python3 tools/test_llm_models.py

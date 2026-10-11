@@ -1401,6 +1401,291 @@ def hardware_live():
 
 
 
+# ── 磁碟檢查：SSD 自我檢測、開機檔案系統檢查、被動健康彙整（chkdsk 在 Linux 上對應的三件事）────────────
+# 不做壞軌掃描（badblocks）：SSD 的壞區由控制器自己重對應，從 LBA 掃不到，跑幾小時也不會有意義。
+NVME_CTRL = "/dev/nvme0"
+ROOT_DEV = "/dev/nvme0n1p2"
+SELFTEST_CMDS = {   # 這些字串就是 sudoers 放行的指令，逐字對應；改這裡等於改放行範圍
+    "id_ctrl": ["/usr/sbin/nvme", "id-ctrl", NVME_CTRL, "--output-format=json"],
+    "log": ["/usr/sbin/nvme", "self-test-log", NVME_CTRL, "--output-format=json"],
+    "short": ["/usr/sbin/nvme", "device-self-test", NVME_CTRL, "--self-test-code=1"],
+    "extended": ["/usr/sbin/nvme", "device-self-test", NVME_CTRL, "--self-test-code=2"],
+    "abort": ["/usr/sbin/nvme", "device-self-test", NVME_CTRL, "--self-test-code=15"],
+}
+FSCK_CMDS = {
+    "info": ["/usr/sbin/tune2fs", "-l", ROOT_DEV],
+    "schedule": ["/usr/sbin/tune2fs", "-c", "1", ROOT_DEV],      # 最大掛載次數 1：下次開機 initramfs 的 e2fsck -a 會做完整檢查
+    "unschedule": ["/usr/sbin/tune2fs", "-c", "-1", ROOT_DEV],   # 檢查做完就恢復「不看掛載次數」，否則每次開機都檢查
+}
+FSCK_RESULT = os.path.join(HERE, "data", "fsck-result.json")
+DISKCHECK_TTL = 15
+_DISKCHECK = {"lock": threading.Lock(), "ts": 0, "data": None, "support": None}
+DISK_EVENT_RE = re.compile(r"EXT4-fs error|EXT4-fs \(\w+\): .*(?:corrupt|bad block|checksum)|Buffer I/O error|blk_update_request: (?:I/O|critical)|"
+                           r"nvme nvme\d+: .*(?:timeout|reset|abort|I/O error)|end_request: I/O error|print_req_error: I/O error", re.I)
+SELFTEST_UNUSED = 0xF
+
+
+def _sudo(cmd, timeout=15):
+    """sudo -n 跑一條 sudoers 放行的固定指令。回 (stdout, note)：note 不是 None 代表拿不到，並說明是沒放行還是指令失敗。"""
+    try:
+        r = subprocess.run(["sudo", "-n"] + cmd, capture_output=True, text=True, timeout=timeout, env=_ENV_C)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return None, msg('nvme_exec_failed', LANG_DEFAULT, p0=e)
+    if r.returncode != 0:
+        err = (r.stderr or "").strip().splitlines()
+        err = err[-1] if err else f"rc={r.returncode}"
+        if "password" in err.lower() or "sudo" in err.lower():
+            return None, msg('diskcheck_not_allowed', LANG_DEFAULT)
+        return None, msg('diskcheck_cmd_failed', LANG_DEFAULT, p0=f"{os.path.basename(cmd[0])} {cmd[1]}", p1=err)
+    return r.stdout, None
+
+
+def _root_source():
+    for line in (read_text_file("/proc/mounts") or "").splitlines():
+        p = line.split()
+        if len(p) >= 3 and p[1] == "/":
+            return p[0], p[2]
+    return None, None
+
+
+def _ext4_errors(sysfs="/sys/fs/ext4"):
+    """ext4 自己記在 superblock 的錯誤計數，核心經 sysfs 公開，不用 root。0 代表這個檔案系統自建立以來沒記錄過錯誤。"""
+    src, fstype = _root_source()
+    if fstype != "ext4" or not src:
+        return {"available": False, "fstype": fstype, "source": src}
+    d = os.path.join(sysfs, os.path.basename(os.path.realpath(src)))
+    cnt = (read_text_file(os.path.join(d, "errors_count")) or "").strip()
+    if not cnt.isdigit():
+        return {"available": False, "fstype": fstype, "source": src}
+    def iso(v):
+        v = (v or "").strip()
+        return datetime.fromtimestamp(int(v)).isoformat(timespec="seconds") if v.isdigit() and int(v) > 0 else None
+    return {"available": True, "fstype": fstype, "source": src, "errors_count": int(cnt),
+            "first_error": iso(read_text_file(os.path.join(d, "first_error_time"))),
+            "last_error": iso(read_text_file(os.path.join(d, "last_error_time"))),
+            "last_error_func": (read_text_file(os.path.join(d, "last_error_func")) or "").strip() or None}
+
+
+def _count_disk_events(text):
+    hits = [l for l in text.splitlines() if DISK_EVENT_RE.search(l)]
+    return {"count": len(hits), "last": hits[-1][:200] if hits else None}
+
+
+def _kernel_disk_events(days=30):
+    """核心日誌裡的磁碟錯誤（ext4 錯誤、I/O 錯誤、NVMe 逾時／重設）。journalctl -k 要能讀核心日誌（adm 群組）；讀不到就說讀不到。"""
+    try:
+        r = subprocess.run(["journalctl", "-k", "--since", f"-{days}d", "--no-pager", "-q", "-o", "short-iso"],
+                           capture_output=True, text=True, timeout=20, env=_ENV_C)
+    except (OSError, subprocess.TimeoutExpired):
+        return {"available": False, "days": days}
+    if r.returncode != 0:
+        return {"available": False, "days": days}
+    return {"available": True, "days": days, **_count_disk_events(r.stdout)}
+
+
+def _trim_status():
+    out = _run(["systemctl", "show", "fstrim.timer", "-p", "ActiveState", "-p", "LastTriggerUSec", "-p", "NextElapseUSecRealtime"], timeout=5)
+    if not out:
+        return {"available": False}
+    kv = dict(l.split("=", 1) for l in out.splitlines() if "=" in l)
+    return {"available": True, "active": kv.get("ActiveState") == "active",
+            "last": kv.get("LastTriggerUSec") or None, "next": kv.get("NextElapseUSecRealtime") or None}
+
+
+def _flatten(d, out=None):
+    """nvme-cli 1.x 與 2.x 的 JSON 鍵名不同（"Current Device Self-Test Operation" vs 巢狀小寫），攤平成正規化鍵再找。"""
+    out = {} if out is None else out
+    for k, v in d.items():
+        if isinstance(v, dict):
+            _flatten(v, out)
+        else:
+            out[re.sub(r"[^a-z0-9]", "", str(k).lower())] = v
+    return out
+
+
+def _pick(flat, *needles, exclude=()):
+    for k, v in flat.items():
+        if all(n in k for n in needles) and not any(x in k for x in exclude):
+            return v
+    return None
+
+
+def _parse_selftest_log(j):
+    flat = _flatten({k: v for k, v in j.items() if not isinstance(v, list)})
+    cur = _pick(flat, "operation")
+    comp = _pick(flat, "completion")
+    entries = next((v for v in j.values() if isinstance(v, list)), [])
+    rows = []
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        f = _flatten(e)
+        res = _pick(f, "result", exclude=("data",))
+        code = _pick(f, "code")
+        if not isinstance(res, int) or res == SELFTEST_UNUSED:
+            continue
+        rows.append({"result": res, "code": code if isinstance(code, int) else None,
+                     "segment": _pick(f, "segment"), "power_on_hours": _pick(f, "poweronhours"),
+                     "valid": _pick(f, "validdiagnostic")})
+    return {"current_code": cur if isinstance(cur, int) else None, "running": isinstance(cur, int) and cur != 0,
+            "progress": comp if isinstance(comp, int) else None, "entries": rows[:5]}
+
+
+def _selftest_support():
+    with _DISKCHECK["lock"]:
+        if _DISKCHECK["support"] is not None:
+            return _DISKCHECK["support"]
+    out, note = _sudo(SELFTEST_CMDS["id_ctrl"])
+    if out is None:
+        return {"available": False, "note": note}
+    try:
+        j = json.loads(out)
+    except ValueError:
+        return {"available": False, "note": msg('nvme_not_json', LANG_DEFAULT)}
+    oacs, edstt = j.get("oacs"), j.get("edstt")
+    sup = {"available": True, "supported": bool(isinstance(oacs, int) and oacs & 0x10),   # OACS bit 4 = Device Self-test
+           "extended_minutes": edstt if isinstance(edstt, int) and edstt > 0 else None}
+    with _DISKCHECK["lock"]:
+        _DISKCHECK["support"] = sup   # 支援與否不會變，只快取成功的答案
+    return sup
+
+
+def _selftest_status():
+    if not os.path.exists(NVME_CTRL):
+        return {"available": False, "applies": False}
+    sup = _selftest_support()
+    if not sup.get("available"):
+        return {"available": False, "applies": True, "note": sup.get("note")}
+    if not sup["supported"]:
+        return {"available": True, "applies": True, "supported": False}
+    out, note = _sudo(SELFTEST_CMDS["log"])
+    if out is None:
+        return {"available": False, "applies": True, "supported": True, "note": note}
+    try:
+        j = json.loads(out)
+    except ValueError:
+        return {"available": False, "applies": True, "supported": True, "note": msg('nvme_not_json', LANG_DEFAULT)}
+    return {"available": True, "applies": True, "supported": True, "extended_minutes": sup["extended_minutes"], **_parse_selftest_log(j)}
+
+
+def selftest_start(kind):
+    """短測／長測由控制器自己跑，指令立刻返回，進度看 self-test-log。回 {"ok": bool, "error": ...}。"""
+    if kind not in ("short", "extended", "abort"):
+        return {"ok": False, "error": "bad action"}
+    sup = _selftest_support()
+    if not sup.get("available"):
+        return {"ok": False, "error": sup.get("note")}
+    if not sup["supported"]:
+        return {"ok": False, "error": msg('selftest_unsupported', LANG_DEFAULT)}
+    _, note = _sudo(SELFTEST_CMDS[kind], timeout=30)
+    if note:
+        return {"ok": False, "error": note}
+    disk_check_invalidate()
+    return {"ok": True}
+
+
+def _parse_tune2fs(text):
+    kv = {}
+    for l in text.splitlines():
+        if ":" in l:
+            k, v = l.split(":", 1)
+            kv[k.strip()] = v.strip()
+    def num(k):
+        v = kv.get(k)
+        return int(v) if v is not None and re.fullmatch(r"-?\d+", v) else None
+    def date(k):
+        v = kv.get(k)
+        try:
+            return datetime.strptime(v, "%a %b %d %H:%M:%S %Y") if v else None   # LANG=C："Sat Oct 11 08:00:00 2026"
+        except ValueError:
+            return None
+    return {"state": kv.get("Filesystem state"), "mount_count": num("Mount count"), "max_mount_count": num("Maximum mount count"),
+            "last_checked": date("Last checked"), "check_interval": kv.get("Check interval"),
+            "errors_behavior": kv.get("Errors behavior"), "lifetime_writes": kv.get("Lifetime writes")}
+
+
+def _fsck_result_load():
+    try:
+        with open(FSCK_RESULT) as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _boot_time():
+    return time.time() - float((read_text_file("/proc/uptime") or "0").split()[0])
+
+
+def fsck_state(auto_restore=True):
+    """根分割的 e2fsck 狀態（tune2fs -l 要 sudoers 放行）。我們排程的方式是把最大掛載次數設 1；
+    看到「這次開機已檢查過」就自動恢復 -1 並把結果記下來，否則之後每次開機都會檢查。"""
+    src, _ = _root_source()
+    if src != ROOT_DEV:
+        return {"available": False, "applies": False, "note": msg('fsck_root_mismatch', LANG_DEFAULT, p0=src or "—", p1=ROOT_DEV)}
+    out, note = _sudo(FSCK_CMDS["info"])
+    if out is None:
+        return {"available": False, "applies": True, "note": note, "last_result": _fsck_result_load()}
+    p = _parse_tune2fs(out)
+    ran_this_boot = p["last_checked"] is not None and p["last_checked"].timestamp() >= _boot_time() - 600   # initramfs 在核心起來後幾秒跑，留時鐘誤差裕度
+    scheduled = p["max_mount_count"] == 1
+    result = _fsck_result_load()
+    if scheduled and ran_this_boot and auto_restore:
+        _, err = _sudo(FSCK_CMDS["unschedule"])
+        if err is None:
+            scheduled = False
+            result = {"checked_at": p["last_checked"].isoformat(timespec="seconds"), "state": p["state"],
+                      "recorded": datetime.now().isoformat(timespec="seconds")}
+            try:
+                os.makedirs(os.path.dirname(FSCK_RESULT), exist_ok=True)
+                with open(FSCK_RESULT, "w") as f:
+                    json.dump(result, f)
+            except OSError:
+                pass
+    return {"available": True, "applies": True, "state": p["state"], "mount_count": p["mount_count"], "max_mount_count": p["max_mount_count"],
+            "last_checked": p["last_checked"].isoformat(timespec="seconds") if p["last_checked"] else None,
+            "scheduled": scheduled, "ran_this_boot": ran_this_boot, "last_result": result,
+            "errors_behavior": p["errors_behavior"], "lifetime_writes": p["lifetime_writes"]}
+
+
+def fsck_schedule(enable):
+    st = fsck_state(auto_restore=False)
+    if not st.get("available"):
+        return {"ok": False, "error": st.get("note")}
+    _, err = _sudo(FSCK_CMDS["schedule" if enable else "unschedule"])
+    if err:
+        return {"ok": False, "error": err}
+    disk_check_invalidate()
+    return {"ok": True}
+
+
+def disk_check_invalidate():
+    with _DISKCHECK["lock"]:
+        _DISKCHECK["ts"] = 0
+
+
+def disk_check_reset():
+    """sudoers 剛裝／刪：支援與否的答案可能從「沒放行」變成有答案，連同資料一起作廢。"""
+    with _DISKCHECK["lock"]:
+        _DISKCHECK.update(ts=0, support=None)
+
+
+def fsck_applies():
+    return _root_source()[0] == ROOT_DEV
+
+
+def disk_check(force=False):
+    """磁碟檢查面板的資料：15 秒快取（檢測中前端會輪詢）。不進 hardware_static 的 1 小時快照——會變的狀態不塞靜態快取。"""
+    with _DISKCHECK["lock"]:
+        if not force and _DISKCHECK["data"] and time.time() - _DISKCHECK["ts"] < DISKCHECK_TTL:
+            return _DISKCHECK["data"]
+    data = {"ext4": _ext4_errors(), "kernel": _kernel_disk_events(), "trim": _trim_status(),
+            "selftest": _selftest_status(), "fsck": fsck_state(), "generated": datetime.now().isoformat(timespec="seconds")}
+    with _DISKCHECK["lock"]:
+        _DISKCHECK.update(ts=time.time(), data=data)
+    return data
+
+
 def cached_age():
     """Age of the hardware snapshot used in the HTTP response."""
     return int(time.time() - _HW_CACHE["ts"])

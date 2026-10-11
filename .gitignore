@@ -19,3 +19,4 @@ data/memory-policy.tmp
 data/llm-switch*
 
 data/oom-installer/
+data/fsck-result.json
