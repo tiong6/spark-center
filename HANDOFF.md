@@ -4,11 +4,11 @@
 - 20 次量測得到 baseline peak 15,647,383,552 bytes；1.25 倍政策保留量 19,559,229,440 bytes（18.22 GiB）。PSI full avg10 >= 10% 或記憶體低於保留量拒絕新請求；缺政策也拒絕。不是模型峰值／CUDA 容量保證。
 - guard 對 Ollama 生成／載入使用獨占租約，避免兩個受管理請求同時載入；Strata 本機 8080 透過環境變數查同一 admission。11434 直連與其他獨立服務仍是界外入口。
 - Strata repo 新增原子 drain，含 body/tokenization 前處理，補 busy 檢查與 stop 之間的空隙。切換 phase 與 owner 持久保存，重啟顯示 interrupted，明確重試才核對並恢復；不重播套件工作。owner 不出現在 API 或事件紀錄。
-- systemd user drop-ins：管理服務及 guard 的 OOMScoreAdjust=0，Strata 維持 200；Strata 指向本機 11436 admission。設定與 runtime policy 在機器上，未納入版控；重建方式見 docs/STABILITY.md。
+- systemd user drop-ins：管理服務及 guard 的 OOMScoreAdjust=100，Strata 維持 200；Strata 指向本機 11436 admission。設定與 runtime policy 在機器上，未納入版控；重建方式見 docs/STABILITY.md。
 - tools/check.sh 通過：backend 7、stability 9、模型 20、切換 16，另有 npm/GPU/JS；9 個既有 CSS 警告保留。Strata 原有 139 個 server tests、新增 5 個 admission tests 通過，telemetry 原有 ResourceWarning 仍在。
 - 真機 drain 503、resume 200；Strata → qwen3.5:4b 8.85 秒 → Strata 46.83 秒，兩端分別回答「切換測試成功」「穩定性驗證成功」。最終 draining=false、active_requests=0、Ollama models=[]，NVRM 仍為已觀測 25 條／5 群（不是 25 次事故）。
 - 沒有刻意耗盡記憶體、長 PDF 壓力測試或 NAS 故障注入；隔離測試涵蓋拒絕、競態、狀態寫入失敗及中斷恢復。這次未改 fstab：CIFS soft 是預設，下載器已有單寫入鎖／150 MiB/s 限速／讀回校驗。
-- earlyoom 1.7-2 arm64 已核對套件 SHA-256，root 安裝過程遇到 systemd generator sandbox Protocol error，daemon-reload 每次約 90 秒。這是新觀測到的系統層問題，未宣稱修復。詳見 docs/STABILITY.md。
+- earlyoom 1.7-2 arm64 於 08:47:58 完成安裝，實際 active/running/enabled；TERM 7.61%、KILL 3.81%、兩者 swap 門檻 100%。已核對套件 SHA-256，root 安裝過程遇到 systemd generator sandbox Protocol error，daemon-reload 每次約 90 秒。這是新觀測到的系統層問題，未宣稱修復。詳見 docs/STABILITY.md。
 
 # HANDOFF — 現在的接力棒
 

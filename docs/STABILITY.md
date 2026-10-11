@@ -32,7 +32,7 @@ The existing Offline Builder downloader was inspected: one local flock serialize
 
 The measured policy on this machine reserves 19,559,229,440 bytes (18.22 GiB); the observed 20-sample baseline peak was 15,647,383,552 bytes. This is not a promise that any particular PDF/context fits.
 
-User service drop-ins named `stability.conf` set OOMScoreAdjust=0 for spark-center and spark-ollama-guard, and STRATA_ADMISSION_URL=http://127.0.0.1:11436/guard/admission for strata-server. Strata retains OOMScoreAdjust=200. These local files are outside the repository; reproduce them explicitly after migration, then daemon-reload the user manager. Restart only when jobs and switches are idle. The policy, event database and switch state are deliberately ignored private runtime data.
+User service drop-ins named `stability.conf` set OOMScoreAdjust=100 for spark-center and spark-ollama-guard, and STRATA_ADMISSION_URL=http://127.0.0.1:11436/guard/admission for strata-server. Strata retains OOMScoreAdjust=200. These local files are outside the repository; reproduce them explicitly after migration, then daemon-reload the user manager. Restart only when jobs and switches are idle. The policy, event database and switch state are deliberately ignored private runtime data.
 
 Real API validation: Strata returned HTTP 503/server_draining during drain and HTTP 200 after owner resume. A complete Strata → local qwen3.5:4b → Strata cycle succeeded; the Ollama leg took 8.85 s and restoration took 46.83 s (switch timestamps, one trial). Ollama answered 「切換測試成功」. No model download was performed.
 
@@ -41,3 +41,7 @@ If a drain request loses its response before the owner token is saved, do not in
 No actual memory exhaustion, GPU driver failure or NAS outage was injected on the desktop. Isolated tests cover memory refusal, journal failure/empty windows, concurrent switch refusal, interrupted state, drain races and state-storage failure.
 
 During the earlyoom package installation, the system manager logged `Failed to fork off sandboxing environment for executing generators: Protocol error`; each daemon-reload waited approximately 90 seconds. This is a separate observed system-manager fault, not evidence of a model OOM. Do not interrupt dpkg or start a second package transaction while installation is still running.
+
+The user manager inherits oom_score_adj=100. Requesting 0 in an unprivileged user unit did not lower the actual process value. The deployed drop-ins therefore explicitly use 100, verified in /proc; model wrappers retain 200. Prefer/avoid daemon rules provide the additional selection policy.
+
+Final installation check at 08:47:58: earlyoom active/running/enabled, dpkg install ok installed, installer exited. Actual startup log: TERM <= 7.61% available RAM, KILL <= 3.81%, swap thresholds 100%. The generator fault remains unresolved despite eventual installation success.
