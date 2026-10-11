@@ -2,6 +2,7 @@
 LANG_DEFAULT = "zh-TW"
 MSG = {
     "zh-TW": {
+    "llm_switch_state_store_failed": "切換狀態無法寫入，未開始操作。",
     "llm_switch_invalid": "切換目標或載入時間無效。",
     "llm_switch_busy": "已有模型切換在進行中。",
     "llm_no_completion": "此模型未回報文字生成能力，或能力查詢失敗；不執行文字量測。",
@@ -312,6 +313,7 @@ MSG = {
         "trash_cleared": "已清空垃圾桶"
     },
     "en": {
+    "llm_switch_state_store_failed": "Cannot persist switch state; no operation started.",
     "llm_switch_invalid": "Invalid switch target or keep-alive duration.",
     "llm_switch_busy": "A model switch is already running.",
     "llm_no_completion": "This model does not report completion capability, or its capability query failed; text benchmark refused.",

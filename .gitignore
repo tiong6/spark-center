@@ -12,3 +12,10 @@ data/model-inventory.json
 data/model-inventory.tmp
 data/llm-residency.lock
 data/llm-guard*
+
+data/stability.sqlite3*
+data/memory-policy.json
+data/memory-policy.tmp
+data/llm-switch*
+
+data/oom-installer/

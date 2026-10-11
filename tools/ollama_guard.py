@@ -19,6 +19,10 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from backend import stability
+from backend.system import process_label
+
 DATA = Path(__file__).resolve().parents[1] / 'data'
 LOCK = DATA / 'llm-residency.lock'
 EVENT = DATA / 'llm-guard-event.json'
@@ -28,6 +32,10 @@ STRATA = ('127.0.0.1', 8080)
 _event_lock = threading.Lock()
 _last_notice = 0
 MESSAGES = {
+    "ollama_busy": ("另一個模型請求正在執行，請稍後重試。", "Another model request is running; retry later."),
+    "memory_low": ("可用記憶體低於量測保留量，暫停載入。", "Available memory is below the measured reserve."),
+    "memory_pressure": ("記憶體壓力過高，暫停載入。", "Memory pressure is too high."),
+    "memory_unknown": ("記憶體量測或保護設定不可用，暫停載入。", "Memory policy or telemetry is unavailable."),
     'strata_resident': ('Strata 正在駐留或啟動；已拒絕 Ollama 載入。請先停止 Strata，再重試。',
                         'Strata is resident or starting. Stop Strata before retrying Ollama.'),
     'strata_unknown': ('無法確認 Strata 是否佔用記憶體；暫停 Ollama 載入，請檢查 Strata 服務。',
@@ -91,6 +99,7 @@ def lease(exclusive=False):
 
 
 def record_block(reason, model):
+    stability.event("admission_refused", {"reason": reason, "model": str(model or "")[:200]})
     global _last_notice
     with _event_lock:
         DATA.mkdir(exist_ok=True)
@@ -144,11 +153,13 @@ class Handler(BaseHTTPRequestHandler):
         host = self.headers.get('Host', '').split(':')[0]
         if host not in ('127.0.0.1', 'localhost') or self.headers.get('Origin'):
             return self.reply(403, {'error': 'Local service clients only'})
+        if self.command == 'GET' and path == '/guard/admission':
+            return self.reply(200, stability.admission())
         if self.command == 'GET' and path == '/guard/status':
             reason = blocked_reason()
             f = lease()
             if f is None:
-                reason = 'strata_resident'
+                reason = reason or 'ollama_busy'
             else:
                 f.close()
             try:
@@ -174,8 +185,12 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, OSError):
                 return self.reply(400, {'error': 'Expected a JSON object with Content-Length, at most 32 MiB'})
             if path != '/api/show' and not is_unload(path, body):
-                hold = lease()
-                reason = 'strata_resident' if hold is None else blocked_reason()
+                hold = lease(exclusive=True)
+                reason = blocked_reason()
+                if not reason and hold is None:
+                    reason = 'ollama_busy'
+                if not reason:
+                    reason = stability.admission().get('reason')
                 if reason:
                     if hold:
                         hold.close()
@@ -188,6 +203,8 @@ class Handler(BaseHTTPRequestHandler):
             with tempfile.NamedTemporaryFile(mode='w', dir=PENDING, delete=False) as f:
                 json.dump({'model': body.get('model'), 'at': time.time()}, f)
             marker = Path(f.name)
+        if hold:
+            stability.event('ollama_request_start', {'model': str(body.get('model', ''))[:200]})
         c = http.client.HTTPConnection(*UPSTREAM, timeout=1800)
         sent = False
         try:
@@ -219,6 +236,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise http.client.IncompleteRead(b'', r.length)
             if marker:
                 marker.unlink()
+                stability.event('ollama_request_complete', {'model': str(body.get('model', ''))[:200]})
         except (OSError, http.client.HTTPException):
             if not sent:
                 self.reply(502, {'error': 'Ollama upstream unavailable'})
@@ -231,6 +249,8 @@ class Handler(BaseHTTPRequestHandler):
 def run_strata(command):
     hold = lease(exclusive=True)
     reason = 'ollama_resident' if hold is None else None
+    if not reason:
+        reason = stability.admission().get('reason')
     if not reason:
         if PENDING.exists() and any(PENDING.iterdir()):
             reason = 'ollama_resident'  # Interrupted proxy: state requires operator inspection.
@@ -258,6 +278,7 @@ def run_strata(command):
 
 if __name__ == '__main__':
     if sys.argv[1:] == ['serve']:
+        process_label('spark-guard')
         ThreadingHTTPServer(('127.0.0.1', 11436), Handler).serve_forever()
     elif sys.argv[1:3] == ['strata', '--'] and len(sys.argv) > 3:
         sys.exit(run_strata(sys.argv[3:]))

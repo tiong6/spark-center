@@ -60,12 +60,13 @@ function renderLlm(j) {
 function renderLlmSwitch(j, switching) {
   const state = j.switch || {status: 'idle'};
   const strataLoaded = j.servers.some(s => s.kind === 'Strata' && (s.loaded || []).length);
+  const recover = state.recoverable === true;
   const target = state.target === 'strata' ? 'Strata' : `Ollama · ${state.model || ''}`;
   let progress = '';
   if (state.status === 'running') progress = t('llm.switch_phase_' + state.phase);
   if (state.status === 'done') progress = t('llm.switch_done', {target});
   if (state.status === 'error') progress = t('llm.switch_error_' + state.error) + (state.detail ? ` (${state.detail})` : '');
-  $('#llmSwitch').innerHTML = `<div class="llm-switch-controls"><button id="llmSwitchStrata" class="small" ${switching || strataLoaded || !hw.llmSwitchAvailable || j.bench?.status === 'running' ? 'disabled' : ''}>${t(strataLoaded ? 'llm.strata_loaded' : 'llm.switch_strata')}</button><span class="sub1">${t(hw.llmSwitchAvailable ? 'llm.switch_hint' : 'llm.switch_error_service_unconfigured')}</span></div><div role="status" class="sub1 ${state.status === 'error' ? 'llm-switch-error' : ''}">${esc(progress)}</div>`;
+  $('#llmSwitch').innerHTML = `<div class="llm-switch-controls"><button id="llmSwitchStrata" class="small" ${switching || (strataLoaded && !recover) || !hw.llmSwitchAvailable || j.bench?.status === 'running' ? 'disabled' : ''}>${t(recover ? 'llm.recover_strata' : strataLoaded ? 'llm.strata_loaded' : 'llm.switch_strata')}</button><span class="sub1">${t(hw.llmSwitchAvailable ? 'llm.switch_hint' : 'llm.switch_error_service_unconfigured')}</span></div><div role="status" class="sub1 ${state.status === 'error' ? 'llm-switch-error' : ''}">${esc(progress)}</div>`;
   $('#llmSwitchStrata').onclick = () => llmSwitchAction('strata');
 }
 async function llmSwitchAction(target, model, keep_alive = '5m') {

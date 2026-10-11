@@ -10,6 +10,7 @@ python3 tools/test_npm_safe.py 2>&1 | tail -1 | grep -q "^OK" && echo "npm safe-
 python3 tools/test_gpu_hot.py 2>&1 | tail -1 | grep -q "^OK" && echo "GPU overheat tests OK" || { python3 tools/test_gpu_hot.py; exit 1; }
 
 python3 tools/test_backend_modules.py
+python3 tools/test_stability.py
 python3 tools/test_llm_models.py
 python3 tools/test_llm_switch.py
 node tools/test_llm_ui.js

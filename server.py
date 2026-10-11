@@ -37,9 +37,9 @@ import aptdaemon.client
 import aptdaemon.enums as aenums
 from gi.repository import GLib
 
-from backend import hardware, disk
+from backend import hardware, disk, stability
 from backend.messages import LANG_DEFAULT, MSG, msg
-from backend.system import HERE, READONLY, NO_SWEEP, _ENV_C, _run, _http_json
+from backend.system import HERE, READONLY, NO_SWEEP, _ENV_C, _run, _http_json, process_label
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("SPARK_UPDATER_PORT", "11001"))
@@ -2587,7 +2587,7 @@ def pwa_install_launch():
 
 
 def live_with_alerts():
-    return {**hardware.hardware_live(), "gpu_alert": gpu_alert(),
+    return {**hardware.hardware_live(), "stability": stability.snapshot(), "gpu_alert": gpu_alert(),
             "gpu_hot": gpu_hot(), "clock_cap": gpu_clock_state()}
 
 
@@ -3970,6 +3970,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    process_label('spark-center')
+    stability.start()
     hardware.load_snapshot()   # 有快照就先用，服務重啟後硬體分頁不用等
     # 服務重啟時 snapd 可能還在跑上一輪更新，接回來才不會讓畫面顯示成「沒事發生」
     try:

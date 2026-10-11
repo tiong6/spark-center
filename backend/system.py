@@ -28,3 +28,10 @@ def _http_json(url, data=None, timeout=3):
             return json.loads(r.read().decode())
     except (urllib.error.URLError, OSError, ValueError):
         return None
+
+
+def process_label(name):
+    """Linux comm lets the OOM daemon distinguish the manager from model engines."""
+    import ctypes
+    if ctypes.CDLL(None, use_errno=True).prctl(15, name.encode()[:15], 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), 'PR_SET_NAME failed')

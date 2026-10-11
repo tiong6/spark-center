@@ -1,5 +1,8 @@
 """Explicit, sequential model switches using the existing residency guard."""
 import json
+import os
+import fcntl
+import tempfile
 from pathlib import Path
 import subprocess
 import threading
@@ -8,6 +11,7 @@ import urllib.error
 import urllib.request
 
 from tools import ollama_guard as guard
+from backend import stability
 
 UNIT = 'strata-server.service'
 GUARDED = ('127.0.0.1', 11436)
@@ -88,18 +92,57 @@ def wait_for(check, timeout, code):
         time.sleep(.5)
 
 
+def drain(action, token=None):
+    req = urllib.request.Request('http://%s:%s/admin/drain' % guard.STRATA,
+                                 data=json.dumps({'action': action, 'token': token}).encode(),
+                                 headers={'Content-Type': 'application/json'})
+    try:
+        with urllib.request.urlopen(req, timeout=3) as response:
+            result = json.load(response)
+        if not isinstance(result, dict) or 'error' in result:
+            raise ValueError('invalid drain reply')
+        return result
+    except (OSError, ValueError) as exc:
+        raise SwitchError('drain_failed', str(exc)) from exc
+
+
 class Switcher:
-    def __init__(self):
+    def __init__(self, state_path=None):
         self.lock = threading.Lock()
+        self.state_path = Path(state_path) if state_path else None
+        self.hold = None
+        self.owned_drain = None
         self.state = {'status': 'idle'}
+        if self.state_path and self.state_path.exists():
+            try:
+                self.state = json.loads(self.state_path.read_text())
+                if not isinstance(self.state, dict) or self.state.get('status') not in ('idle', 'running', 'done', 'error'):
+                    raise ValueError('invalid state')
+                if self.state.get('status') == 'running':
+                    self.state.update(status='error', error='interrupted', finished=time.time(),
+                                      detail='Previous phase: ' + str(self.state.get('phase')))
+            except (OSError, ValueError):
+                self.state = {'status': 'error', 'error': 'interrupted', 'detail': 'State file unreadable'}
+
+    def persist(self):
+        if self.state_path:
+            self.state_path.parent.mkdir(exist_ok=True)
+            with tempfile.NamedTemporaryFile(mode='w', dir=self.state_path.parent, delete=False) as f:
+                json.dump(self.state, f, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            Path(f.name).replace(self.state_path)
 
     def snapshot(self):
         with self.lock:
-            return dict(self.state)
+            return {**{k: v for k, v in self.state.items() if k != 'drain_token'},
+                    'recoverable': bool(self.state.get('drain_token')) and self.state.get('status') == 'error'}
 
     def update(self, **values):
         with self.lock:
             self.state.update(values)
+            self.persist()
+        stability.event('switch', {k: v for k, v in values.items() if k != 'drain_token'})
 
     def start(self, target, model=None, keep_alive='5m'):
         if target not in ('strata', 'ollama') or keep_alive not in ('5m', '30m', '2h', '-1'):
@@ -109,9 +152,34 @@ class Switcher:
         with self.lock:
             if self.state['status'] == 'running':
                 raise SwitchError('busy')
-            self.state = {'status': 'running', 'phase': 'checking', 'target': target,
+            if self.state_path:
+                self.state_path.parent.mkdir(exist_ok=True)
+                self.hold = self.state_path.with_suffix('.lock').open('a')
+                try:
+                    fcntl.flock(self.hold, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    self.hold.close()
+                    self.hold = None
+                    raise SwitchError('busy')
+            old_token = self.state.get('drain_token')
+            self.state = {'drain_token': old_token, 'status': 'running', 'phase': 'checking', 'target': target,
                           'model': model, 'started': time.time(), 'error': None}
-        threading.Thread(target=self.run, args=(target, model, keep_alive), daemon=True).start()
+            try:
+                self.persist()
+            except OSError as exc:
+                self.state.update(status='error', error='state_store_failed')
+                if self.hold:
+                    self.hold.close()
+                    self.hold = None
+                raise SwitchError('state_store_failed', str(exc)) from exc
+        try:
+            threading.Thread(target=self.run, args=(target, model, keep_alive), daemon=True).start()
+        except RuntimeError as exc:
+            if self.hold:
+                self.hold.close()
+                self.hold = None
+            self.update(status='error', error='request_failed', detail=str(exc))
+            raise SwitchError('request_failed', str(exc)) from exc
 
     def run(self, target, model, keep_alive):
         try:
@@ -122,6 +190,16 @@ class Switcher:
             if not isinstance(g, dict) or g.get('ok') is not True:
                 raise SwitchError('state_unknown')
             no_pending()
+            old_token = self.state.get('drain_token')
+            if old_token and info['service_state'] == 'active':
+                if models():
+                    raise SwitchError('ollama_busy')
+                gate = read(guard.STRATA, '/admin/drain')
+                if not isinstance(gate, dict) or 'draining' not in gate:
+                    raise SwitchError('drain_failed')
+                if gate['draining']:
+                    drain('resume', old_token)
+                self.update(drain_token=None)
             if target == 'ollama':
                 # Validate before stopping Strata; a typo must never trigger a download.
                 if model not in [m.get('name') for m in models('/api/tags')]:
@@ -134,6 +212,20 @@ class Switcher:
             self.update(status='error', error=exc.code, detail=exc.detail, finished=time.time())
         except Exception as exc:
             self.update(status='error', error='request_failed', detail=str(exc), finished=time.time())
+        finally:
+            try:
+                if self.owned_drain:
+                    try:
+                        if service_info()['service_state'] == 'active':
+                            drain('resume', self.owned_drain)
+                        self.update(drain_token=None)
+                    except SwitchError as exc:
+                        self.update(status='error', error='drain_failed', detail=exc.detail)
+            finally:
+                self.owned_drain = None
+                if self.hold:
+                    self.hold.close()
+                    self.hold = None
 
     def to_ollama(self, model, keep_alive, info):
         if info['service_state'] == 'active':
@@ -142,6 +234,13 @@ class Switcher:
             if not isinstance(h, dict) or h.get('service') != 'strata' or not isinstance(s, dict):
                 raise SwitchError('state_unknown')
             if s.get('busy') is not False or s.get('queued') != 0:
+                raise SwitchError('strata_busy')
+            result = drain('drain')
+            if not result.get('token'):
+                raise SwitchError('drain_failed')
+            self.owned_drain = result['token']
+            self.update(phase='draining_strata', drain_token=result['token'])
+            if result.get('active_requests') != 0:
                 raise SwitchError('strata_busy')
             self.update(phase='stopping_strata')
             service('stop')
@@ -207,4 +306,4 @@ class Switcher:
             raise SwitchError('state_unknown')
 
 
-SWITCH = Switcher()
+SWITCH = Switcher(guard.DATA / 'llm-switch.json')

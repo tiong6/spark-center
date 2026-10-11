@@ -13,6 +13,8 @@ from tools import llm_switch as switch
 class SwitchTests(unittest.TestCase):
     def setUp(self):
         self.stack = ExitStack()
+        self.stack.enter_context(patch.object(switch.guard.stability, 'admission', return_value={'ok': True, 'reason': None}))
+        self.stack.enter_context(patch.object(switch.guard.stability, 'event'))
         self.addCleanup(self.stack.close)
         d = Path(self.stack.enter_context(tempfile.TemporaryDirectory()))
         for k, v in {'DATA': d, 'LOCK': d/'lock', 'PENDING': d/'pending'}.items():
@@ -28,6 +30,7 @@ class SwitchTests(unittest.TestCase):
         self.stack.enter_context(patch.object(switch.guard, 'read_json', side_effect=self.read_json))
         self.service = self.stack.enter_context(patch.object(switch, 'service', side_effect=self.control))
         self.post = self.stack.enter_context(patch.object(switch, 'post', side_effect=self.request))
+        self.stack.enter_context(patch.object(switch, 'drain', return_value={'token': 'test', 'active_requests': 0}))
         self.s = switch.Switcher()
 
     def read_json(self, address, path):

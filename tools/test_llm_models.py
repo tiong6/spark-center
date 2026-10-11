@@ -20,6 +20,8 @@ from tools import model_inventory as inventory, ollama_guard as guard
 class ProxyTests(unittest.TestCase):
     def setUp(self):
         self.stack = ExitStack()
+        self.stack.enter_context(patch.object(guard.stability, 'admission', return_value={'ok': True, 'reason': None}))
+        self.stack.enter_context(patch.object(guard.stability, 'event'))
         self.addCleanup(self.stack.close)
         tmp = Path(self.stack.enter_context(tempfile.TemporaryDirectory()))
         for k, v in {'DATA': tmp, 'LOCK': tmp/'lease', 'EVENT': tmp/'event', 'PENDING': tmp/'pending'}.items():
@@ -66,6 +68,25 @@ class ProxyTests(unittest.TestCase):
     def test_resident_refuses_without_forwarding(self):
         status, j = self.request({'model':'test'})
         self.assertEqual(status, 409); self.assertEqual(j['code'], 'strata_resident'); self.assertEqual(self.calls, [])
+
+    def test_low_memory_refuses_without_contacting_upstream(self):
+        self.reason.return_value = None
+        with patch.object(guard.stability, 'admission', return_value={'ok': False, 'reason': 'memory_low'}):
+            status, response = self.request({'model':'test','prompt':'no forwarding'})
+        self.assertEqual(status,409)
+        self.assertEqual(response['code'],'memory_low')
+        self.assertEqual(self.calls,[])
+        with guard.lease(exclusive=True): pass
+
+    def test_second_request_refused_while_ollama_stream_is_active(self):
+        self.reason.return_value = None
+        c = http.client.HTTPConnection(*self.proxy.server_address, timeout=5)
+        c.request('POST','/api/generate',json.dumps({'model':'test','stream':True}))
+        r = c.getresponse(); self.assertEqual(r.read(4),b'one\n')
+        status,response=self.request({'model':'second'})
+        self.assertEqual(status,409);self.assertEqual(response['code'],'ollama_busy')
+        self.finish.set();r.read();c.close()
+        self.assertEqual(len(self.calls),1)
 
     def test_truncated_fixed_length_response_retains_pending(self):
         self.reason.return_value = None
@@ -139,6 +160,12 @@ class ProxyTests(unittest.TestCase):
 
 
 class LogicTests(unittest.TestCase):
+    def setUp(self):
+        a = patch.object(guard.stability, 'admission', return_value={'ok': True, 'reason': None})
+        b = patch.object(guard.stability, 'event')
+        a.start(); b.start()
+        self.addCleanup(a.stop); self.addCleanup(b.stop)
+
     def test_actual_engine_names_detected_without_matching_search_arguments(self):
         class Cmdline:
             def __init__(self,args): self.args=args

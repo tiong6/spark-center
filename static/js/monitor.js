@@ -107,6 +107,7 @@ function monLayout() {
 }
 function monLayoutSave(L) { try { localStorage.setItem('spark-center.monLayout', JSON.stringify(L)); } catch (e) {} }
 function renderMon(j, rerender) {
+  renderStability(j.stability);
   const S = hw.static, sampleTime = j.epoch, prev = rerender ? hw.prevPrev : hw.prev, cards = [], hovers = [];
   const pushHist = rerender ? () => {} : window.pushHist;
   // 記憶體
@@ -341,3 +342,25 @@ async function pollHw(staticOnly) {
     sens.map(s => `<tr><td class="mono">${esc(s.chip)}</td><td>${esc(s.label)}</td><td class="mono" style="color:${s.temp_c >= 85 ? 'var(--danger)' : s.temp_c >= 70 ? 'var(--warn)' : 'inherit'}">${s.temp_c.toFixed(1)} °C</td></tr>`).join('') + `</tbody></table>` : `<div class="empty">${t("mon.hwmon_has_no_temperature_sensors")}</div>`);
 }
 
+
+
+function renderStability(state) {
+  const box = $('#stabilityPanel');
+  if (!box || !state) return;
+  const s = state.sample, a = state.admission || {}, rows = [];
+  const psiPct = value => Number.isFinite(value) ? value.toFixed(2) + '%' : '—';
+  if (s) {
+    rows.push([t('stable.swap'), GB(s.swap_used) + ' / ' + GB(s.swap_total)]);
+    rows.push([t('stable.psi'), 'some ' + psiPct(s.psi?.some?.avg10) + ' · full ' + psiPct(s.psi?.full?.avg10)]);
+    rows.push([t('stable.rates'), (s.swap_in_bps == null ? '—' : fmtRate(s.swap_in_bps)) + ' / ' + (s.swap_out_bps == null ? '—' : fmtRate(s.swap_out_bps))]);
+  }
+  rows.push([t('stable.reserve'), (a.available_bytes == null ? '—' : GB(a.available_bytes)) + ' / ' + (a.reserve_bytes == null ? '—' : GB(a.reserve_bytes))]);
+  rows.push([t('stable.nvrm'), state.nvrm_lines == null ? '—' : t('stable.count', {v0:state.nvrm_lines,v1:state.nvrm_groups})]);
+  const oom = state.services?.['earlyoom.service'];
+  rows.push([t('stable.oom'), t(!oom || oom === 'unknown' ? 'stable.oom_unknown' : oom.split('\n').includes('active') ? 'stable.oom_active' : 'stable.oom_inactive')]);
+  const events = (state.events || []).filter(e => e.kind !== 'memory_sample').slice(0, 12);
+  box.innerHTML = `<h2>${esc(t('stable.title'))}</h2><p>${esc(t(a.ok ? 'stable.allowed' : 'stable.blocked'))}${a.reason ? ' · '+esc(t('stable.'+a.reason)) : ''}</p>` +
+    `<table><tbody>${rows.map(([k,v])=>`<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}</tbody></table>` +
+    ((!state.available || state.journal_error || state.history_error) ? `<p class="error">${esc(t('stable.unavailable'))}</p>` : '') +
+    `<p class="sub1">${esc(t('stable.note'))}</p><ol>${events.map(e=>`<li>${esc(new Date(e.at*1000).toLocaleString())} · ${esc(t('stable.'+e.kind))}${e.detail?.phase ? ' · '+esc(t('llm.switch_phase_'+e.detail.phase)) : ''}${e.detail?.model ? ' · '+esc(e.detail.model) : ''}${e.detail?.state ? ' · '+esc(e.detail.state.replaceAll('\n', ' / ')) : ''}${e.detail?.reason ? ' · '+esc(t('stable.'+e.detail.reason)) : ''}${e.detail?.error ? ' · '+esc(t('llm.switch_error_'+e.detail.error)) : ''}</li>`).join('') || esc(t('stable.empty'))}</ol>`;
+}
