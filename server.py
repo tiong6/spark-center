@@ -2446,7 +2446,7 @@ def setup_status():
     caps = model_capabilities.snapshot()
     items.append({"id": "model_guard", "enabled": caps['guard_available'], "sudo": False,
                   "commands": [f"sh {q(os.path.join(HERE, 'install.sh'))} --guard"]})
-    items.append({"id": "memory_policy", "enabled": caps['memory_policy']['state'] != 'not_configured',
+    items.append({"id": "memory_policy", "enabled": caps['memory_policy']['state'] == 'configured',
                   "sudo": False, "action": "instructions",
                   "commands": [f"python3 {q(os.path.join(HERE, 'tools', 'calibrate_memory.py'))}"]})
     items.append({"id": "earlyoom", "enabled": caps['earlyoom'] == 'active', "sudo": False,

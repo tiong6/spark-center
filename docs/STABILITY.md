@@ -53,3 +53,15 @@ Normal installs need neither Strata, guard nor a memory policy. Setup and /api/s
 For a machine sharing memory between large engines, explicitly set `Environment=SPARK_REQUIRE_GUARD=1` and `Environment=SPARK_REQUIRE_MEMORY_POLICY=1` in the relevant user service drop-ins (Spark Center, guard and the Strata wrapper service), then daemon-reload and restart while idle. These are local administrator choices, not installer defaults. This GB10 deployment enables both. Do not copy its measured reserve to another machine.
 
 The release supports the existing Linux/systemd/apt environment; it does not add Windows support. All protection setup is opt-in. Standard install.sh still installs only Spark Center.
+
+## Migration checklist for a strict deployment
+
+A Git clone does not restore this machine's protection configuration. Before loading models on a replacement machine:
+
+1. Install the optional guard from Setup, and configure the Strata wrapper/drain support described in MODEL_PAGE.md.
+2. Recreate `~/.config/systemd/user/{spark-center,spark-ollama-guard,strata-server}.service.d/stability.conf` (one directory per service). All three need `[Service]` with `Environment=SPARK_REQUIRE_GUARD=1` and `Environment=SPARK_REQUIRE_MEMORY_POLICY=1` for this strict deployment. Set `OOMScoreAdjust=100` for Spark Center/guard and `OOMScoreAdjust=200` for Strata. Strata also needs `Environment=STRATA_ADMISSION_URL=http://127.0.0.1:11436/guard/admission`. Inspect other drop-ins and wrapper paths with `systemctl --user cat` rather than copying old absolute paths blindly.
+3. Calibrate memory on the destination machine; do not copy the old reserve. Review and install earlyoom there. Its `/etc/default/earlyoom` configuration is also outside Git. Setup reports the host's actual earlyoom state, even for a fresh application checkout.
+4. Run `systemctl --user daemon-reload`; restart only after jobs and switches are idle. Inspect each unit with `systemctl --user show UNIT -p Environment -p OOMScoreAdjust -p MainPID`. Check the actual `/proc/PID/oom_score_adj` too; an unprivileged user manager may not lower it.
+5. Check `/api/setup`: `capabilities.guard_required` and `memory_required` must both be true, `guard_available` true, and `memory_policy.state` configured. A damaged/unreadable policy or unavailable memory reading is unavailable, not enabled; low memory under a valid policy still means protection is enabled and refusing work. Verify earlyoom with `systemctl is-active earlyoom` and review client URLs so they do not bypass the guard via 11434.
+
+Do not publish private policy, event database, service environments or client credentials as migration artifacts.

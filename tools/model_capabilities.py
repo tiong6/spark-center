@@ -74,7 +74,7 @@ def snapshot(force=False):
         _cached = {'guard_available': r['guard']['protected'],
                    'guard_required': stability.required('SPARK_REQUIRE_GUARD'),
                    'memory_required': stability.required('SPARK_REQUIRE_MEMORY_POLICY'),
-                   'memory_policy': {**admission, 'state': admission.get('state', 'configured' if stability.POLICY.exists() else 'unavailable')},
+                   'memory_policy': {**admission, 'state': admission.get('state', 'unavailable' if admission.get('reason') == 'memory_unknown' else 'configured')},
                    'strata_service': control, 'drain': drain, 'earlyoom': oom,
                    'switch_control': {**control, 'available': bool(drain and r['guard']['protected'])}}
         _when = time.monotonic()

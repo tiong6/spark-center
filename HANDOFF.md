@@ -1,3 +1,9 @@
+## 2026-10-11 政策顯示修正與搬機核對
+
+- 設定頁只在 memory_policy.state=configured 時顯示已啟用；損壞／缺少嚴格政策或無法讀取記憶體時為 unavailable。有效政策因 memory_low/pressure 拒絕仍為 configured。
+- 新增隔離測試覆蓋缺少、嚴格缺少、損壞、有效但低記憶體、有效且放行。實際呼叫 setup_status：broken policy enabled=False，admission reason=memory_unknown；未更動生產政策。
+- tools/check.sh 通過（相容測試 10 項）；idle/done 後重啟 Spark Center，正式 /api/setup 有效政策 enabled=True，瀏覽器九分頁內容已檢查。STABILITY.md 補搬機清單，earlyoom 全新 OS apt 安裝仍未驗證。
+
 ## 2026-10-11 公開相容層與發布
 
 - 原有 13 個提交未拆分、重排或重寫；其上是一個相容層 commit。新版本 v2026.10.11，回退 v2026.10.09（19dbff4）。推送後以 git remote refs 核對，不沿用歷史未推送數字。

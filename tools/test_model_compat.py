@@ -33,6 +33,23 @@ class CompatibilityTests(unittest.TestCase):
         stability.POLICY.write_text('invalid json')
         self.assertFalse(stability.admission()['ok'])
 
+    def test_policy_capability_distinguishes_invalid_from_valid_but_busy(self):
+        sample = {'total': 1000, 'available_bytes': 100, 'psi': {'full': {'avg10': 0}}, 'at': 1}
+        with patch.object(caps, 'probe', return_value=None), patch.object(caps.llm_switch, 'control_info', return_value={'available': False, 'service_state': 'inactive'}), patch.object(caps.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'inactive\n', '')), patch.object(stability, 'memory_sample', return_value=sample):
+            self.assertEqual(caps.snapshot(force=True)['memory_policy']['state'], 'not_configured')
+            with patch.dict(os.environ, {'SPARK_REQUIRE_MEMORY_POLICY': '1'}):
+                self.assertEqual(caps.snapshot(force=True)['memory_policy']['state'], 'unavailable')
+            stability.POLICY.write_text('invalid json')
+            result = caps.snapshot(force=True)['memory_policy']
+            self.assertEqual(result['state'], 'unavailable')
+            self.assertFalse(result['ok'])
+            stability.POLICY.write_text(json.dumps({'min_available_bytes': 200, 'mem_total_bytes': 1000, 'max_full_psi_avg10': 10}))
+            result = caps.snapshot(force=True)['memory_policy']
+            self.assertEqual(result['state'], 'configured')
+            self.assertEqual(result['reason'], 'memory_low')
+            sample['available_bytes'] = 500
+            self.assertTrue(caps.snapshot(force=True)['memory_policy']['ok'])
+
     def test_absent_guard_direct_route_is_visible_and_event_is_not_flooded(self):
         with patch.object(caps,'probe',return_value=None):
             for _ in range(3):r=caps.route()
