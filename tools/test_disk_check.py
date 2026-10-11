@@ -41,6 +41,15 @@ class SelfTestLogParsing(unittest.TestCase):
         self.assertFalse(p["running"])
         self.assertEqual(p["entries"][0]["result"], 7); self.assertEqual(p["entries"][0]["code"], 2); self.assertEqual(p["entries"][0]["segment"], 3)
 
+    def test_real_nvme_cli_2_8_shape_from_this_machine(self):
+        # 2026-10-11 真機（nvme-cli 2.8、ESL01TBTLCZ）跑完短測＋長測的實際輸出形狀
+        j = {"Current Device Self-Test Operation": 0, "Current Device Self-Test Completion": 0,
+             "List of Valid Reports": [{"Self test result": 0, "Self test code": 2, "Segment number": 0, "Valid Diagnostic Information": 0, "Power on hours": 4252, "Vendor Specific": 0},
+                                       {"Self test result": 0, "Self test code": 1, "Segment number": 0, "Valid Diagnostic Information": 0, "Power on hours": 4251, "Vendor Specific": 0}]}
+        p = hw._parse_selftest_log(j)
+        self.assertFalse(p["running"]); self.assertEqual(p["progress"], 0)
+        self.assertEqual([(e["code"], e["result"], e["power_on_hours"]) for e in p["entries"]], [(2, 0, 4252), (1, 0, 4251)])
+
     def test_unused_entries_dropped_and_missing_fields_are_none(self):
         p = hw._parse_selftest_log({"x": [{"Self-test Result": 15}, {"Self-test Result": 1}]})
         self.assertEqual(len(p["entries"]), 1); self.assertIsNone(p["entries"][0]["code"]); self.assertIsNone(p["progress"])
