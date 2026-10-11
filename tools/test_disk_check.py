@@ -139,7 +139,8 @@ class FsckFlow(unittest.TestCase):
         self.assertFalse(st["scheduled"]); self.assertTrue(st["ran_this_boot"])
         self.assertEqual(st["last_result"]["state"], "clean"); self.assertEqual(st["last_result"]["checked_at"], "2026-10-11T08:00:30")
         self.assertIn(["sudo", "-n"] + hw.FSCK_CMDS["unschedule"], calls)
-        self.assertEqual(json.load(open(self.result))["state"], "clean")
+        with open(self.result) as f:
+            self.assertEqual(json.load(f)["state"], "clean")
 
     def test_restore_denied_keeps_scheduled_and_no_result_file(self):
         table = {("/usr/sbin/tune2fs", "-l"): (0, TUNE2FS.format(mc=1, mmc=1, lc="Sun Oct 11 08:00:30 2026"), "")}
@@ -160,7 +161,8 @@ class FsckFlow(unittest.TestCase):
         self.assertFalse(r2["ok"]); self.assertIn("sudoers", r2["error"])
 
     def test_not_allowed_still_shows_previous_result(self):
-        json.dump({"checked_at": "2026-10-01T00:00:00", "state": "clean"}, open(self.result, "w"))
+        with open(self.result, "w") as f:
+            json.dump({"checked_at": "2026-10-01T00:00:00", "state": "clean"}, f)
         with patch.object(hw.subprocess, "run", fake_run({})):
             st = hw.fsck_state()
         self.assertFalse(st["available"]); self.assertEqual(st["last_result"]["state"], "clean")
