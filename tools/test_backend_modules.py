@@ -1,4 +1,5 @@
 """Regression checks for extracted backend state; no hardware mutations or NAS scans."""
+import ast
 import json
 from pathlib import Path
 import subprocess
@@ -18,6 +19,15 @@ class ModuleTests(unittest.TestCase):
         code = "from backend import hardware, disk; import sys; assert 'server' not in sys.modules; assert 'apt' not in sys.modules"
         subprocess.run([sys.executable, '-c', code], cwd=ROOT, check=True)
 
+    def test_server_uses_public_feature_interfaces(self):
+        tree = ast.parse((ROOT / 'server.py').read_text())
+        private_accesses = [f'{node.value.id}.{node.attr}' for node in ast.walk(tree)
+                            if isinstance(node, ast.Attribute)
+                            and isinstance(node.value, ast.Name)
+                            and node.value.id in {'hardware', 'disk'}
+                            and node.attr.startswith('_')]
+        self.assertEqual(private_accesses, [])
+
     def test_data_paths_still_use_project_root(self):
         self.assertEqual(Path(system.HERE), ROOT)
         self.assertEqual(Path(hardware.HW_SNAPSHOT), ROOT / 'data/hardware.json')
@@ -29,11 +39,11 @@ class ModuleTests(unittest.TestCase):
             snapshot = {'generated': 'test', 'boot_id': 'old', 'system': {'hostname': 'test'}, 'printers': {}}
             with patch.object(hardware, 'HW_SNAPSHOT', str(path)), patch.object(hardware, '_boot_id', return_value='current'), patch.object(hardware, '_HW_CACHE', {'ts': 0, 'data': None}):
                 path.write_text(json.dumps(snapshot))
-                hardware._hw_snapshot_load()
+                hardware.load_snapshot()
                 self.assertIsNone(hardware._HW_CACHE['data'])
                 snapshot['boot_id'] = 'current'
                 path.write_text(json.dumps(snapshot))
-                hardware._hw_snapshot_load()
+                hardware.load_snapshot()
                 with patch.object(hardware, '_run', side_effect=AssertionError('cached lookup must not rescan')):
                     data = hardware.hardware_static()
                 self.assertEqual(data['system']['hostname'], 'test')

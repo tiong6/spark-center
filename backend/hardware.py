@@ -20,7 +20,7 @@ DMI_FIELDS = ("sys_vendor", "product_name", "product_version", "board_vendor", "
               "bios_vendor", "bios_version", "bios_date")
 
 
-def _read(path, default=None):
+def read_text_file(path, default=None):
     try:
         with open(path, errors="replace") as f:
             return f.read().strip()
@@ -28,9 +28,9 @@ def _read(path, default=None):
         return default
 
 
-def _meminfo():
+def memory_info():
     d = {}
-    for line in (_read("/proc/meminfo") or "").splitlines():
+    for line in (read_text_file("/proc/meminfo") or "").splitlines():
         k, _, v = line.partition(":")
         d[k.strip()] = int(v.strip().split()[0]) * 1024 if v.strip() else 0
     return d
@@ -38,7 +38,7 @@ def _meminfo():
 
 def _os_release():
     d = {}
-    for line in (_read("/etc/os-release") or "").splitlines():
+    for line in (read_text_file("/etc/os-release") or "").splitlines():
         k, _, v = line.partition("=")
         d[k] = v.strip('"')
     return d
@@ -183,7 +183,7 @@ def _gpu_live_nvml():
             "pstate": f"P{pstate}" if pstate is not None else None, "event_reasons": reasons, "event_mask": mask.value if reasons is not None else None}
 
 
-def _gpu_static():
+def gpu_static():
     via = _gpu_static_nvml()
     if via:
         # PCI bus id 只有 nvidia-smi 好拿，補一次（靜態，快取 60 秒內只跑一次）
@@ -193,7 +193,7 @@ def _gpu_static():
     return _gpu_static_smi()
 
 
-def _gpu_live():
+def gpu_live():
     return _gpu_live_nvml() or _gpu_live_smi()
 
 
@@ -272,8 +272,8 @@ def _network():
         name = i.get("ifname", "")
         if name == "lo":
             continue
-        speed = _read(f"/sys/class/net/{name}/speed")
-        kind = "wifi" if os.path.isdir(f"/sys/class/net/{name}/wireless") else \
+        speed = read_text_file(f"/sys/class/net/{name}/speed")
+        kind = "wifi" if os.path.isdir(f"/sys/class/net/{name}/wireless") else\
                "virtual" if os.path.islink(f"/sys/class/net/{name}/device") is False and not os.path.exists(f"/sys/class/net/{name}/device") else "ethernet"
         res.append({
             "name": name, "state": i.get("operstate"), "mac": i.get("address"),
@@ -300,12 +300,12 @@ def _sensors():
 def _sensors_read():
     res = []
     for h in sorted(glob.glob("/sys/class/hwmon/hwmon*")):
-        chip = _read(os.path.join(h, "name"), "?")
+        chip = read_text_file(os.path.join(h, "name"), "?")
         for t in sorted(glob.glob(os.path.join(h, "temp*_input"))):
-            v = _read(t)
+            v = read_text_file(t)
             if not v or not v.lstrip("-").isdigit():
                 continue
-            label = _read(t.replace("_input", "_label"), "") or os.path.basename(t).replace("_input", "")
+            label = read_text_file(t.replace("_input", "_label"), "") or os.path.basename(t).replace("_input", "")
             res.append({"chip": chip, "label": label, "temp_c": int(v) / 1000})
     return res
 
@@ -358,7 +358,7 @@ def _usb_tree():
         if ":" in n:
             continue
         d = os.path.join(base, n)
-        vid, pid = (_read(os.path.join(d, "idVendor")) or "").lower(), (_read(os.path.join(d, "idProduct")) or "").lower()
+        vid, pid = (read_text_file(os.path.join(d, "idVendor")) or "").lower(), (read_text_file(os.path.join(d, "idProduct")) or "").lower()
         if not vid:
             continue
         ifaces = []
@@ -366,16 +366,16 @@ def _usb_tree():
             if not i.startswith(n + ":"):
                 continue
             ip = os.path.join(base, i)
-            cls = (_read(os.path.join(ip, "bInterfaceClass")) or "").lower()
-            sub = (_read(os.path.join(ip, "bInterfaceSubClass")) or "").lower()
-            proto = (_read(os.path.join(ip, "bInterfaceProtocol")) or "").lower()
+            cls = (read_text_file(os.path.join(ip, "bInterfaceClass")) or "").lower()
+            sub = (read_text_file(os.path.join(ip, "bInterfaceSubClass")) or "").lower()
+            proto = (read_text_file(os.path.join(ip, "bInterfaceProtocol")) or "").lower()
             drv = os.path.basename(os.readlink(os.path.join(ip, "driver"))) if os.path.islink(os.path.join(ip, "driver")) else None
             ifaces.append({"id": i.split(":", 1)[1], "class": cls, "sub": sub, "proto": proto, "driver": drv,
                            "label": USB_CLASS.get(cls, (cls, "other"))[0]})
         # 分類：以介面類別為主，HID 再依 protocol 分鍵盤/滑鼠
         kind, kind_label = "other", msg('device', LANG_DEFAULT)
         classes = [x["class"] for x in ifaces]
-        dev_class = (_read(os.path.join(d, "bDeviceClass")) or "").lower()
+        dev_class = (read_text_file(os.path.join(d, "bDeviceClass")) or "").lower()
         if n.startswith("usb"):
             kind, kind_label = "roothub", msg('usb_root', LANG_DEFAULT)
             product = None  # 下面會用 bus 編號取名，比 "xHCI Host Controller" 好認
@@ -393,13 +393,13 @@ def _usb_tree():
         elif "06" in classes: kind, kind_label = "image", msg('usb_image', LANG_DEFAULT)
         elif "11" in classes: kind, kind_label = "billboard", "USB-C Billboard"
         elif "ff" in classes: kind, kind_label = "vendor", msg('usb_vendor', LANG_DEFAULT)
-        speed = _read(os.path.join(d, "speed")) or ""
+        speed = read_text_file(os.path.join(d, "speed")) or ""
         if kind == "roothub":
-            product = msg('usb_root_bus', LANG_DEFAULT, p0='3.x' if speed not in ('12', '480', '1.5') else '2.0', p1=_read(os.path.join(d, 'busnum')))
+            product = msg('usb_root_bus', LANG_DEFAULT, p0='3.x' if speed not in ('12', '480', '1.5') else '2.0', p1=read_text_file(os.path.join(d, 'busnum')))
         else:
-            product = _read(os.path.join(d, "product"))
-        manufacturer = _read(os.path.join(d, "manufacturer"))
-        mp = _read(os.path.join(d, "bMaxPower"))  # 例如 "500mA"：裝置在描述子宣告的最大耗電，不是量測
+            product = read_text_file(os.path.join(d, "product"))
+        manufacturer = read_text_file(os.path.join(d, "manufacturer"))
+        mp = read_text_file(os.path.join(d, "bMaxPower"))  # 例如 "500mA"：裝置在描述子宣告的最大耗電，不是量測
         max_ma = int(re.sub(r"\D", "", mp)) if mp and re.sub(r"\D", "", mp) else None
         devs[n] = {
             "path": n, "vid": vid, "pid": pid,
@@ -409,10 +409,10 @@ def _usb_tree():
             "name_from_ids": not product and (vid, pid) in products,
             "speed": speed, "speed_label": USB_SPEED.get(speed, f"{speed} Mb/s" if speed else "—"),
             "kind": kind, "kind_label": kind_label,
-            "serial": _read(os.path.join(d, "serial")),
-            "ports": _read(os.path.join(d, "maxchild")),
+            "serial": read_text_file(os.path.join(d, "serial")),
+            "ports": read_text_file(os.path.join(d, "maxchild")),
             "interfaces": ifaces,
-            "busnum": _read(os.path.join(d, "busnum")), "devnum": _read(os.path.join(d, "devnum")),
+            "busnum": read_text_file(os.path.join(d, "busnum")), "devnum": read_text_file(os.path.join(d, "devnum")),
             "children": [],
         }
     # 掛樹：usbN 是 bus N 的 root；"5-1.4.2" 的父是 "5-1.4"，"5-1" 的父是 "usb5"
@@ -450,17 +450,17 @@ def usb_ports():
             continue
         d = os.path.join(base, n)
         ctrl = os.path.basename(os.path.realpath(os.path.join(d, "..")))
-        speed = _read(os.path.join(d, "speed")) or ""
+        speed = read_text_file(os.path.join(d, "speed")) or ""
         c = ctrls.setdefault(ctrl, {"controller": ctrl, "usb2_bus": None, "usb3_bus": None, "location": None,
                                     "connect_type": None, "devices": [], "internal": False})
         key = "usb3_bus" if speed not in ("12", "480", "1.5") else "usb2_bus"
-        c[key] = _read(os.path.join(d, "busnum"))
+        c[key] = read_text_file(os.path.join(d, "busnum"))
         # 埠資訊（root hub 的 port1..）
         for pdir in glob.glob(os.path.join(d, f"{n.replace('usb', '')}-0:1.0", f"{n}-port*")):
             loc_dir = os.path.join(pdir, "physical_location")
             if os.path.isdir(loc_dir) and not c["location"]:
-                c["location"] = {k: _read(os.path.join(loc_dir, k)) for k in ("panel", "vertical_position", "horizontal_position", "dock", "lid")}
-            ct = _read(os.path.join(pdir, "connect_type"))
+                c["location"] = {k: read_text_file(os.path.join(loc_dir, k)) for k in ("panel", "vertical_position", "horizontal_position", "dock", "lid")}
+            ct = read_text_file(os.path.join(pdir, "connect_type"))
             if ct and ct != "unknown":
                 c["connect_type"] = ct
             devlink = os.path.join(pdir, "device")
@@ -469,13 +469,13 @@ def usb_ports():
                 dn = os.path.basename(dev)
                 # 只列直接插在這個孔上的裝置（下面的 hub 子裝置數另外算）
                 kids = [k for k in os.listdir(base) if k.startswith(dn + ".") and ":" not in k]
-                mp = _read(os.path.join(dev, "bMaxPower"))
+                mp = read_text_file(os.path.join(dev, "bMaxPower"))
                 max_ma = int(re.sub(r"\D", "", mp)) if mp and re.sub(r"\D", "", mp) else None
                 c["devices"].append({
-                    "path": dn, "name": _read(os.path.join(dev, "product")) or f"{_read(os.path.join(dev, 'idVendor'))}:{_read(os.path.join(dev, 'idProduct'))}",
+                    "path": dn, "name": read_text_file(os.path.join(dev, "product")) or f"{read_text_file(os.path.join(dev, 'idVendor'))}:{read_text_file(os.path.join(dev, 'idProduct'))}",
                     "max_ma": max_ma, "max_w": round(max_ma * 5 / 1000, 2) if max_ma else None,
-                    "manufacturer": _read(os.path.join(dev, "manufacturer")),
-                    "speed": _read(os.path.join(dev, "speed")),
+                    "manufacturer": read_text_file(os.path.join(dev, "manufacturer")),
+                    "speed": read_text_file(os.path.join(dev, "speed")),
                     "children": len(kids),
                     "bus": "usb3" if key == "usb3_bus" else "usb2",
                 })
@@ -573,7 +573,7 @@ def cx7_state():
     2026-01 版起 CX7 預設熱插拔省電（旗標檔在就開）：沒插 QSFP 線就不上電，PCI 上一個 0x15b3 功能都看不到——
     那是預期，不是壞。pci_functions 讀不到時是 None，前端顯示「—」。"""
     try:
-        n = sum(1 for d in os.listdir("/sys/bus/pci/devices") if (_read(f"/sys/bus/pci/devices/{d}/vendor") or "").lower() == "0x15b3")
+        n = sum(1 for d in os.listdir("/sys/bus/pci/devices") if (read_text_file(f"/sys/bus/pci/devices/{d}/vendor") or "").lower() == "0x15b3")
     except OSError:
         n = None
     ifaces = []
@@ -588,7 +588,7 @@ def cx7_state():
             "ifaces": sorted(ifaces), "driver_loaded": os.path.isdir("/sys/module/mlx5_core")}
 
 
-def _buff_cache(m):
+def buffer_cache_bytes(m):
     """free(1) 的 buff/cache：Buffers + Cached + SReclaimable。監控卡與常見問題分頁共用這個算法。"""
     return m.get("Buffers", 0) + m.get("Cached", 0) + m.get("SReclaimable", 0)
 
@@ -604,8 +604,8 @@ def rear_panel():
         if not os.path.exists(dev):
             continue
         drv = os.path.basename(os.path.realpath(f"{dev}/driver")) if os.path.exists(f"{dev}/driver") else ""
-        net[i] = {"driver": drv, "state": _read(f"/sys/class/net/{i}/operstate"), "speed": _read(f"/sys/class/net/{i}/speed"),
-                  "carrier": _read(f"/sys/class/net/{i}/carrier")}
+        net[i] = {"driver": drv, "state": read_text_file(f"/sys/class/net/{i}/operstate"), "speed": read_text_file(f"/sys/class/net/{i}/speed"),
+                  "carrier": read_text_file(f"/sys/class/net/{i}/carrier")}
     eth = next(((n, v) for n, v in net.items() if v["driver"].startswith("r81")), None)
     usbc = []
     for k in range(4):
@@ -652,7 +652,7 @@ def _pci_devices():
             slot = "0000:" + slot
         sub = re.findall(r'"([^"]*)"', rest)
         sysd = f"/sys/bus/pci/devices/{slot}"
-        rd = lambda k: (_read(os.path.join(sysd, k)) or "").strip()
+        rd = lambda k: (read_text_file(os.path.join(sysd, k)) or "").strip()
         cur_s, cur_w, max_s, max_w = rd("current_link_speed"), rd("current_link_width"), rd("max_link_speed"), rd("max_link_width")
         gen = lambda v: PCI_GEN.get(re.sub(r" GT/s.*", "", v)) if v else None
         cur_gen, max_gen = gen(cur_s), gen(max_s)
@@ -799,9 +799,9 @@ def _printers():
     # USB 印表機：介面類別 07
     base = "/sys/bus/usb/devices"
     for i in os.listdir(base):
-        if ":" in i and (_read(os.path.join(base, i, "bInterfaceClass")) or "") == "07":
+        if ":" in i and (read_text_file(os.path.join(base, i, "bInterfaceClass")) or "") == "07":
             dev = os.path.join(base, i.split(":")[0])
-            res["usb"].append({"name": _read(os.path.join(dev, "product")) or i, "manufacturer": _read(os.path.join(dev, "manufacturer"))})
+            res["usb"].append({"name": read_text_file(os.path.join(dev, "product")) or i, "manufacturer": read_text_file(os.path.join(dev, "manufacturer"))})
     return res
 
 
@@ -927,15 +927,15 @@ def _nvme_health():
            "000cca": "HGST/WD", "001b44": "SanDisk", "5cd2e4": "Intel", "000000": None}
     PCI_VENDOR = {"0x1987": "Phison", "0x144d": "Samsung", "0x1e0f": "Kioxia", "0x15b7": "SanDisk/WD", "0x8086": "Intel",
                   "0x1c5c": "SK hynix", "0x1cc1": "ADATA", "0x126f": "Silicon Motion", "0x1e49": "YMTC", "0x2646": "Kingston", "0x1344": "Micron"}
-    vid = (_read(base + "/device/vendor") or "").lower()
-    did = (_read(base + "/device/device") or "").lower()
-    wwid = _read("/sys/class/block/nvme0n1/wwid") or ""
+    vid = (read_text_file(base + "/device/vendor") or "").lower()
+    did = (read_text_file(base + "/device/device") or "").lower()
+    wwid = read_text_file("/sys/class/block/nvme0n1/wwid") or ""
     m = re.match(r"eui\.([0-9a-f]+)", wwid)
     oui = m.group(1)[-16:][:6] if m and len(m.group(1)) >= 16 else None   # 可能有前導 0 補到 32 位，取最後 16 位才是 EUI-64
     ctrl = _run(["lspci", "-nn", "-s", os.path.basename(os.path.realpath(base + "/device"))], timeout=5) or ""
     ctrl_name = re.sub(r"^.*?: ", "", ctrl.strip().splitlines()[0]) if ctrl.strip() else None
-    info = {"model": (_read(base + "/model") or "").strip(), "firmware": (_read(base + "/firmware_rev") or "").strip(),
-            "serial": (_read(base + "/serial") or "").strip(), "state": _read(base + "/state"),
+    info = {"model": (read_text_file(base + "/model") or "").strip(), "firmware": (read_text_file(base + "/firmware_rev") or "").strip(),
+            "serial": (read_text_file(base + "/serial") or "").strip(), "state": read_text_file(base + "/state"),
             "vendor": PCI_VENDOR.get(vid) or vid, "vendor_pci_id": f"{vid}:{did}", "controller": ctrl_name,
             "oui": oui, "oui_vendor": OUI.get(oui) if oui else None,
             "dramless": "DRAM-less" in (ctrl_name or ""), "hmb": os.path.exists(base + "/hmb"),
@@ -985,10 +985,10 @@ HW_SNAPSHOT = os.path.join(HERE, "data", "hardware.json")
 
 
 def _boot_id():
-    return (_read("/proc/sys/kernel/random/boot_id") or "").strip() or None
+    return (read_text_file("/proc/sys/kernel/random/boot_id") or "").strip() or None
 
 
-def _hw_snapshot_load():
+def load_snapshot():
     """服務啟動時載回上次的硬體快照，省一次慢掃描。只在同一次開機內有效：BIOS、核心、韌體版本只會在重開機後變，
     重開後若服務在一小時內重啟，照舊載回就會把舊 BIOS 版本顯示到按「重新掃描」為止（2026-10-09 實際發生）。"""
     try:
@@ -1007,11 +1007,11 @@ def hardware_static(force=False):
     if not force and _HW_CACHE["data"] and time.time() - _HW_CACHE["ts"] < HW_TTL:
         return _HW_CACHE["data"]
     osr = _os_release()
-    mem = _meminfo()
+    mem = memory_info()
     data = {
         "system": {
-            **{k: _read(os.path.join(DMI_DIR, k)) for k in DMI_FIELDS},
-            "hostname": _read("/etc/hostname"),
+            **{k: read_text_file(os.path.join(DMI_DIR, k)) for k in DMI_FIELDS},
+            "hostname": read_text_file("/etc/hostname"),
             "os": osr.get("PRETTY_NAME"),
             "kernel": (_run(["uname", "-r"], timeout=5) or "").strip() or None,
             "dgx_release": _dpkg_version("dgx-release"),
@@ -1022,7 +1022,7 @@ def hardware_static(force=False):
         "cpu": _lscpu(),
         "cpu_cores": _cpu_topology(),
         "memory": {"total": mem.get("MemTotal"), "swap_total": mem.get("SwapTotal")},
-        "gpu": _gpu_static(),
+        "gpu": gpu_static(),
         "disks": _disks(),
         "network": _network(),
         "bluetooth": _bluetooth(),
@@ -1031,7 +1031,7 @@ def hardware_static(force=False):
         "pci": _list_cmd(["lspci"]),
         "pci_devices": _pci_devices(),
         "generated": datetime.now().isoformat(timespec="seconds"),
-        "boot_id": _boot_id(),   # 快照只在這次開機內可信（見 _hw_snapshot_load）
+        "boot_id": _boot_id(),   # 快照只在這次開機內可信（見 load_snapshot）
     }
     _HW_CACHE.update(ts=time.time(), data=data)
     try:
@@ -1047,7 +1047,7 @@ def hardware_static(force=False):
 
 def _cpu_jiffies():
     """/proc/stat 的總和與每核 jiffies；前端做差分算使用率。"""
-    lines = (_read("/proc/stat") or "").splitlines()
+    lines = (read_text_file("/proc/stat") or "").splitlines()
     if not lines or not lines[0].startswith("cpu "):
         return None
     def parse(line):
@@ -1066,7 +1066,7 @@ def _cpu_freqs():
     """每核目前時脈（kHz → MHz）。拿不到的核心回 None。"""
     res = []
     for i in range(os.cpu_count() or 0):
-        v = _read(f"/sys/devices/system/cpu/cpu{i}/cpufreq/scaling_cur_freq")
+        v = read_text_file(f"/sys/devices/system/cpu/cpu{i}/cpufreq/scaling_cur_freq")
         res.append(int(v) // 1000 if v and v.isdigit() else None)
     return res
 
@@ -1076,10 +1076,10 @@ def _cpu_topology():
     cores = []
     for i in range(os.cpu_count() or 0):
         base = f"/sys/devices/system/cpu/cpu{i}/cpufreq/"
-        mx = _read(base + "cpuinfo_max_freq"); mn = _read(base + "cpuinfo_min_freq")
+        mx = read_text_file(base + "cpuinfo_max_freq"); mn = read_text_file(base + "cpuinfo_min_freq")
         cores.append({"id": i, "max_mhz": int(mx) // 1000 if mx and mx.isdigit() else None,
                       "min_mhz": int(mn) // 1000 if mn and mn.isdigit() else None,
-                      "governor": _read(base + "scaling_governor")})
+                      "governor": read_text_file(base + "scaling_governor")})
     return cores
 
 
@@ -1088,13 +1088,13 @@ def _net_counters():
     連線狀態與速度也在這裡即時讀（/sys 兩個檔，便宜）：介面清單本身在硬體快取裡一小時才更新，
     插上網路線後監控頁要立刻看到卡片、看到 10 Gb/s，不能等快取。"""
     res = {}
-    for line in (_read("/proc/net/dev") or "").splitlines()[2:]:
+    for line in (read_text_file("/proc/net/dev") or "").splitlines()[2:]:
         name, _, rest = line.partition(":")
         f = rest.split()
         if len(f) >= 9:
             name = name.strip()
-            speed = _read(f"/sys/class/net/{name}/speed")
-            res[name] = {"rx": int(f[0]), "tx": int(f[8]), "state": (_read(f"/sys/class/net/{name}/operstate") or "").strip(),
+            speed = read_text_file(f"/sys/class/net/{name}/speed")
+            res[name] = {"rx": int(f[0]), "tx": int(f[8]), "state": (read_text_file(f"/sys/class/net/{name}/operstate") or "").strip(),
                          "speed_mbps": int(speed) if speed and speed.strip().lstrip("-").isdigit() and int(speed) > 0 else None}
     return res
 
@@ -1243,16 +1243,16 @@ def _root_usage():
 
 # ---------- Wi-Fi 品質（iw，免 root）----------
 
-def _wifi_iface():
+def wifi_interface():
     for i in os.listdir("/sys/class/net"):
         if os.path.isdir(f"/sys/class/net/{i}/wireless"):
             return i
     return None
 
 
-def _wifi_live():
+def wifi_live():
     """iw link + station dump：訊號、速率、MCS、重試、beacon loss。約 10 ms。"""
-    iface = _wifi_iface()
+    iface = wifi_interface()
     if not iface:
         return None
     link = _run(["iw", "dev", iface, "link"], timeout=5) or ""
@@ -1343,7 +1343,7 @@ def wifi_channel_analysis(rescan=False):
 _WIFI_SCAN = {"ts": 0, "data": None}
 
 
-def _wifi_aps():
+def wifi_access_points():
     """nmcli 看得到的 AP（不主動重掃，用 NetworkManager 快取）；快取 60 秒。"""
     if time.time() - _WIFI_SCAN["ts"] < 60 and _WIFI_SCAN["data"] is not None:
         return _WIFI_SCAN["data"]
@@ -1365,34 +1365,34 @@ def _wifi_aps():
     return aps
 
 
-def _bt_connected():
+def bluetooth_connected():
     out = _run(["bluetoothctl", "devices", "Connected"], timeout=5) or ""
     return [l.split(" ", 2)[2] for l in out.splitlines() if l.startswith("Device ") and len(l.split(" ", 2)) == 3]
 
 
-def _wifi_events_24h():
+def wifi_events_24h():
     """NetworkManager 24 小時內 Wi-Fi 斷線／重連次數（journal，免 root 可讀系統單元）。"""
     out = _run(["journalctl", "-u", "NetworkManager", "--since", "-24 h", "--no-pager", "-o", "short"], timeout=15) or ""
-    iface = _wifi_iface() or "wl"
+    iface = wifi_interface() or "wl"
     disc = len([l for l in out.splitlines() if iface in l and "activated -> deactivating" in l])
     act = len([l for l in out.splitlines() if iface in l and "Activation: successful" in l])
     return {"disconnects": disc, "activations": act}
 
 
 def hardware_live():
-    mem = _meminfo()
-    load = (_read("/proc/loadavg") or "").split()[:3]
-    up = _read("/proc/uptime")
+    mem = memory_info()
+    load = (read_text_file("/proc/loadavg") or "").split()[:3]
+    up = read_text_file("/proc/uptime")
     return {
-        "memory": {"total": mem.get("MemTotal"), "available": mem.get("MemAvailable"), "buff_cache": _buff_cache(mem) if mem else None,
+        "memory": {"total": mem.get("MemTotal"), "available": mem.get("MemAvailable"), "buff_cache": buffer_cache_bytes(mem) if mem else None,
                    "swap_total": mem.get("SwapTotal"), "swap_free": mem.get("SwapFree")},
         "load": [float(x) for x in load] if len(load) == 3 else None,
         "uptime_s": float(up.split()[0]) if up else None,
-        "gpu": _gpu_live(),
+        "gpu": gpu_live(),
         "sensors": _sensors(),
         "cpu": _cpu_jiffies(),
         "cpu_freq": _cpu_freqs(),
-        "wifi": _wifi_live(),
+        "wifi": wifi_live(),
         "net": _net_counters(),
         "disk_root": _root_usage(),
         "ts": datetime.now().isoformat(timespec="seconds"),

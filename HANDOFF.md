@@ -2,6 +2,14 @@
 
 > 2026-10-11 模型頁修正。先看 git status / git log；本檔只記錄這次驗證的狀態，不沿用舊快照的版本推測。
 
+## 2026-10-11 模組公開介面複核
+
+- server 不再使用 hardware/disk 的私有名稱：11 個硬體查詢與 1 個磁碟查詢改成公開函式，內部呼叫及測試同步改名，沒有保留舊名 alias。server 的彙整函式改名 `live_with_alerts`，backend 的 `hardware_live` 保留純查詢語意。
+- 加入 AST 邊界檢查，禁止 server 直接存取 hardware/disk 底線名稱；AGENTS.md 同步規範。7 個 backend 測試及既有完整 check 通過，既有 CSS 9 個警告保留。
+- 閒置重啟後 live 回應欄位與重啟前一致；hardware、wifi、FAQ、disk、LLM API 實際 HTTP 200。最後提交後再確認閒置重啟並核對來源，以避免檔案 mtime 晚於載入時間的歧義。
+- 待後續國際化整理：hardware/disk 掃描資料與 label 仍使用 LANG_DEFAULT；英文 API 回應由 server._localized_response 翻譯副本（不是只有前端翻譯）。這次不改既有翻譯行為。
+- 未推送數量請以 `git rev-list --count origin/main..HEAD` 即時查詢；下面的 9 個數字是拆分開始前的歷史狀態，不是目前總數。
+
 ## 2026-10-11 後端模組拆分（本次）
 
 - `server.py` 由 6,196 行降到 3,998 行；硬體與網路查詢搬到 `backend/hardware.py`，磁碟掃描及快取搬到 `backend/disk.py`。硬體警報／時脈控制、套件交易及 HTTP 路由仍在 server；模型模組仍在 tools。沒有改模型或載入設定。

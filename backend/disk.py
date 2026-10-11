@@ -95,7 +95,7 @@ def _ollama_models():
     return ms
 
 
-def _apt_autoremovable():
+def apt_autoremovable():
     out = _run(["apt-get", "-s", "autoremove"], timeout=60) or ""
     return [l.split()[1] for l in out.splitlines() if l.startswith("Remv ")]
 
@@ -144,7 +144,7 @@ def disk_scan():
         cat("snapd", msg('snap_system', LANG_DEFAULT), _du("/var/lib/snapd"), msg('snap_retention', LANG_DEFAULT), None)
         # 只量 archives：apt clean 清的就是這裡；同層的 pkgcache.bin／srcpkgcache.bin 是套件索引，清不掉也不該清
         cat("apt_cache", msg('apt_cache', LANG_DEFAULT), _du("/var/cache/apt/archives"), msg('apt_cache_note', LANG_DEFAULT), "apt_clean")
-        ar = _apt_autoremovable()
+        ar = apt_autoremovable()
         cat("apt_autoremove", msg('apt_autoremove', LANG_DEFAULT), None, msg('autoremove_count', LANG_DEFAULT, p0=len(ar)) if ar else msg('none', LANG_DEFAULT), "apt_autoremove" if ar else None, [{"name": n, "bytes": 0} for n in ar])
         cat("journal", msg('journal', LANG_DEFAULT), _du("/var/log/journal"), msg('journal_note', LANG_DEFAULT), None)
         cat("cache", "~/.cache", _du(os.path.join(HOME, ".cache")), msg('app_cache', LANG_DEFAULT), None, _du_children(os.path.join(HOME, ".cache"), 8))

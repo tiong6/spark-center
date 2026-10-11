@@ -2586,7 +2586,7 @@ def pwa_install_launch():
     return {"ok": True}
 
 
-def hardware_live():
+def live_with_alerts():
     return {**hardware.hardware_live(), "gpu_alert": gpu_alert(),
             "gpu_hot": gpu_hot(), "clock_cap": gpu_clock_state()}
 
@@ -2954,7 +2954,7 @@ def _play_sound(name, times=1, gap=0.0):
 def _gpu_watch():
     while True:
         try:
-            g = hardware._gpu_live()
+            g = hardware.gpu_live()
             if g:
                 with _GPU_WATCH["lock"]:
                     _GPU_WATCH["samples"].append({"t": time.time(), **g})
@@ -2969,7 +2969,7 @@ def _gpu_watch():
                     if notify:
                         _GPU_WATCH["last_notify"] = time.time()
                     # 過熱
-                    threshold = (hardware._gpu_static() or {}).get("throttle_temp_c")
+                    threshold = (hardware.gpu_static() or {}).get("throttle_temp_c")
                     hot, peak = gpu_hot_evaluate(_GPU_WATCH["samples"], threshold, _GPU_WATCH["hot"])
                     hot_notify = False
                     if hot:
@@ -3109,7 +3109,7 @@ def fwupd_status(force=False):
         })
     rows.sort(key=lambda r: (not r["mismatch"], not r["update_available"], r["hidden"], r["name"] or ""))
     # get-updates 失敗：更新數未知（None），不是 0；get-history 失敗：對不上／等重開機未知
-    bios = {k: (hardware._read(f"/sys/class/dmi/id/bios_{k}") or "").strip() for k in ("version", "date")}   # SoC 韌體的「0105」在 DMI，fwupd 只給十六進位
+    bios = {k: (hardware.read_text_file(f"/sys/class/dmi/id/bios_{k}") or "").strip() for k in ("version", "date")}   # SoC 韌體的「0105」在 DMI，fwupd 只給十六進位
     data = {"available": True, "devices": rows, "bios": bios if bios["version"] else None,
             "updates": None if q_ups is None else sum(1 for r in rows if r["update_available"]),
             "mismatches": None if q_hist is None else sum(1 for r in rows if r["mismatch"]),
@@ -3261,12 +3261,12 @@ _FAQ_SRC = {"ts": 0, "data": None}
 
 def faq_local():
     """每題「本機」框要的事實；讀不到的欄位給 None，前端顯示「—」。"""
-    m = hardware._meminfo()
+    m = hardware.memory_info()
     mem = None
     if m.get("MemTotal"):
-        mem = {"total": m["MemTotal"], "available": m.get("MemAvailable"), "buff_cache": hardware._buff_cache(m)}
+        mem = {"total": m["MemTotal"], "available": m.get("MemAvailable"), "buff_cache": hardware.buffer_cache_bytes(m)}
     wifi = None
-    iface = hardware._wifi_iface()
+    iface = hardware.wifi_interface()
     if iface:
         ips = []
         try:
@@ -3274,10 +3274,10 @@ def faq_local():
             ips = [a["local"] for i in json.loads(out or "[]") for a in i.get("addr_info", []) if a.get("local")]
         except (OSError, ValueError, subprocess.TimeoutExpired):
             pass
-        wifi = {"name": iface, "state": hardware._read(f"/sys/class/net/{iface}/operstate"), "ipv4": ips}
+        wifi = {"name": iface, "state": hardware.read_text_file(f"/sys/class/net/{iface}/operstate"), "ipv4": ips}
     # Ubuntu 的版本升級提示：Prompt=lts/normal 會在新 LTS 出來時跳「軟體更新」視窗要你升到 26.04；DGX OS 沒有官方升級路徑
     release = {"prompt": None, "flag": os.path.exists("/var/lib/ubuntu-release-upgrader/release-upgrade-available")}
-    for line in (hardware._read("/etc/update-manager/release-upgrades") or "").splitlines():
+    for line in (hardware.read_text_file("/etc/update-manager/release-upgrades") or "").splitlines():
         if line.strip().lower().startswith("prompt="):
             release["prompt"] = line.split("=", 1)[1].strip()
     return {"ok": True, "cx7": hardware.cx7_state(), "mem": mem, "wifi": wifi, "release": release}
@@ -3578,12 +3578,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/hardware/wifi":
             try:
-                self._json({"ok": True, "live": hardware._wifi_live(), "aps": hardware._wifi_aps(), "bt_connected": hardware._bt_connected(), "events_24h": hardware._wifi_events_24h()})
+                self._json({"ok": True, "live": hardware.wifi_live(), "aps": hardware.wifi_access_points(), "bt_connected": hardware.bluetooth_connected(), "events_24h": hardware.wifi_events_24h()})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/hardware/live":
             try:
-                self._json({"ok": True, **hardware_live()})
+                self._json({"ok": True, **live_with_alerts()})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/disk":
@@ -3939,7 +3939,7 @@ class Handler(BaseHTTPRequestHandler):
                 ok = JOB.start("aptclean")
                 return self._json({"ok": ok} if ok else {"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 200 if ok else 409)
             if act == "apt_autoremove":
-                pk = disk._apt_autoremovable()
+                pk = disk.apt_autoremovable()
                 if not pk:
                     return self._json({"ok": False, "error": msg('no_removable', LANG_DEFAULT)}, 400)
                 return self._json({"ok": JOB.start("remove", pk), "packages": pk})
@@ -3970,7 +3970,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    hardware._hw_snapshot_load()   # 有快照就先用，服務重啟後硬體分頁不用等
+    hardware.load_snapshot()   # 有快照就先用，服務重啟後硬體分頁不用等
     # 服務重啟時 snapd 可能還在跑上一輪更新，接回來才不會讓畫面顯示成「沒事發生」
     try:
         out = _run(["snap", "changes"], timeout=20) or ""

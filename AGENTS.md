@@ -4,6 +4,7 @@
 - `backend/system.py` owns shared process/HTTP helpers and project paths; `backend/messages.py` owns `MSG`.
 - Backend modules must not import `server.py`. Keep dependencies one-way; do not inject server globals.
 - Cache state and locks belong to their feature module. Use its functions to invalidate or inspect state.
+- Server orchestration uses public hardware/disk functions only; do not access underscore-prefixed implementation details. Keep enriched responses clearly named (for example `live_with_alerts`).
 - `server.py` retains HTTP handling, package transactions, alert/control orchestration and existing model API integration. Do not add unrelated feature logic there.
 - Model inventory/switching/guard remain in their existing `tools/` modules.
 - Split only when responsibilities warrant it; do not create speculative abstractions or rewrite unrelated code.
