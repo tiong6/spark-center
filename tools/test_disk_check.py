@@ -14,6 +14,21 @@ sys.path.insert(0, str(ROOT))
 from backend import hardware as hw
 
 
+def _forbid_real_subprocess(cmd, **kw):
+    raise AssertionError(f"test reached a real subprocess call (not patched): {cmd[:4]}")
+
+
+def setUpModule():
+    # 保險：整個模組期間沒被 patch 的 subprocess.run 一律炸，確保隔離測試永遠碰不到真 sudo／nvme／tune2fs
+    global _orig_run
+    _orig_run = hw.subprocess.run
+    hw.subprocess.run = _forbid_real_subprocess
+
+
+def tearDownModule():
+    hw.subprocess.run = _orig_run
+
+
 def fake_run(table):
     """subprocess.run 的替身：依指令（去掉 sudo -n）查表，表裡沒有就當 sudo 拒絕。"""
     def run(cmd, **kw):
@@ -62,8 +77,9 @@ class SelfTestFlow(unittest.TestCase):
     def test_not_allowed_in_sudoers_reports_not_configured(self):
         with patch.object(hw.subprocess, "run", fake_run({})), patch.object(hw.os.path, "exists", return_value=True):
             s = hw._selftest_status()
+            started = hw.selftest_start("short")   # 一定要在 patch 裡：曾經寫在外面，sudoers 放行後就真的對 SSD 下了短測
         self.assertFalse(s["available"]); self.assertTrue(s["applies"]); self.assertIn("sudoers", s["note"])
-        self.assertEqual(hw.selftest_start("short")["ok"], False)
+        self.assertEqual(started["ok"], False)
 
     def test_unsupported_controller_never_starts(self):
         table = {("/usr/sbin/nvme", "id-ctrl"): (0, json.dumps({"oacs": 0x0f, "edstt": 0}), "")}

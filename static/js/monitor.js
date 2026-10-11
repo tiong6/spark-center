@@ -1,7 +1,6 @@
 /* ---- 監控尺寸切換（大／小），記在瀏覽器 ---- */
 function applyMonSize(sz) {
   $('#mon').classList.toggle('compact', sz === 'compact');
-  const sp = $('#stabilityPanel'); if (sp) sp.classList.toggle('compact', sz === 'compact');
   $('#monSize').querySelectorAll('span').forEach(x => x.classList.toggle('on', x.dataset.size === sz));
   try { localStorage.setItem('spark-center.monSize', sz); } catch (e) {}
 }
@@ -108,7 +107,6 @@ function monLayout() {
 }
 function monLayoutSave(L) { try { localStorage.setItem('spark-center.monLayout', JSON.stringify(L)); } catch (e) {} }
 function renderMon(j, rerender) {
-  renderStability(j.stability);
   const S = hw.static, sampleTime = j.epoch, prev = rerender ? hw.prevPrev : hw.prev, cards = [], hovers = [];
   const pushHist = rerender ? () => {} : window.pushHist;
   // 記憶體
@@ -367,50 +365,3 @@ async function pollHw(staticOnly) {
   }
 }
 
-function renderStability(state) {
-  // 記憶體保護：和其他儀表同一種卡（半圓儀表＋走勢線），不是文字列。走勢只在後端有新樣本時推一點，重畫版面不重複推。
-  const box = $('#stabilityPanel');
-  if (!box || !state) return;
-  const s = state.sample, a = state.admission || {};
-  if (s && s.at !== hw.stabAt) {
-    hw.stabAt = s.at;
-    pushHist('swap', s.at, s.swap_used ?? 0);
-    pushHist('psi', s.at, s.psi?.full?.avg10 ?? 0);
-    if (a.reserve_bytes != null) pushHist('headroom', s.at, Math.max(0, (s.available_bytes ?? 0) - a.reserve_bytes));
-  }
-  const psiPct = v => Number.isFinite(v) ? v.toFixed(2) + ' %' : '—';
-  const cards = [], hovers = [];
-  const status = t(a.state === 'not_configured' ? 'stable.not_configured' : a.ok ? 'stable.allowed' : 'stable.blocked') + (a.reason ? ' · ' + t('stable.' + a.reason) : '');
-  // 1. 距保留線：可用記憶體減去量測保留量；儀表 100% = 碰到線（拒絕新模型請求）
-  if (s) {
-    const avail = s.available_bytes ?? null, total = s.total ?? null, reserve = a.reserve_bytes ?? null;
-    if (reserve != null && avail != null && total) {
-      const span = Math.max(1, total - reserve), pct = Math.max(0, Math.min(100, (total - avail) / span * 100));
-      cards.push(`<div class="mcard" id="stab-headroom"><h3><span class="t">${t('stable.headroom')}</span><span class="sub" title="${esc(t('stable.headroom_hint'))}">${esc(status)}</span></h3>${gaugeLeft(pct, GB(Math.max(0, avail - reserve)), t('stable.headroom_sub', {v0: GB(avail), v1: GB(reserve)}))}<div class="spark" data-k="headroom">${sparkSvg([{color: C_LINE, data: hw.hist.headroom || []}], span, GB)}</div><div class="legend" style="color:var(--muted)">${t('stable.headroom_hint')}</div></div>`);
-      hovers.push(['headroom', [{color: C_LINE, data: hw.hist.headroom || []}], GB]);
-    } else {
-      cards.push(`<div class="mcard" id="stab-headroom"><h3><span class="t">${t('stable.headroom')}</span><span class="sub" title="${esc(status)}">${esc(status)}</span></h3>${tileLeft(avail == null ? '—' : GB(avail), t('stable.no_reserve'))}<div class="legend" style="color:var(--muted)">${t('stable.not_configured')} <a href="#setup">${t('setup.title')}</a></div></div>`);
-    }
-    // 2. Swap
-    const spct = s.swap_total ? (s.swap_used / s.swap_total) * 100 : 0;
-    cards.push(`<div class="mcard" id="stab-swap"><h3><span class="t">Swap</span><span class="sub" title="${esc(t('stable.swap_hint'))}">${esc(t('stable.swap_hint'))}</span></h3>${gaugeLeft(spct, GB(s.swap_used), t('stable.swap_sub', {v0: GB(s.swap_total), v1: fmtRate(s.swap_in_bps), v2: fmtRate(s.swap_out_bps)}))}<div class="spark" data-k="swap">${sparkSvg([{color: C_LINE, data: hw.hist.swap || []}], s.swap_total || 1, GB)}</div></div>`);
-    hovers.push(['swap', [{color: C_LINE, data: hw.hist.swap || []}], GB]);
-    // 3. 記憶體停頓 PSI full avg10：所有任務都在等記憶體的時間比例；政策門檻 10%
-    const full = s.psi?.full?.avg10, some = s.psi?.some?.avg10;
-    cards.push(`<div class="mcard" id="stab-psi"><h3><span class="t">${t('stable.psi')}</span><span class="sub" title="${esc(t('stable.psi_hint'))}">${esc(t('stable.psi_hint'))}</span></h3>${gaugeLeft(Number.isFinite(full) ? Math.min(100, full * 10) : null, 'full ' + psiPct(full), t('stable.psi_sub', {v0: psiPct(some), v1: a.max_full_psi_avg10 ?? 10}))}<div class="spark" data-k="psi">${sparkSvg([{color: C_LINE, data: hw.hist.psi || []}], 10, v => v.toFixed(1) + ' %')}</div></div>`);
-    hovers.push(['psi', [{color: C_LINE, data: hw.hist.psi || []}], v => v.toFixed(2) + ' %']);
-  }
-  // 4. 事件：橫跨整列的表格卡；NVRM 與 OOM 守門用標籤
-  const oom = state.services?.['earlyoom.service'];
-  const oomOn = !!oom && oom !== 'unknown' && oom.split('\n').includes('active');
-  const nv = state.nvrm_lines == null ? '—' : t('stable.count', {v0: state.nvrm_lines, v1: state.nvrm_groups});
-  const events = (state.events || []).filter(e => e.kind !== 'memory_sample').slice(0, 10);
-  const detail = e => [e.detail?.phase ? t('llm.switch_phase_' + e.detail.phase) : '', e.detail?.model || '', e.detail?.state ? e.detail.state.replaceAll('\n', ' / ') : '', e.detail?.reason ? t('stable.' + e.detail.reason) : '', e.detail?.error ? t('llm.switch_error_' + e.detail.error) : ''].filter(Boolean).map(esc).join(' · ');
-  cards.push(`<div class="mcard wide" id="stab-events"><h3><span class="t">${t('stable.events')}</span><span class="tag ${state.nvrm_lines ? 'warn' : 'ok'}">${t('stable.nvrm')}：${esc(nv)}</span><span class="tag ${oomOn ? 'ok' : 'warn'}">${t('stable.oom')}：${t(!oom || oom === 'unknown' ? 'stable.oom_unknown' : oomOn ? 'stable.oom_active' : 'stable.oom_inactive')}</span></h3>` +
-    ((!state.available || state.journal_error || state.history_error) ? `<div class="sub1" style="color:var(--danger)">${esc(t('stable.unavailable'))}</div>` : '') +
-    (events.length ? `<table class="ev"><tbody>${events.map(e => `<tr><td class="mono">${esc(new Date(e.at * 1000).toLocaleString(LANG))}</td><td>${esc(t('stable.' + e.kind))}</td><td class="sub1">${detail(e)}</td></tr>`).join('')}</tbody></table>` : `<div class="sub1">${esc(t('stable.empty'))}</div>`) +
-    `<div class="legend" style="color:var(--muted)">${esc(t('stable.note'))}</div></div>`);
-  box.className = 'mon' + ($('#mon').classList.contains('compact') ? ' compact' : '');
-  box.innerHTML = cards.join('');
-  for (const [k, series, fmt] of hovers) { const el = box.querySelector(`.spark[data-k="${k}"]`); if (el) bindHover(el, series, fmt); }
-}

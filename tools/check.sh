@@ -10,7 +10,7 @@ python3 tools/test_npm_safe.py 2>&1 | tail -1 | grep -q "^OK" && echo "npm safe-
 python3 tools/test_gpu_hot.py 2>&1 | tail -1 | grep -q "^OK" && echo "GPU overheat tests OK" || { python3 tools/test_gpu_hot.py; exit 1; }
 
 python3 tools/test_backend_modules.py
-python3 tools/test_disk_check.py 2>&1 | tail -1 | grep -q "^OK" && echo "disk check tests OK" || { python3 tools/test_disk_check.py; exit 1; }   # 隔離：mock sudo／tune2fs，不碰真 SSD
+_dc=$(mktemp); python3 tools/test_disk_check.py > "$_dc" 2>&1 && echo "disk check tests OK" || { cat "$_dc"; exit 1; }; rm -f "$_dc"   # 隔離：mock sudo／tune2fs。看結束碼不看最後一行：ResourceWarning 在 GC 時才印、會隨機排在 OK 之後
 python3 tools/test_stability.py
 python3 tools/test_model_compat.py
 python3 tools/test_llm_models.py

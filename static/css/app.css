@@ -252,9 +252,6 @@
   .legend i { display: inline-block; width: 10px; height: 3px; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
   @media (max-width: 560px) { .mcard { grid-template-columns: 1fr; } .mon { grid-template-columns: 1fr; } }
   /* 小尺寸：三到四欄、儀表縮 62%、折線 70px、隱藏說明列 */
-  .mcard.wide { grid-column: 1 / -1; grid-template-columns: 1fr; }
-  .mcard table.ev { width: 100%; border-collapse: collapse; font-size: 12px; } .mcard table.ev td { padding: 3px 8px 3px 0; border-top: 1px solid var(--line); vertical-align: top; } .mcard table.ev td:first-child { white-space: nowrap; color: var(--muted); }
-  .mcard h3 .tag { margin-left: 8px; font-size: 11px; }
   .mon.compact { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
   .mon.compact .mcard { grid-template-columns: 128px 1fr; gap: 8px; padding: 10px 12px 8px; }
   .mon.compact .mcard h3 { margin-bottom: 0; flex-wrap: nowrap; } .mon.compact .mcard h3 .t { font-size: 13px; } .mon.compact .mcard h3 span:not(.t):not(.switch):not(.warnbtn):not(.hidebtn) { display: none; }
