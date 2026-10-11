@@ -2,6 +2,16 @@
 
 > 2026-10-11 模型頁修正。先看 git status / git log；本檔只記錄這次驗證的狀態，不沿用舊快照的版本推測。
 
+## 2026-10-11 後端模組拆分（本次）
+
+- `server.py` 由 6,196 行降到 3,998 行；硬體與網路查詢搬到 `backend/hardware.py`，磁碟掃描及快取搬到 `backend/disk.py`。硬體警報／時脈控制、套件交易及 HTTP 路由仍在 server；模型模組仍在 tools。沒有改模型或載入設定。
+- 共用 `_run`／`_http_json`、路徑與環境設定放在 `backend/system.py`；MSG 放在 `backend/messages.py`，lint 讀取位置同步修改。各模組不匯入 server，資料路徑仍指向專案根目錄 data。清理後透過 disk.invalidate() 持鎖作廢快取。
+- 新增 `AGENTS.md` 固定依賴方向與功能歸屬；CLAUDE.md 更新字串表位置。不要把硬體／磁碟功能堆回 server。
+- `tools/check.sh` 通過：新增 6 個獨立匯入、路徑、開機快照、磁碟快取／失敗釋鎖／符號連結測試；既有 18 個模型及 16 個切換測試、npm、GPU、JS 檢查通過。9 個既有 CSS 警告保留。
+- 真服務重啟前 job=idle、switch=done；重啟後 job=idle。11 個 API 實際 HTTP 200，硬體快照內容（扣除快取年齡）與重啟前相同；硬體／live／rear／disk 回應頂層欄位一致。
+- 實際輸出：`Disk scanning: False categories: 12`、`Live GPU: True memory: True`。瀏覽器九個分頁逐一驗證標題與內容區，另驗證英文介面。沒有執行套件更新、磁碟刪除、模型切換或推論壓力測試。
+- 本次只整理模組，沒有宣稱速度改善。server 仍保留更新交易與 API 路由，未做全面重寫。保留本機 commit，未推送原有的 9 個未發布提交。
+
 ## 已部署
 
 - 新增 Strata／Ollama 順序切換按鍵：目前運行區「切換至 Strata」，Ollama 列在 Strata 駐留時提供「切換並載入」。後端 tools/llm_switch.py、/api/llm/switch；沿用既有 lease、pending 與 wrapper，不下載模型。busy、未知狀態、卸載失敗、重複切換均停止／拒絕；進度及錯誤雙語顯示。Strata 正常停止且 guard 核對無程序時顯示「已停止」。
