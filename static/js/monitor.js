@@ -317,32 +317,54 @@ function renderGpuAlert(a) {
 }
 const setTxt = (sel, v) => { const el = $(sel); if (el) el.textContent = v; };
 const setHtml = (sel, v) => { const el = $(sel); if (el) el.innerHTML = v; };
-async function pollHw(staticOnly) {
-  const j = await api('/api/hardware/live');
-  if (!j.ok || !hw.static) return;
-  renderGpuAlert(j.gpu_alert);
-  renderClockPanel(j.clock_cap, j.gpu, hw.static && hw.static.gpu);
-  if (!staticOnly) { try { renderMon(j); } catch (e) { console.error(e); } }
-  const m = j.memory, used = m.total - m.available, pct = Math.round(used / m.total * 100);
-  setTxt('#hwMemUsed', GB(used) + ` (${pct}%)`);
-  setTxt('#hwSwap', GB(m.swap_total - m.swap_free));
-  setHtml('#hwMemMeter', meter(pct));
-  setTxt('#hwUptime', fmtUptime(j.uptime_s));
-  setTxt('#hwLoad', j.load ? j.load.map(x => x.toFixed(2)).join('  ') : '—');
-  if (j.gpu && hw.static.gpu) {
-    const g = j.gpu;
-    setTxt('#gpuTemp', g.temp_c == null ? '—' : g.temp_c + ' °C');
-    setTxt('#gpuUtil', g.util_pct == null ? '—' : g.util_pct + ' %');
-    setTxt('#gpuPower', g.power_w == null ? '—' : g.power_w.toFixed(1) + ' W');
-    setTxt('#gpuClk', g.sm_mhz == null ? '—' : g.sm_mhz + ' MHz');
-    setHtml('#gpuMeter', meter(g.util_pct));
-  }
-  const sens = j.sensors || [];
-  setHtml('#hwSensors', sens.length ? `<table><thead><tr><th style="width:30%">${t("mon.chip")}</th><th>${t("mon.sensor")}</th><th style="width:90px">${t("hw.temperature")}</th></tr></thead><tbody>` +
-    sens.map(s => `<tr><td class="mono">${esc(s.chip)}</td><td>${esc(s.label)}</td><td class="mono" style="color:${s.temp_c >= 85 ? 'var(--danger)' : s.temp_c >= 70 ? 'var(--warn)' : 'inherit'}">${s.temp_c.toFixed(1)} °C</td></tr>`).join('') + `</tbody></table>` : `<div class="empty">${t("mon.hwmon_has_no_temperature_sensors")}</div>`);
+function renderMonitorFreshness() {
+  const el = $('#monFreshness');
+  if (!el) return;
+  const stale = hw.liveFailed || (hw.lastLiveAt !== null && Date.now() - hw.lastLiveAt > 10000) || (hw.lastLiveAt === null && hw.liveBusy && Date.now() - hw.liveStartedAt > 10000);
+  el.classList.toggle('error', stale);
+  el.textContent = hw.lastLiveAt === null ? t(stale ? 'mon.no_live_data' : 'updates.loading')
+    : t(stale ? 'mon.live_stale' : 'mon.live_fresh', {at: new Date(hw.lastLiveAt).toLocaleTimeString()});
 }
-
-
+async function pollHw(staticOnly) {
+  if (hw.liveBusy) return;
+  hw.liveBusy = true;
+  hw.liveStartedAt = Date.now();
+  const epoch = hw.epoch;
+  renderMonitorFreshness();
+  try {
+    const j = await api('/api/hardware/live');
+    if (epoch !== hw.epoch) return;
+    if (!j.ok || !hw.static) { hw.liveFailed = true; renderMonitorFreshness(); return; }
+    hw.lastLiveAt = Date.now(); hw.liveFailed = false;
+    renderMonitorFreshness();
+    renderGpuAlert(j.gpu_alert);
+    renderClockPanel(j.clock_cap, j.gpu, hw.static && hw.static.gpu);
+    if (!staticOnly) { try { renderMon(j); } catch (e) { console.error(e); } }
+    const m = j.memory, used = m.total - m.available, pct = Math.round(used / m.total * 100);
+    setTxt('#hwMemUsed', GB(used) + ` (${pct}%)`);
+    setTxt('#hwSwap', GB(m.swap_total - m.swap_free));
+    setHtml('#hwMemMeter', meter(pct));
+    setTxt('#hwUptime', fmtUptime(j.uptime_s));
+    setTxt('#hwLoad', j.load ? j.load.map(x => x.toFixed(2)).join('  ') : '—');
+    if (j.gpu && hw.static.gpu) {
+      const g = j.gpu;
+      setTxt('#gpuTemp', g.temp_c == null ? '—' : g.temp_c + ' °C');
+      setTxt('#gpuUtil', g.util_pct == null ? '—' : g.util_pct + ' %');
+      setTxt('#gpuPower', g.power_w == null ? '—' : g.power_w.toFixed(1) + ' W');
+      setTxt('#gpuClk', g.sm_mhz == null ? '—' : g.sm_mhz + ' MHz');
+      setHtml('#gpuMeter', meter(g.util_pct));
+    }
+    const sens = j.sensors || [];
+    setHtml('#hwSensors', sens.length ? `<table><thead><tr><th style="width:30%">${t("mon.chip")}</th><th>${t("mon.sensor")}</th><th style="width:90px">${t("hw.temperature")}</th></tr></thead><tbody>` +
+      sens.map(s => `<tr><td class="mono">${esc(s.chip)}</td><td>${esc(s.label)}</td><td class="mono" style="color:${s.temp_c >= 85 ? 'var(--danger)' : s.temp_c >= 70 ? 'var(--warn)' : 'inherit'}">${s.temp_c.toFixed(1)} °C</td></tr>`).join('') + `</tbody></table>` : `<div class="empty">${t("mon.hwmon_has_no_temperature_sensors")}</div>`);
+  } catch (_) {
+    if (epoch === hw.epoch) { hw.liveFailed = true; renderMonitorFreshness(); }
+  } finally {
+    hw.liveBusy = false;
+    // Hardware takes only one reading on entry; retry if that entry overlapped an old tab's request.
+    if (epoch !== hw.epoch && !$('#tab-hardware').classList.contains('hide')) pollHw(true);
+  }
+}
 
 function renderStability(state) {
   const box = $('#stabilityPanel');

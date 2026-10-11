@@ -43,6 +43,37 @@ class Tests(unittest.TestCase):
             stats=json.loads(c.execute('SELECT value FROM meta WHERE key=?',('nvrm-'+boot,)).fetchone()[0])
         self.assertEqual(stats['lines'],3);self.assertEqual(stats['groups'],3)
 
+    def test_samples_cannot_evict_incidents_or_hide_them_from_snapshot(self):
+        now = time.time()
+        with patch.object(stability, '_LIMIT', 2), patch.object(stability, '_SAMPLE_LIMIT', 3):
+            stability.event('service_state', {'state': 'failed'}, key='incident', at=now)
+            for i in range(8):
+                stability.event('memory_sample', {'available_bytes': i}, key=f'sample{i}', at=now+i)
+        with stability.connect() as c:
+            self.assertEqual(c.execute('SELECT id FROM events').fetchall(), [('incident',)])
+            self.assertEqual(c.execute('SELECT count(*) FROM memory_samples').fetchone()[0], 3)
+        self.assertEqual(stability.snapshot()['events'][0]['kind'], 'service_state')
+
+    def test_legacy_samples_migrate_once_without_losing_events_or_meta(self):
+        import sqlite3
+        now = time.time()
+        with sqlite3.connect(stability.DB) as c:
+            c.execute('CREATE TABLE events (id TEXT PRIMARY KEY, at REAL, kind TEXT, detail TEXT)')
+            c.execute('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)')
+            c.executemany('INSERT INTO events VALUES (?,?,?,?)', [
+                ('sample', now, 'memory_sample', '{"available_bytes":123}'),
+                ('fault', now, 'service_state', '{"state":"failed"}')])
+            c.execute("INSERT INTO meta VALUES ('cursor-test','keep')")
+        for _ in range(2):
+            with stability.connect() as c:
+                self.assertEqual(c.execute('SELECT id,detail FROM memory_samples').fetchall(), [('sample', '{"available_bytes":123}')])
+                self.assertEqual(c.execute('SELECT id FROM events').fetchall(), [('fault',)])
+                self.assertEqual(c.execute("SELECT value FROM meta WHERE key='cursor-test'").fetchone()[0], 'keep')
+        stability.event('memory_sample', {}, key='expired', at=now-8*86400)
+        with stability.connect() as c:
+            self.assertFalse(c.execute("SELECT 1 FROM memory_samples WHERE id='expired'").fetchone())
+            self.assertEqual(c.execute('SELECT count(*) FROM events').fetchone()[0], 1)
+
     def test_reverse_journal_output_is_grouped_chronologically(self):
         now = time.time()
         records = [{'MESSAGE':'NV_ERR_NO_MEMORY', '__CURSOR':str(i),

@@ -1,3 +1,11 @@
+## 2026-10-11 監控輪詢與事件保存修正
+
+- 監控 live/Wi-Fi 各自限制一個在途請求；離開分頁後的舊 live 回應不更新畫面，硬體頁進入時若遇到舊請求會補取新讀數。live 失敗或超過 10 秒未取得新讀數顯示過期提示；首次讀不到另有中英文提示。沒有取消慢請求後不斷重送，也未更改模型保護。
+- stability.sqlite3 的 memory_sample 搬到 memory_samples，與 events 各自 5,000 筆／最長 7 天。首次存取在交易中遷移，保留原 ID、內容與 meta；先前已被裁掉的紀錄無法恢復。樣本名義 30 秒一筆，上限約 1.74 天，不宣稱七天完整數值歷史。
+- tools/check.sh 全通過：stability 11 項、相容 10 項與監控生命週期新測試等。初次 JS 測試缺 DOM stub，補齊後抓到慢回應恢復仍顯示過期的問題，已修正並重跑通過。
+- 真機 SQLite 備份位於 /tmp/spark-stability-before-rk2qfg44.sqlite3（私人，不入版控）。備份的 88 筆事件與 218 筆樣本全部保留，正式 live API ok=True，events 表不再含樣本。九個正式分頁內容已檢查。
+- 隔離 read-only 代理 11005 測試實際網頁：14 秒慢回應時 peak live requests=1；503 顯示舊資料警示，恢復顯示最後成功讀取，中英文皆驗證。測試代理已停止。沒有啟停模型或製造實際記憶體壓力。
+
 ## 2026-10-11 政策顯示修正與搬機核對
 
 - 設定頁只在 memory_policy.state=configured 時顯示已啟用；損壞／缺少嚴格政策或無法讀取記憶體時為 unavailable。有效政策因 memory_low/pressure 拒絕仍為 configured。

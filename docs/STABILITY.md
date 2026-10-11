@@ -22,7 +22,7 @@ Spark Center checks idle status then atomically drains. If an in-flight request 
 
 ## Observability
 
-Memory sample: available bytes, swap used, swap-in/out bytes per second, PSI some/full. Kernel journal events are keyed by journal cursor, grouped with a >5-second gap; a group is not proof of a separate incident. The counter reflects readable records observed this boot, not a hardware allocation counter. Initial history reads at most 1,000 matching lines. Persistent event history is capped at 5,000 records / seven days. No prompt or authorization headers are logged. An unavailable journal is shown as unavailable, not proof of zero errors.
+Memory sample: available bytes, swap used, swap-in/out bytes per second, PSI some/full. Kernel journal events are keyed by journal cursor, grouped with a >5-second gap; a group is not proof of a separate incident. The counter reflects readable records observed this boot, not a hardware allocation counter. Initial history reads at most 1,000 matching lines. Persistent incident/state events are capped at 5,000 records / seven days. Periodic memory samples use a separate table with their own 5,000-record / seven-day cap, so normal samples cannot evict incidents or hide them from the recent-event list. Existing samples are moved transactionally on first database access; event IDs, counters and journal cursors are retained. Previously pruned records cannot be recovered. The sample cap is roughly 1.74 days at the nominal 30-second cadence, not a guarantee of seven days of samples. No prompt or authorization headers are logged. An unavailable journal is shown as unavailable, not proof of zero errors.
 
 ## NAS
 
@@ -65,3 +65,5 @@ A Git clone does not restore this machine's protection configuration. Before loa
 5. Check `/api/setup`: `capabilities.guard_required` and `memory_required` must both be true, `guard_available` true, and `memory_policy.state` configured. A damaged/unreadable policy or unavailable memory reading is unavailable, not enabled; low memory under a valid policy still means protection is enabled and refusing work. Verify earlyoom with `systemctl is-active earlyoom` and review client URLs so they do not bypass the guard via 11434.
 
 Do not publish private policy, event database, service environments or client credentials as migration artifacts.
+
+The monitor allows at most one outstanding live request and one supplemental Wi-Fi request per page. Late live responses from a previous tab session are ignored. The live status shows the last successful read and marks values stale on failure or after ten seconds without a new read; the threshold is a UI policy, not an incident diagnosis. A stalled request is not replaced with repeated overlapping requests. These controls do not change model admission or start inference.

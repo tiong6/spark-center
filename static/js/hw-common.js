@@ -2,7 +2,7 @@
 const BT_KIND = { 'input-mouse': t("common.mouse"), 'input-keyboard': t("common.keyboard"), 'input-gaming': t("common.game_controller"), 'input-tablet': t("common.graphics_tablet"), 'audio-card': t("common.speakers"), 'audio-headphones': t("common.headphones"), 'audio-headset': t("common.headset"), 'phone': t("common.phone"), 'computer': t("common.computer"), 'printer': t("common.printer"), 'camera-photo': t("common.camera"), 'video-display': t("common.monitor") };
 const GB = b => b == null ? '—' : (b / 1073741824).toFixed(1) + ' GB';
 const dash = v => (v === null || v === undefined || v === '') ? '—' : esc(v);
-const hw = { static: null, timer: null };
+const hw = { static: null, timer: null, liveBusy: false, wifiBusy: false, epoch: 0, lastLiveAt: null, liveFailed: false };
 function meter(pct, warnAt=80, hotAt=92) {
   if (pct == null) return '';
   const cls = pct >= hotAt ? 'hot' : pct >= warnAt ? 'warn' : '';
@@ -19,7 +19,14 @@ async function startMon() {          // 監控分頁：持續輪詢
   if (!(await ensureStatic())) return;
   // 等 /api/hardware 回來的期間使用者可能已切到別的分頁；那時不能再動計時器，否則會關掉新分頁的輪詢、開監控的
   if ($('#tab-monitor').classList.contains('hide')) return;
-  stopHw(); pollHw(); hw.timer = setInterval(pollHw, MON_INTERVAL_MS);
+  stopHw(); pollHw(); hw.timer = setInterval(() => { renderMonitorFreshness(); pollHw(); }, MON_INTERVAL_MS);
   pollWifiExtra(); hw.wifiTimer = setInterval(pollWifiExtra, 10000);
 }
-async function pollWifiExtra() { const r = await api('/api/hardware/wifi'); if (r.ok) hw.wifiExtra = r; }
+async function pollWifiExtra() {
+  if (hw.wifiBusy) return;
+  hw.wifiBusy = true;
+  const epoch = hw.epoch;
+  try { const r = await api('/api/hardware/wifi'); if (r.ok && epoch === hw.epoch) hw.wifiExtra = r; }
+  catch (_) { /* Supplemental Wi-Fi failure must not break the live polling loop. */ }
+  finally { hw.wifiBusy = false; }
+}

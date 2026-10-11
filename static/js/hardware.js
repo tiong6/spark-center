@@ -145,7 +145,7 @@ async function pollRear() {
 async function pollPorts() { return pollRear(); }
 $('#btnCalib').onclick = () => { hw.calibMode = !hw.calibMode; hw.calibSlot = null; $('#btnCalib').textContent = hw.calibMode ? t("hw.finish_calibration") : t("hw.calibrate_ports"); pollRear(); };
 $('#btnCalibReset').onclick = async () => { if (!confirm(t("hw.clear_all_port_mappings_including_the"))) return; await api('/api/hardware/usbc-map', {reset: true}); hw.calibSlot = null; pollRear(); };
-function stopHw() { if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } if (hw.wifiTimer) { clearInterval(hw.wifiTimer); hw.wifiTimer = null; } if (hw.portTimer) { clearInterval(hw.portTimer); hw.portTimer = null; } if (hw.prTimer) { clearInterval(hw.prTimer); hw.prTimer = null; } if (hw.llmTimer) { clearInterval(hw.llmTimer); hw.llmTimer = null; } if (hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; } }
+function stopHw() { hw.epoch++; if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } if (hw.wifiTimer) { clearInterval(hw.wifiTimer); hw.wifiTimer = null; } if (hw.portTimer) { clearInterval(hw.portTimer); hw.portTimer = null; } if (hw.prTimer) { clearInterval(hw.prTimer); hw.prTimer = null; } if (hw.llmTimer) { clearInterval(hw.llmTimer); hw.llmTimer = null; } if (hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; } }
 function renderHwStatic() {
   const j = hw.static, S = j.system, C = j.cpu, G = j.gpu, D = j.dmi || {available:false};
   $('#hwNote').textContent = t("hw.static_data_is_cached_for_60_with_value", {value: t("hw.hardware_data_is_cached_for_1_with_value", {value: D.available ? t("hw.serial_numbers_and_memory_modules_come") : ''})}) + (D.available ? '' : ' ' + (D.note || ''));

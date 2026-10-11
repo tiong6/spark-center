@@ -1,5 +1,9 @@
 const STR = {
   "zh-TW": {
+    "mon.no_live_data": "監控資料讀取失敗，尚無成功讀數。",
+    "mon.live_stale": "監控資料已過期；最後成功讀取 {at}。畫面保留舊值，並非目前狀態。",
+    "mon.live_fresh": "最後成功讀取 {at}",
+
     "llm.guard_not_configured": "模型保護未啟用：目前直接使用 Ollama 11434，不會防止與 Strata 同時載入。可到設定啟用 guard。",
     "llm.switch_optional_unavailable": "自動切換未啟用：需要可用的 guard、受管理的 Strata 服務，以及支援 drain 的 Strata。一般 Ollama 功能不需要這些。",
     "stable.not_configured": "記憶體准入保護尚未設定；維持原有載入行為。",
@@ -1164,6 +1168,10 @@ const STR = {
     "faq.dot_hint": "NVIDIA 已改版原文，本頁可能缺題"
   },
   "en": {
+    "mon.no_live_data": "Monitoring unavailable; no successful reading yet.",
+    "mon.live_stale": "Monitoring data is stale; last successful reading {at}. Displayed values are old, not current.",
+    "mon.live_fresh": "Last successful reading {at}",
+
     "llm.guard_not_configured": "Model protection is unavailable: using Ollama 11434 directly. Concurrent Strata loading is not prevented. Enable the guard in Setup.",
     "llm.switch_optional_unavailable": "Automatic switching requires an available guard, a managed Strata service and drain support. Ordinary Ollama use does not require them.",
     "stable.not_configured": "Memory admission is not configured; existing loading behavior is preserved.",

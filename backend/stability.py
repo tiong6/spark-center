@@ -18,6 +18,7 @@ DATA = ROOT / 'data'
 DB = DATA / 'stability.sqlite3'
 POLICY = DATA / 'memory-policy.json'
 _LIMIT = 5000
+_SAMPLE_LIMIT = 5000
 _lock = threading.Lock()
 _latest = {'available': False}
 _started = False
@@ -49,6 +50,11 @@ def connect():
     c.execute('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)')
     try:
         with c:
+            c.execute('CREATE TABLE IF NOT EXISTS memory_samples (id TEXT PRIMARY KEY, at REAL, detail TEXT)')
+            if not c.execute("SELECT 1 FROM meta WHERE key='separate_memory_samples_v1'").fetchone():
+                c.execute("INSERT OR IGNORE INTO memory_samples SELECT id,at,detail FROM events WHERE kind='memory_sample'")
+                c.execute("DELETE FROM events WHERE kind='memory_sample'")
+                c.execute("INSERT OR IGNORE INTO meta VALUES ('separate_memory_samples_v1','1')")
             yield c
     finally:
         c.close()
@@ -62,8 +68,13 @@ def event(kind, detail, *, key=None, at=None):
             encoded = json.dumps(detail, ensure_ascii=False)
             if len(encoded) > 4000:
                 encoded = json.dumps({'summary': encoded[:3500]}, ensure_ascii=False)
-            inserted = c.execute('INSERT OR IGNORE INTO events VALUES (?,?,?,?)',
-                      (key or f'{time.time_ns()}-{os.getpid()}', now, kind[:80], encoded)).rowcount
+            identity = key or f'{time.time_ns()}-{os.getpid()}'
+            if kind == 'memory_sample':
+                inserted = c.execute('INSERT OR IGNORE INTO memory_samples VALUES (?,?,?)',
+                                     (identity, now, encoded)).rowcount
+            else:
+                inserted = c.execute('INSERT OR IGNORE INTO events VALUES (?,?,?,?)',
+                                     (identity, now, kind[:80], encoded)).rowcount
             if inserted and kind == 'nvrm_oom':
                 counter_key = 'nvrm-' + detail['boot']
                 row = c.execute('SELECT value FROM meta WHERE key=?', (counter_key,)).fetchone()
@@ -74,6 +85,8 @@ def event(kind, detail, *, key=None, at=None):
                 c.execute('INSERT OR REPLACE INTO meta VALUES (?,?)', (counter_key, json.dumps(stats)))
             c.execute('DELETE FROM events WHERE id IN (SELECT id FROM events ORDER BY at DESC LIMIT -1 OFFSET ?)', (_LIMIT,))
             c.execute('DELETE FROM events WHERE at < ?', (time.time() - 7 * 86400,))
+            c.execute('DELETE FROM memory_samples WHERE id IN (SELECT id FROM memory_samples ORDER BY at DESC LIMIT -1 OFFSET ?)', (_SAMPLE_LIMIT,))
+            c.execute('DELETE FROM memory_samples WHERE at < ?', (time.time() - 7 * 86400,))
     except (OSError, sqlite3.Error):
         pass
 

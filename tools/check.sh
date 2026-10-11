@@ -15,3 +15,5 @@ python3 tools/test_model_compat.py
 python3 tools/test_llm_models.py
 python3 tools/test_llm_switch.py
 node tools/test_llm_ui.js
+
+node tools/test_monitor_ui.js
