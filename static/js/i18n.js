@@ -1,5 +1,20 @@
 const STR = {
   "zh-TW": {
+    "llm.guard_not_configured": "模型保護未啟用：目前直接使用 Ollama 11434，不會防止與 Strata 同時載入。可到設定啟用 guard。",
+    "llm.switch_optional_unavailable": "自動切換未啟用：需要可用的 guard、受管理的 Strata 服務，以及支援 drain 的 Strata。一般 Ollama 功能不需要這些。",
+    "stable.not_configured": "記憶體准入保護尚未設定；維持原有載入行為。",
+    "stable.protection_route": "模型請求保護路徑變更",
+    "setup.manual_policy": "請依下方指令設定",
+    "setup.model_guard.title": "模型載入 guard（選用）",
+    "setup.model_guard.gives": "在本機 11436 提供 Ollama 代理；偵測到 Strata 駐留時拒絕新的 Ollama 生成。",
+    "setup.model_guard.costs": "啟用一個使用者服務，不需 sudo。外部工具必須改接 11436 才受保護；不會自動改 Strata 或其他工具。",
+    "setup.memory_policy.title": "記憶體保留量校準（選用）",
+    "setup.memory_policy.gives": "量測本機工作負載後，讓 guard 在記憶體不足或 PSI 壓力高時拒絕新請求。",
+    "setup.memory_policy.costs": "在日常背景程式開啟、模型閒置或卸載時執行。沒有政策檔時不阻擋；啟用後失效或資料不可讀時會拒絕。",
+    "setup.earlyoom.title": "earlyoom 緊急記憶體保護（選用）",
+    "setup.earlyoom.gives": "透過 Ubuntu apt 安裝，在嚴重記憶體不足時優先終止模型程序。",
+    "setup.earlyoom.costs": "需要 sudo 與套件來源網路；先校準才會寫入門檻。不保證能避免 GPU 驅動當機。",
+
     "stable.deployment": "服務部署",
     "stable.model_state": "Ollama 駐留狀態改變",
     "llm.recover_strata": "核對並恢復 Strata 請求",
@@ -1149,6 +1164,21 @@ const STR = {
     "faq.dot_hint": "NVIDIA 已改版原文，本頁可能缺題"
   },
   "en": {
+    "llm.guard_not_configured": "Model protection is unavailable: using Ollama 11434 directly. Concurrent Strata loading is not prevented. Enable the guard in Setup.",
+    "llm.switch_optional_unavailable": "Automatic switching requires an available guard, a managed Strata service and drain support. Ordinary Ollama use does not require them.",
+    "stable.not_configured": "Memory admission is not configured; existing loading behavior is preserved.",
+    "stable.protection_route": "Model request protection route changed",
+    "setup.manual_policy": "Configure using the commands below",
+    "setup.model_guard.title": "Model admission guard (optional)",
+    "setup.model_guard.gives": "Provides an Ollama proxy on local port 11436; refuses new Ollama generation while Strata is resident.",
+    "setup.model_guard.costs": "Enables a user service without sudo. External tools must use port 11436; Strata and other tools are not reconfigured automatically.",
+    "setup.memory_policy.title": "Memory reserve calibration (optional)",
+    "setup.memory_policy.gives": "Measures this machine so the guard can refuse requests during low memory or high PSI pressure.",
+    "setup.memory_policy.costs": "Run with normal background apps and idle or unloaded models. Without a policy requests remain allowed; an invalid configured policy refuses them.",
+    "setup.earlyoom.title": "earlyoom emergency memory protection (optional)",
+    "setup.earlyoom.gives": "Installs through Ubuntu apt and prefers model processes for termination during severe memory shortage.",
+    "setup.earlyoom.costs": "Requires sudo and access to package repositories. Calibrate before configuring thresholds. It cannot guarantee prevention of GPU driver hangs.",
+
     "stable.deployment": "Service deployment",
     "stable.model_state": "Ollama residency changed",
     "llm.recover_strata": "Check and resume Strata requests",

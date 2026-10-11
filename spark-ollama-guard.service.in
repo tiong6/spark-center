@@ -1,0 +1,14 @@
+[Unit]
+Description=Spark Center optional Ollama admission guard (127.0.0.1:11436)
+After=network.target
+
+[Service]
+Type=simple
+UMask=0077
+ExecStart=/usr/bin/python3 "@ROOT@/tools/ollama_guard.py" serve
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

@@ -2,6 +2,18 @@
 # Spark Center 安裝：生成 systemd user 單元與桌面捷徑（路徑依 repo 位置），啟用服務。不需要 root。
 set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+# The guard is opt-in and uses a user unit, exactly like the main service.
+if [ "${1:-}" = "--guard" ]; then
+  mkdir -p "$HOME/.config/systemd/user"
+  ESC_ROOT=$(printf '%s' "$ROOT" | sed 's/[\\&|]/\\&/g')
+  sed "s|@ROOT@|$ESC_ROOT|g" "$ROOT/spark-ollama-guard.service.in" > "$HOME/.config/systemd/user/spark-ollama-guard.service"
+  systemctl --user daemon-reload
+  systemctl --user enable --now spark-ollama-guard.service
+  systemctl --user is-active --quiet spark-ollama-guard.service
+  echo 'Guard enabled on 127.0.0.1:11436. Memory calibration is optional; see Setup.'
+  exit 0
+fi
+[ "$#" = 0 ] || { echo 'Usage: sh install.sh [--guard]' >&2; exit 2; }
 # 埠：預設 11001；被別的程式占住就往後找第一個空的（最多到 11020），寫進服務單元與桌面捷徑，兩邊一致。
 PORT="${SPARK_UPDATER_PORT:-11001}"
 if command -v ss >/dev/null 2>&1; then

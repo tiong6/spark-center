@@ -27,36 +27,13 @@ Strata 從設定中取得 native、PLE、pack、MTP、vision 模型檔案。Olla
 
 ## Strata 與 Ollama 載入防護
 
-`tools/ollama_guard.py serve` 只監聽 `127.0.0.1:11436`，轉送到原本的 `127.0.0.1:11434`。Spark Center 的載入與量測只走防護入口，防護服務失聯即停止載入，不退回原連接埠。卸載仍允許；`keep_alive=0` 但帶有 prompt 的生成請求不能繞過保護。
+`tools/ollama_guard.py serve` 只監聽 `127.0.0.1:11436`，轉送到原本的 `127.0.0.1:11434`。Spark Center 偵測到 guard 時走防護入口；未設定或無法連線時，預設顯示醒目警告、記錄路徑變更事件並使用原 Ollama 入口。已送出的請求被拒絕或失敗，不會換入口重送。若設定 `SPARK_REQUIRE_GUARD=1`，guard 失聯會拒絕，不會退回。卸載仍允許；`keep_alive=0` 但帶有 prompt 的生成請求不能繞過保護。
 
 Strata 服務可連線、啟動中、引擎仍存活、或狀態無法確認時，生成／載入請求收到 HTTP 409。為避免 Strata 自動載入的競爭，即使 Strata 的 `loaded=false`，也要停止 Strata 服務才放行 Ollama。預設是**拒絕並通知**，沒有排隊或稍後自動重試。
 
 被拒絕時，桌面通知最多每 60 秒一次；模型頁顯示最近拒絕的時間與模型。事件保存在 `data/llm-guard-event.json`。桌面通知不可用不影響拒絕。
 
-以 systemd 使用者服務啟動防護（`ExecStart` 路徑需替換）：
-
-```ini
-[Unit]
-Description=Ollama admission guard for Strata shared memory
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/python3 "/absolute/path/to/spark-center/tools/ollama_guard.py" serve
-Restart=on-failure
-RestartSec=3
-UMask=0077
-
-[Install]
-WantedBy=default.target
-```
-
-存成 `~/.config/systemd/user/spark-ollama-guard.service`，再執行：
-
-```sh
-systemctl --user daemon-reload
-systemctl --user enable --now spark-ollama-guard.service
-```
+在設定分頁開啟「模型載入 guard」，或在 repo 執行 `sh install.sh --guard`。安裝器由 `spark-ollama-guard.service.in` 產生使用者服務、啟用並啟動；不需 sudo，不會替你修改 Strata 或 OpenClaw。關閉可使用設定開關，或 `systemctl --user disable --now spark-ollama-guard.service`。
 
 Strata 的 systemd `ExecStart` 要加上相同 script 的 wrapper，保留原始 Python、server 路徑、所有參數。例如 drop-in：
 
@@ -66,7 +43,7 @@ ExecStart=
 ExecStart=/usr/bin/python3 "/absolute/path/to/spark-center/tools/ollama_guard.py" strata -- "/path/to/Strata/.venv/bin/python" "/path/to/Strata/serve/server.py" --engine strata --config "/path/to/Strata/config.json" --port 8080
 ```
 
-wrapper 先取得 exclusive flock，確認 Ollama `/api/ps` 為空才啟動 Strata；持鎖直到子程序結束。Ollama 生成請求持 shared flock 到上游串流 EOF，所以客戶端提早關閉視窗也不會提前讓 Strata 啟動。若代理異常終止或上游回應中斷，`data/llm-guard-pending/` 的記錄阻止 Strata 啟動，以免把 `/api/ps` 尚未出現的載入中模型當成空閒。
+wrapper 先取得 exclusive flock，確認 Ollama `/api/ps` 為空才啟動 Strata；持鎖直到子程序結束。Ollama 生成請求持 exclusive flock 到上游串流 EOF，所以客戶端提早關閉視窗也不會提前讓 Strata 啟動。若代理異常終止或上游回應中斷，`data/llm-guard-pending/` 的記錄阻止 Strata 啟動，以免把 `/api/ps` 尚未出現的載入中模型當成空閒。
 
 若出現未結束的 pending 記錄，先查程序與日誌。只有確認原本的 Ollama 服務已停止、runner 已退出且沒有直接呼叫者，才能移除該記錄，再啟動 Ollama、防護與所需模型；不要只因 `/api/ps` 暫時為空就清掉記錄。
 
@@ -76,17 +53,21 @@ OpenClaw 的 Ollama provider 改用 `http://127.0.0.1:11436`；OpenAI 相容 pro
 
 ## 按鍵切換 Strata 與 Ollama
 
+可選 drain patch 已提交至 [上游 PR #1](https://github.com/shi3z/Strata-DGX-Spark/pull/1)，尚未假定上游合併。可審閱 [獨立分支](https://github.com/tiong6/Strata-DGX-Spark/tree/optional-request-drain)；Spark Center 不會替使用者更新 Strata。
+
+只有 guard 可用、Strata 服務受管理且已探測到 `/admin/drain` 支援時才顯示切換操作。未修改的上游 Strata 不必升級也能使用普通 Ollama 功能；不支援時顯示原因，不提供無效按鈕。Strata 暫停期間沿用本次控制器已確認的 drain 能力；控制器重啟後若 Strata 停止，需先手動啟動一次以重新探測。
+
 在「目前運行」區按「切換至 Strata」；Strata 駐留時，在已安裝的 Ollama 模型旁按「切換並載入」，可沿用該列的駐留時間。進度與失敗原因顯示在「目前運行」區，每次模型頁輪詢更新。NAS 備份不提供載入按鍵。
 
 切換由 `tools/llm_switch.py` 執行；`POST /api/llm/switch` 只接受 `target: strata|ollama`、已安裝的 Ollama `model` 和 `keep_alive: 5m|30m|2h|-1`。GET 同一路徑可讀進度。只控制固定的 `strata-server.service` 使用者服務，而且要求其 ExecStart 已配置本專案的防護 wrapper。沒有自動下載、變更開機啟動或繞過防護。
 
-- Strata 至 Ollama：先確認所選模型已安裝；檢查 Strata 沒有生成／排隊請求，再停止服務。確認 service 已停止、Strata 引擎程序已退出且防護放行後，經 11436 載入並核對 `/api/ps`。
+- Strata 至 Ollama：先確認所選模型已安裝；檢查 Strata 沒有生成／排隊請求，原子 drain 成功且 active_requests=0 後才停止服務。確認 service 已停止、Strata 引擎程序已退出且防護放行後，經 11436 載入並核對 `/api/ps`。
 - Ollama 至 Strata：先取得 exclusive lease 並檢查 pending。逐一卸載目前駐留模型，確認 `/api/ps` 清空，再釋放 lease、啟動 Strata；wrapper 重新取得租約。只有 service active、`/health loaded:true`、Ollama 無駐留時才顯示完成。
 - 忙碌、狀態不明或卸載失敗時停止切換；重複點擊不產生第二個切換。切換期間 Spark Center 的載入、卸載、刪除與量測暫停。失敗後不自動回載原模型。
 
-Strata 的忙碌檢查與服務停止不是原子操作。請先結束對話，切換期間不要從其他視窗或排程送出新請求；剛進來的 Strata 請求仍可能被停止。Ollama 卸載與 wrapper 取鎖之間若外部請求搶先，wrapper 會拒絕啟動，頁面顯示失敗，需等請求完成後重試。直接呼叫原連接埠的限制仍與上述防護範圍相同。
+drain 會在請求讀取及前處理之前計數並阻止新請求。若檢查空檔進入了新請求，切換會失敗並恢復自己的 drain，不會直接停服務。Ollama 卸載與 wrapper 取鎖若被外部請求搶先，wrapper 仍會安全拒絕；直接 11434 不受保護。
 
-重啟 Spark Center 前也要確認 `/api/llm/switch` 不是 `running`；切換進度存於伺服器記憶體。關閉或重新整理網頁不會取消後端切換。
+切換階段與 owner 存在 `data/llm-switch.json`。重啟顯示中斷，不會自動重做；已知 owner 可按核對／恢復。重啟前仍應先確認工作與切換閒置。
 
 ## 驗證與本次部署
 

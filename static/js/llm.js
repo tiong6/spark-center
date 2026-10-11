@@ -42,7 +42,7 @@ function renderLlm(j) {
   hw.llmSwitchBusy = switching;
   hw.llmSwitchAvailable = j.switch_control?.available === true;
   $('#llmSrvSub').textContent = j.servers.map(s => `${s.kind} · ${t(s.state === 'unavailable' ? 'llm.unavailable' : s.state === 'offline' ? 'llm.offline' : 'llm.online')}`).join(' / ');
-  $('#llmCfg').innerHTML = `<div class="panel notice ${guard.blocked ? 'warn' : ''}" style="padding:10px 14px">${t('llm.' + (guard.blocked ? guard.reason : 'guard_ready'))}<div class="sub1">${t('llm.guard_scope')}</div></div>`;
+  $('#llmCfg').innerHTML = `<div class="panel notice ${guard.blocked || guard.protected === false ? 'warn' : ''}" style="padding:10px 14px">${t('llm.' + (guard.blocked || guard.protected === false ? guard.reason : 'guard_ready'))}${guard.protected === false ? '' : `<div class="sub1">${t('llm.guard_scope')}</div>`}</div>`;
   if (guard.last_block) $('#llmCfg').innerHTML += `<div class="sub1">${t('llm.last_block', {time: esc(new Date(guard.last_block.at * 1000).toLocaleString(LANG)), model: esc(guard.last_block.model)})}</div>`;
   $('#llmCfg').innerHTML += `<details><summary>${t('llm.service_details')}</summary>${j.servers.map(s => `<div class="sub1">${esc(s.kind)} ${esc(s.version || '—')} · ${esc(s.url)}</div>`).join('')}<div class="sub1">OLLAMA_NUM_PARALLEL: ${cfg.num_parallel ?? '—'} · OLLAMA_MAX_LOADED_MODELS: ${cfg.max_loaded ?? '—'}</div></details>`;
   renderLlmSwitch(j, switching);
@@ -58,6 +58,10 @@ function renderLlm(j) {
   renderBench(j, ol, cfg, inst, running, disabled);
 }
 function renderLlmSwitch(j, switching) {
+  if (!hw.llmSwitchAvailable) {
+    $('#llmSwitch').innerHTML = `<p class="sub1">${t('llm.switch_optional_unavailable')}</p>`;
+    return;
+  }
   const state = j.switch || {status: 'idle'};
   const strataLoaded = j.servers.some(s => s.kind === 'Strata' && (s.loaded || []).length);
   const recover = state.recoverable === true;

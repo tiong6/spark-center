@@ -359,7 +359,7 @@ function renderStability(state) {
   const oom = state.services?.['earlyoom.service'];
   rows.push([t('stable.oom'), t(!oom || oom === 'unknown' ? 'stable.oom_unknown' : oom.split('\n').includes('active') ? 'stable.oom_active' : 'stable.oom_inactive')]);
   const events = (state.events || []).filter(e => e.kind !== 'memory_sample').slice(0, 12);
-  box.innerHTML = `<h2>${esc(t('stable.title'))}</h2><p>${esc(t(a.ok ? 'stable.allowed' : 'stable.blocked'))}${a.reason ? ' · '+esc(t('stable.'+a.reason)) : ''}</p>` +
+  box.innerHTML = `<h2>${esc(t('stable.title'))}</h2><p>${esc(t(a.state === 'not_configured' ? 'stable.not_configured' : a.ok ? 'stable.allowed' : 'stable.blocked'))}${a.reason ? ' · '+esc(t('stable.'+a.reason)) : ''}</p>` +
     `<table><tbody>${rows.map(([k,v])=>`<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}</tbody></table>` +
     ((!state.available || state.journal_error || state.history_error) ? `<p class="error">${esc(t('stable.unavailable'))}</p>` : '') +
     `<p class="sub1">${esc(t('stable.note'))}</p><ol>${events.map(e=>`<li>${esc(new Date(e.at*1000).toLocaleString())} · ${esc(t('stable.'+e.kind))}${e.detail?.phase ? ' · '+esc(t('llm.switch_phase_'+e.detail.phase)) : ''}${e.detail?.model ? ' · '+esc(e.detail.model) : ''}${e.detail?.state ? ' · '+esc(e.detail.state.replaceAll('\n', ' / ')) : ''}${e.detail?.reason ? ' · '+esc(t('stable.'+e.detail.reason)) : ''}${e.detail?.error ? ' · '+esc(t('llm.switch_error_'+e.detail.error)) : ''}</li>`).join('') || esc(t('stable.empty'))}</ol>`;

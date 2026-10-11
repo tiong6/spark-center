@@ -78,7 +78,13 @@ def event(kind, detail, *, key=None, at=None):
         pass
 
 
+def required(name):
+    return os.environ.get(name, '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 def admission(sample=None):
+    if not POLICY.exists() and not required('SPARK_REQUIRE_MEMORY_POLICY'):
+        return {'ok': True, 'reason': None, 'state': 'not_configured', 'at': time.time()}
     try:
         policy = json.loads(POLICY.read_text())
         floor = policy['min_available_bytes']

@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-10-11 — optional model protection and upgrade compatibility
+
+- **所有新增保護均選用。** 沒有 Strata、guard 或 memory-policy.json 的既有安裝，更新後仍可載入／量測 Ollama。guard 不可用會顯示醒目橫幅並記錄事件，使用原 11434；已送出的拒絕／失敗不會換入口重送。
+- 設定分頁新增 guard 開關（或 `sh install.sh --guard`）、本機記憶體校準指令、earlyoom 安裝指令。guard 是使用者服務；earlyoom 用 apt 安裝，需要 sudo，缺政策時先提示校準且不寫門檻。
+- 自動切換只在 guard、受管理 Strata 與 drain 能力皆具備時提供；普通上游 Strata 沒有 drain 不影響其他功能。
+- 記憶體政策未設定時放行；已設定但損壞時拒絕。可明確以 SPARK_REQUIRE_GUARD / SPARK_REQUIRE_MEMORY_POLICY 開啟嚴格模式，詳見 docs/STABILITY.md。更新不會自動替其他人裝 daemon、寫門檻或更改客戶端。
+- 模型檔案／駐留資訊分開，監控新增 swap、PSI 與 NVRM 事件，切換進度可跨重啟保留。後端拆分保持既有 API；新增欄位為附加資訊。
+- **Rollback baseline:** `v2026.10.09` 指向此次发布前的 origin/main（19dbff4），是尚未整合 guard 的最後公開版本。停止 Spark Center 後 `git checkout v2026.10.09` 再啟動可回復程式；選用的 systemd／earlyoom 系統設定不會隨 Git 自動回復，見文件。
+- Release publication does not certify two-to-three-day soak testing. Forum announcement is deferred until that observation is complete.
+
+
 ## 2026-09-30
 
 *npm packages that run as a service (OpenClaw today) are now updated as one transaction: stop → back up → install → the program's own repair step → start → verify it stays alive. A plan dialog explains this before you confirm, and a failure shows a plain-language cause with buttons for the way out ("go back to the newer version and repair", "let it repair itself", "restart"), the backup path, and a desktop notification.*

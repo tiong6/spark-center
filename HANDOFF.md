@@ -1,3 +1,12 @@
+## 2026-10-11 公開相容層與發布
+
+- 原有 13 個提交未拆分、重排或重寫；其上是一個相容層 commit。新版本 v2026.10.11，回退 v2026.10.09（19dbff4）。推送後以 git remote refs 核對，不沿用歷史未推送數字。
+- 預設保護皆選用：無 guard 明示警告與事件、直連 Ollama；無記憶體政策回 not_configured 並放行。已配置但損壞的政策仍拒絕；guard 已回拒絕時不改入口重送。
+- 本機 Spark Center、guard、Strata user service 的 stability.conf 已明確加入 SPARK_REQUIRE_GUARD=1 與 SPARK_REQUIRE_MEMORY_POLICY=1；本機 fail-closed 不變。以下先前「缺政策也拒絕」是這台的歷史部署情境，不是公開預設。
+- 設定可安裝 user guard；earlyoom 改用 apt、缺政策先提示校準；drain 是能力探測，不假設上游存在。Strata 獨立 patch 已開 https://github.com/shi3z/Strata-DGX-Spark/pull/1，沒有推本機 14 個 Strata 提交。
+- 完整 check、乾淨安裝、git pull --ff-only 升級與真小模型載入已測。11 個 API HTTP200，既有頂層欄位零移除；九頁結構比對差異符合預期。詳細證據、測試隔離方式與限制見 docs/RELEASE_VALIDATION_2026-10-11.md。
+- 兩到三天觀察尚未完成，尚未發論壇或聯絡使用者。若需追蹤誤擋，查 stability.sqlite3 的 admission_refused、memory_state、protection_route；不要把拒絕次數直接當事故次數。
+
 ## 2026-10-11 穩定性防護版本
 
 - 新增 backend/stability.py：本機 /proc 記憶體、swap 速率、PSI、NVRM 配置失敗與事件時間軸；SQLite 上限 5,000 筆／7 天。不讀 NAS、不記錄提示詞。journalctl 空視窗 exit 1 已與權限失敗分開處理。

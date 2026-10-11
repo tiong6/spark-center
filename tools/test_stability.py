@@ -16,6 +16,7 @@ from tools import llm_switch, ollama_guard
 class Tests(unittest.TestCase):
     def setUp(self):
         self.stack=ExitStack();self.addCleanup(self.stack.close)
+        self.stack.enter_context(patch.dict(stability.os.environ, {'SPARK_REQUIRE_MEMORY_POLICY':'1'}))
         self.tmp=Path(self.stack.enter_context(tempfile.TemporaryDirectory()))
         for name,value in {'DATA':self.tmp,'DB':self.tmp/'events.sqlite3','POLICY':self.tmp/'policy.json'}.items():
             self.stack.enter_context(patch.object(stability,name,value))

@@ -4,11 +4,11 @@
 
 This protects managed request admission, exposes memory pressure and records bounded local events. It does not guarantee CUDA allocations or prevent all kernel/driver hangs. Direct Ollama 11434 bypasses the proxy; Strata 8080 is protected only when its drain patch and STRATA_ADMISSION_URL setting are deployed.
 
-`tools/calibrate_memory.py` samples /proc for 20 seconds without loading a model. The reserve is 1.25 times the maximum observed sum of AnonPages, Shmem, SUnreclaim, PageTables and KernelStack. This includes the current workload; it is a conservative measured baseline with an explicit policy margin, not a model peak prediction. PSI full avg10 >= 10% also refuses admission. No missing/invalid policy silently permits a request. Recalibrate deliberately after workload changes, not during an OOM incident.
+`tools/calibrate_memory.py` samples /proc for 20 seconds without loading a model. The reserve is 1.25 times the maximum observed sum of AnonPages, Shmem, SUnreclaim, PageTables and KernelStack. This includes the current workload; it is a conservative measured baseline with an explicit policy margin, not a model peak prediction. PSI full avg10 >= 10% also refuses admission. Missing policy defaults to `not_configured` and preserves old loading behavior. An existing invalid policy refuses. `SPARK_REQUIRE_MEMORY_POLICY=1` also refuses when policy is missing. Recalibrate deliberately after workload changes, not during an OOM incident.
 
 ## Emergency OOM daemon (requires root)
 
-Review `tools/install_earlyoom.sh`, then run it with sudo. It installs the pinned Ubuntu noble arm64 earlyoom 1.7-2 package, verified against the APT index SHA-256. No repository update or unrelated package upgrade is performed. Configuration is backed up if present.
+Run `python3 tools/calibrate_memory.py` during a representative baseline first, then review and run `sudo sh tools/install_earlyoom.sh`. The installer uses Ubuntu's configured apt repositories (`apt-get install earlyoom`); no private .deb or ARM-only package is needed. Missing policy stops before package installation or configuration writes with “Calibrate first”. Existing configuration is backed up. This step may require network and root authentication.
 
 The daemon sends TERM at half the admission reserve and KILL at one quarter. These fractions are policy, not measured failure thresholds. Both swap thresholds are 100%, so it does not wait for swap exhaustion. Model engines are preferred; gnome-shell, Xorg, Xwayland, spark-center and spark-guard are avoided (not absolutely immune). It can still terminate other processes if memory cannot be recovered. Model recovery is manual; do not configure restart loops for large models.
 
@@ -45,3 +45,11 @@ During the earlyoom package installation, the system manager logged `Failed to f
 The user manager inherits oom_score_adj=100. Requesting 0 in an unprivileged user unit did not lower the actual process value. The deployed drop-ins therefore explicitly use 100, verified in /proc; model wrappers retain 200. Prefer/avoid daemon rules provide the additional selection policy.
 
 Final installation check at 08:47:58: earlyoom active/running/enabled, dpkg install ok installed, installer exited. Actual startup log: TERM <= 7.61% available RAM, KILL <= 3.81%, swap thresholds 100%. The generator fault remains unresolved despite eventual installation success.
+
+## Optional defaults and strict local policy
+
+Normal installs need neither Strata, guard nor a memory policy. Setup and /api/setup expose capabilities; /api/llm also includes them. Probes repeat during polling. Without guard the model page visibly warns and records a route-change event before using Ollama directly. A guard refusal never triggers a direct retry.
+
+For a machine sharing memory between large engines, explicitly set `Environment=SPARK_REQUIRE_GUARD=1` and `Environment=SPARK_REQUIRE_MEMORY_POLICY=1` in the relevant user service drop-ins (Spark Center, guard and the Strata wrapper service), then daemon-reload and restart while idle. These are local administrator choices, not installer defaults. This GB10 deployment enables both. Do not copy its measured reserve to another machine.
+
+The release supports the existing Linux/systemd/apt environment; it does not add Windows support. All protection setup is opt-in. Standard install.sh still installs only Spark Center.

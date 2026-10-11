@@ -14,6 +14,7 @@ async function loadSetup(data) {
              : it.enabled ? `<span class="tag ok">${t("setup.enabled")}</span>` : it.recommended ? `<span class="tag sec">${t("setup.recommended")}</span>` : '';
     let control;
     if (it.id === 'usbc') control = `<a class="btnlink small" href="#hardware" data-act="goto-hardware">${t("setup.usbc_go")}</a>`;
+    else if (it.action === 'instructions') control = `<span class="sub1">${t('setup.manual_policy')}</span>`;
     else if (it.id === 'pwa') control = it.enabled ? '' : `<button class="small primary" data-act="pwa_install" ${j.readonly ? 'disabled' : ''}>${t("setup.pwa_button")}</button>`;
     else control = `<label class="switchrow"><input type="checkbox" data-toggle="${it.id}" ${it.enabled ? 'checked' : ''} ${j.readonly ? 'disabled' : ''}><span>${it.enabled ? t("setup.on") : t("setup.off")}</span></label>`;
     const rd = it.id === 'remote' && it.detail ? it.detail : null;

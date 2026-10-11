@@ -38,6 +38,7 @@ import aptdaemon.enums as aenums
 from gi.repository import GLib
 
 from backend import hardware, disk, stability
+from tools import model_capabilities
 from backend.messages import LANG_DEFAULT, MSG, msg
 from backend.system import HERE, READONLY, NO_SWEEP, _ENV_C, _run, _http_json, process_label
 
@@ -2442,6 +2443,14 @@ def setup_status():
     user = os.environ.get("USER") or os.path.basename(os.path.expanduser("~"))
     q = shlex.quote
     items = []
+    caps = model_capabilities.snapshot()
+    items.append({"id": "model_guard", "enabled": caps['guard_available'], "sudo": False,
+                  "commands": [f"sh {q(os.path.join(HERE, 'install.sh'))} --guard"]})
+    items.append({"id": "memory_policy", "enabled": caps['memory_policy']['state'] != 'not_configured',
+                  "sudo": False, "action": "instructions",
+                  "commands": [f"python3 {q(os.path.join(HERE, 'tools', 'calibrate_memory.py'))}"]})
+    items.append({"id": "earlyoom", "enabled": caps['earlyoom'] == 'active', "sudo": False,
+                  "action": "instructions", "commands": [f"sudo sh {q(os.path.join(HERE, 'tools', 'install_earlyoom.sh'))}"]})
     items.append({"id": "gpu_clock", "enabled": _sudo_allowed(SUDOERS_CMDS["gpu_clock"]), "sudo": True, "applies": os.path.exists("/usr/bin/nvidia-smi"),
                   "commands": [f'printf "%s\\n" "{user} ALL=(root) NOPASSWD: {SETUP_SUDOERS["gpu_clock"][1]}" | sudo tee /etc/sudoers.d/spark-center-gpu-clock',
                                "sudo chmod 440 /etc/sudoers.d/spark-center-gpu-clock"]})
@@ -2491,7 +2500,7 @@ def setup_status():
     cal = hardware.usbc_map_load(); srcs = {v.get("source") for v in cal.values()}
     items.append({"id": "usbc", "enabled": bool(cal), "sudo": False, "action": "link", "commands": [],
                   "state": "default" if srcs == {"default"} else ("calibrated" if cal else "none"), "n": len(cal)})
-    return {"ok": True, "items": items, "repo": HERE, "readonly": READONLY, "generated": datetime.now().isoformat(timespec="seconds")}
+    return {"ok": True, "items": items, "repo": HERE, "readonly": READONLY, "capabilities": caps, "generated": datetime.now().isoformat(timespec="seconds")}
 
 
 # 開關：真的替使用者做，不只給指令。每一步都是 pkexec 跑一個系統指令（install／rm）處理一個明確的檔案，
@@ -2525,6 +2534,12 @@ def _pkexec(args, timeout=300):
 def setup_toggle(item, enable):
     if READONLY:
         return {"ok": False, "error": msg("readonly_mode", LANG_DEFAULT)}
+    if item == "model_guard":
+        try:
+            model_capabilities.install_guard(enable)
+            return setup_status()
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            return {"ok": False, "error": str(exc)}
     if item in SETUP_SUDOERS:
         fn, cmd = SETUP_SUDOERS[item]
         dest = f"/etc/sudoers.d/{fn}"
@@ -2597,9 +2612,9 @@ import urllib.error
 from tools import model_inventory, llm_switch
 
 LLM_TARGETS = [
-    {"kind": "ollama", "url": "http://127.0.0.1:11434"},
+    {"kind": "ollama", "url": model_capabilities.OLLAMA},
     {"kind": "lmstudio", "url": "http://127.0.0.1:1234"},
-    {"kind": "llama.cpp", "url": "http://127.0.0.1:8080"},
+    {"kind": "llama.cpp", "url": model_capabilities.STRATA},
     {"kind": "vllm", "url": "http://127.0.0.1:8000"},
 ]
 
@@ -2671,16 +2686,21 @@ def llm_status():
     return out
 
 
-OLLAMA = "http://127.0.0.1:11434"
-OLLAMA_GUARDED = "http://127.0.0.1:11436"
+OLLAMA = model_capabilities.OLLAMA
+OLLAMA_GUARDED = model_capabilities.GUARD
 _SHOW_CACHE = {}
 
 
 def llm_guard():
-    g = _http_json(OLLAMA_GUARDED + "/guard/status", timeout=4)
-    if not isinstance(g, dict) or g.get("ok") is not True:
-        return {"ok": False, "blocked": True, "reason": "guard_unavailable"}
-    return g
+    return model_capabilities.route(force=True)['guard']
+
+
+def llm_endpoint():
+    route = model_capabilities.route(force=True)
+    if route['guard']['blocked']:
+        # Unload still uses the configured endpoint; it remains allowed by guard.
+        return OLLAMA_GUARDED
+    return route['endpoint']
 
 
 def llm_admission(model, completion=False):
@@ -2695,7 +2715,7 @@ def llm_admission(model, completion=False):
 
 
 def llm_request(url, data=None, timeout=600):
-    # Keep proxy refusals actionable; never silently fall back to port 11434.
+    # Select the endpoint before a request; never retry a refused/failed request upstream.
     req = urllib.request.Request(url, data=json.dumps(data).encode() if data is not None else None,
                                  headers={"Content-Type": "application/json"})
     try:
@@ -2779,7 +2799,7 @@ def llm_bench_start(model, num_predict=128):
 
 def _llm_bench_run_concurrent(model, n, num_predict):
     """n 個請求同時送，總 tok/s = 所有回應的 eval_count 合計 ÷ 牆鐘時間。OLLAMA_NUM_PARALLEL 小於 n 時會排隊，數字會反映排隊。"""
-    base = OLLAMA_GUARDED
+    base = llm_endpoint()
     prompts = [f"Write {i+1} short paragraphs about the history of the number {i+7}. " * 2 for i in range(n)]
     try:
         warm = llm_request(base + "/api/generate", {"model": model, "prompt": "hi", "stream": False, "options": {"num_predict": 1, "temperature": 0}}, timeout=600)
@@ -2834,7 +2854,7 @@ def llm_bench_start_concurrent(model, n, num_predict=128):
 def _llm_bench_run(model, num_predict=128):
     """Ollama decode/prefill 基準：先暖機 1 token（把載入時間隔開），再量 128 token。
     數字直接取自 Ollama 回應的 eval_count/eval_duration，不是估的。"""
-    base = OLLAMA_GUARDED
+    base = llm_endpoint()
     prompt = "Explain, in plain prose without lists, why the sky appears blue during the day and red at sunset. " * 4
     try:
         warm = llm_request(base + "/api/generate", {"model": model, "prompt": "hi", "stream": False,
@@ -3602,7 +3622,8 @@ class Handler(BaseHTTPRequestHandler):
                     bench = dict(_LLM_BENCH["state"])
                 servers = llm_status()
                 guard = llm_guard()
-                control = llm_switch.control_info()
+                caps = model_capabilities.snapshot()
+                control = caps["switch_control"]
                 for sv in servers:
                     if (sv["kind"] == "Strata" and sv.get("state") == "unavailable"
                             and control["available"] and control["service_state"] in ("inactive", "failed")
@@ -3611,7 +3632,7 @@ class Handler(BaseHTTPRequestHandler):
                     if sv["kind"] == "Ollama":
                         for m in sv["installed"] or []:
                             m.update({k: v for k, v in ollama_show(m["name"], m.get("digest")).items() if k in ("context", "capabilities")})
-                self._json({"ok": True, "servers": servers, "bench": bench, "history": llm_hist_load()[::-1][:40], "config": ollama_config(), "guard": guard, "inventory": llm_stores(), "switch": llm_switch.SWITCH.snapshot(), "switch_control": control})
+                self._json({"ok": True, "servers": servers, "bench": bench, "history": llm_hist_load()[::-1][:40], "config": ollama_config(), "guard": guard, "inventory": llm_stores(), "switch": llm_switch.SWITCH.snapshot(), "switch_control": control, "capabilities": caps})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/llm/switch":
@@ -3722,7 +3743,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({'ok': False, 'error': node_error(str(e))}, 400)
         if path == "/api/setup/toggle":
             item, enable = str(data.get("item") or ""), bool(data.get("enable"))
-            if item not in ("gpu_clock", "dmidecode", "nvme", "dashboard_recheck", "node_helper", "autostart", "remote"):
+            if item not in ("gpu_clock", "dmidecode", "nvme", "dashboard_recheck", "node_helper", "autostart", "remote", "model_guard"):
                 return self._json({"ok": False, "error": msg("node_bad_action", LANG_DEFAULT)}, 400)
             r = setup_toggle(item, enable)
             return self._json(r, 200 if r.get("ok") else 400)
@@ -3865,6 +3886,8 @@ class Handler(BaseHTTPRequestHandler):
                 if _LLM_BENCH["state"]["status"] == "running":
                     return self._json({"ok": False, "error": msg('bench_running', self.lang)}, 409)
             try:
+                if not model_capabilities.snapshot(force=True)['switch_control']['available']:
+                    raise llm_switch.SwitchError('service_unconfigured')
                 llm_switch.SWITCH.start(data.get('target'), data.get('model'), data.get('keep_alive', '5m'))
                 return self._json({"ok": True, "switch": llm_switch.SWITCH.snapshot()}, 202)
             except llm_switch.SwitchError as exc:
@@ -3889,7 +3912,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error": msg('missing_model', LANG_DEFAULT)}, 400)
             ka = "0" if path.endswith("unload") else (data.get("keep_alive") or "5m")
             try:
-                llm_request(OLLAMA_GUARDED + "/api/generate", {"model": model, "keep_alive": ka, "stream": False}, timeout=600)
+                llm_request(llm_endpoint() + "/api/generate", {"model": model, "keep_alive": ka, "stream": False}, timeout=600)
                 return self._json({"ok": True})
             except RuntimeError as exc:
                 return self._json({"ok": False, "error": str(exc)}, 409)
@@ -3972,6 +3995,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     process_label('spark-center')
     stability.start()
+    threading.Thread(target=model_capabilities.snapshot, daemon=True).start()
     hardware.load_snapshot()   # 有快照就先用，服務重啟後硬體分頁不用等
     # 服務重啟時 snapd 可能還在跑上一輪更新，接回來才不會讓畫面顯示成「沒事發生」
     try:

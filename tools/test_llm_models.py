@@ -203,8 +203,10 @@ class LogicTests(unittest.TestCase):
             self.assertEqual(server.llm_admission('text',completion=True)[1],409)
 
     def test_guard_unavailable_has_no_direct_fallback(self):
-        with patch.object(server,'_http_json',return_value=None):
-            self.assertEqual(server.llm_guard(), {'ok':False,'blocked':True,'reason':'guard_unavailable'})
+        with patch.object(server.model_capabilities,'probe',return_value=None), patch.dict(os.environ, {'SPARK_REQUIRE_GUARD':'1'}):
+            result = server.llm_guard()
+            self.assertTrue(result['blocked'])
+            self.assertEqual(result['reason'], 'guard_unavailable')
 
     def test_concurrent_benchmark_preserves_admission_error(self):
         state={'lock':threading.Lock(),'state':{}}
