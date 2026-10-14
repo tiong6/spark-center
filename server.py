@@ -907,9 +907,18 @@ _NPM_JOB_OPTS = {"backup": True}
 
 def _newest_file_size(folder, since):
     """folder 裡修改時間 ≥ since 的最新檔案大小（bytes）；沒有就 None。給沒有進度輸出的長指令當進度用。"""
+    # 要遞迴找：OpenClaw 2026.9.x 把壓縮暫存檔寫在隱藏子資料夾 .openclaw-backup-publish-<id>/archive.tar.gz.tmp，
+    # 只看第一層會一直拿到 None，卡片停在 0% 幾分鐘、看起來像當掉（2026-10-14 真機）。
     try:
-        cands = [os.path.join(folder, f) for f in os.listdir(folder)]
-        cands = [f for f in cands if os.path.isfile(f) and os.path.getmtime(f) >= since - 1]
+        cands = []
+        for root, _dirs, files in os.walk(folder):
+            for f in files:
+                fp = os.path.join(root, f)
+                try:
+                    if os.path.getmtime(fp) >= since - 1:
+                        cands.append(fp)
+                except OSError:
+                    continue
         if not cands:
             return None
         return os.path.getsize(max(cands, key=os.path.getmtime))
