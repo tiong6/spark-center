@@ -30,7 +30,9 @@ class Fake:
         self.backup_ok = True
         self.install_ok = True
         self.repair_ok = True
-        self.unit_state = "active"   # 啟動後 is-active 回什麼
+        self.plugins_ok = True
+        self.unit_state = "active"   # 啟動後 is-active 回什麼（list 則依序吐出，最後一個重複）
+        self.restart_policy = "always"
         self.journal = ""
         self.calls = []
 
@@ -40,7 +42,13 @@ class Fake:
         class R: pass
         r = R(); r.returncode = 0; r.stdout = ""; r.stderr = ""
         if "is-active" in c:
-            r.stdout = self.unit_state + "\n"; r.returncode = 0 if self.unit_state == "active" else 3
+            st = self.unit_state
+            if isinstance(st, list):
+                st = st.pop(0) if len(st) > 1 else st[0]
+            r.stdout = st + "\n"; r.returncode = 0 if st == "active" else 3
+        elif "plugins update" in c:
+            r.returncode = 0 if self.plugins_ok else 1
+            r.stdout = "line is up to date (2026.10.3)." if self.plugins_ok else "error: plugin requests wider capabilities"
         elif "backup create" in c:
             if not self.backup_ok:
                 r.returncode = 1; r.stderr = "backup: disk full"
@@ -57,6 +65,8 @@ class Fake:
         c = " ".join(cmd)
         if "journalctl" in c:
             return self.journal
+        if "systemctl --user show" in c and "-p Restart" in c:
+            return self.restart_policy + "\n"
         if "systemctl --user show" in c:
             return "NRestarts=0\n"
         return ""
@@ -107,13 +117,38 @@ class T(unittest.TestCase):
         self.job._npm_transaction(["openclaw"], self.npm_cmd("2026.9.7"), backup=True, repair=True)
         st = self.job.state
         self.assertEqual(st["status"], "done", st)
-        self.assertEqual(self.order(), ["stop", "backup", "install", "repair", "start"])
+        self.assertEqual(self.order(), ["stop", "backup", "install", "repair", "plugins", "start"])
         self.assertTrue(st["backup"]["path"].endswith(".tar.gz")); self.assertEqual(st["backup"]["bytes"], 2048)
         self.assertTrue(st["finished"]); self.assertEqual(self.notes, [])
         # 停在裝之前、啟動在修復之後
         flat = [" ".join(c) for c in self.f.calls]
         self.assertLess(flat.index(f"systemctl --user stop {UNIT}"), next(i for i, c in enumerate(flat) if "install -g" in c))
         self.assertLess(next(i for i, c in enumerate(flat) if "doctor --fix" in c), flat.index(f"systemctl --user start {UNIT}"))
+
+    def test_plugin_update_failure_does_not_block_start(self):
+        self.f.plugins_ok = False
+        self.job.state.update(kind="npm", status="running", packages=["openclaw"])
+        self.job._npm_transaction(["openclaw"], self.npm_cmd("2026.9.7"), backup=False, repair=True)
+        st = self.job.state
+        self.assertEqual(st["status"], "done", st)                      # 外掛失敗不算交易失敗
+        self.assertEqual(self.order(), ["stop", "install", "repair", "plugins", "start"])
+        self.assertTrue(any("plugins update --all" in l and "沒有全部更新成功" in l for l in st["log"]), st["log"])
+
+    def test_unit_that_comes_up_after_systemd_retry_is_not_a_failure(self):
+        self.f.unit_state = ["failed", "failed", "active"]              # 前兩次退出、systemd 第 3 次拉起來
+        self.job.state.update(kind="npm", status="running", packages=["openclaw"])
+        self.job._npm_transaction(["openclaw"], self.npm_cmd("2026.9.7"), backup=False, repair=True)
+        st = self.job.state
+        self.assertEqual(st["status"], "done", st)
+        self.assertEqual(self.notes, [])                                # 沒發「服務停了」通知
+        self.assertTrue(any("systemd 會自動重試" in l for l in st["log"]), st["log"])
+
+    def test_unit_without_restart_policy_fails_fast(self):
+        self.f.unit_state = "failed"; self.f.restart_policy = "no"; self.f.journal = MODULE
+        self.job.state.update(kind="npm", status="running", packages=["openclaw"])
+        self.job._npm_transaction(["openclaw"], self.npm_cmd("2026.9.7"), backup=False, repair=True)
+        self.assertEqual(self.job.state["status"], "error")
+        self.assertEqual(sum(1 for c in self.f.calls if "is-active" in " ".join(c)), 1)   # 看一次就判定，不空等
 
     def test_backup_failure_aborts_before_install(self):
         self.f.backup_ok = False
@@ -169,7 +204,7 @@ class T(unittest.TestCase):
         self.job.state.update(kind="npm_forward", status="running", packages=["openclaw", "2026.9.7"])
         self.job._run("npm_forward", ["openclaw", "2026.9.7"])
         self.assertEqual(self.job.state["status"], "done")
-        self.assertEqual(self.order(), ["stop", "install", "repair", "start"])   # 不再備份（剛備過）
+        self.assertEqual(self.order(), ["stop", "install", "repair", "plugins", "start"])   # 不再備份（剛備過）
         self.assertTrue(any("openclaw@2026.9.7" in " ".join(c) for c in self.f.calls))
 
     def test_unknown_package_no_backup_no_repair(self):

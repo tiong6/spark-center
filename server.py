@@ -897,6 +897,9 @@ def npm_status(force=False):
 # 為什麼要有：OpenClaw 9.7 一啟動就把資料庫升到新格式，舊版打不開；「降回」救不了，只有備份和它自己的修復指令救得了。
 NPM_KNOWN = {
     "openclaw": {"bin": "openclaw", "backup": ["backup", "create", "--verify", "--json", "--output"], "repair": ["doctor", "--fix", "--non-interactive"],
+                 # 升級主程式後官方外掛（codex/discord/line…）會停在舊版（gateway status --deep 報 version drift）；
+                 # 不自動 --accept-capabilities：外掛要更多權限時讓它失敗、留給使用者看。失敗不擋服務啟動。
+                 "plugins": ["plugins", "update", "--all"],
                  "migrates_data": True, "docs": "https://docs.openclaw.ai/reference/database-schemas", "data_dir": "~/.openclaw",
                  "units": ["openclaw-gateway.service"]},
 }
@@ -1360,6 +1363,9 @@ class Job:
             for n in names:
                 if n in NPM_KNOWN and not self._npm_repair(n):
                     return self._npm_fail_units(units, n)
+            for n in names:
+                if n in NPM_KNOWN:
+                    self._npm_plugins(n)
         return self._npm_start_and_check(units, names[0])
 
     def _step(self, step, **kw):
@@ -1439,25 +1445,56 @@ class Job:
                 self._log("  " + t[:200])
         return r.returncode == 0
 
+    def _npm_plugins(self, name):
+        """主程式升級後把它的外掛更新到同版本。失敗只記錄、不擋啟動（外掛漂移不會讓服務起不來）。"""
+        k = NPM_KNOWN[name]; b = _npm_known_bin(name)
+        if not b or not k.get("plugins"):
+            return True
+        cmd = " ".join([k["bin"]] + k["plugins"])
+        self._step("plugins", name=name); self._log(msg("npm_step_plugins", LANG_DEFAULT, name=name, cmd=cmd))
+        with self.lock:
+            self.state["status_text"] = msg("npm_step_plugins", LANG_DEFAULT, name=name, cmd=cmd)
+        try:
+            r = subprocess.run([b] + k["plugins"], capture_output=True, text=True, timeout=900, env=_session_env())
+        except Exception as e:
+            self._log(msg("npm_plugins_failed", LANG_DEFAULT, name=name, cmd=cmd)); self._log("  " + str(e)[:200]); return False
+        for line in (r.stdout + "\n" + r.stderr).splitlines():
+            t = line.strip()
+            if t and re.search(r"updated|up to date|skipping|error|fail|block|capabilit", t, re.I):
+                self._log("  " + t[:200])
+        if r.returncode != 0:
+            self._log(msg("npm_plugins_failed", LANG_DEFAULT, name=name, cmd=cmd))
+        return r.returncode == 0
+
     def _npm_start_and_check(self, units, name):
-        """啟動服務，等最多 40 秒看它真的活著。失敗：翻成人話、決定按鈕、桌面通知。"""
+        """啟動服務，等它真的活著（活過 6 秒）。有 Restart= 的服務最多等 60 秒讓 systemd 重試：
+        2026-10-14 真機 OpenClaw 前兩次啟動因舊程序殘留而退出、第 3 次才起來，舊邏輯看到一次 failed 就判敗（假失敗）。
+        失敗：翻成人話、決定按鈕、桌面通知。"""
         for u in units:
             self._step("start", unit=u); self._log(msg("npm_step_start", LANG_DEFAULT, unit=u))
             subprocess.run(["systemctl", "--user", "reset-failed", u], capture_output=True, timeout=30)
             subprocess.run(["systemctl", "--user", "start", u], capture_output=True, timeout=120)
         dead = []
         for u in units:
-            state = "unknown"
-            for _ in range(20):
+            state = "unknown"; retrying = False
+            restarts = (_run(["systemctl", "--user", "show", "-p", "Restart", "--value", u], timeout=10) or "").strip() not in ("", "no")
+            for _ in range(30):   # 30 × 2 秒 = 最多 60 秒（用次數不用時鐘：測試會把 sleep 換成空操作）
                 time.sleep(2)
                 state = _unit_active(u)
-                if state in ("failed", "inactive"):
-                    break
                 if state == "active":
                     time.sleep(6)   # 活著不算，要活過幾秒：OpenClaw 是啟動幾秒後才因 schema 退出
                     state = _unit_active(u)
                     if state == "active":
                         break
+                    continue
+                if state in ("failed", "inactive"):
+                    if not restarts:
+                        break
+                    tail = _run(["journalctl", "--user", "-u", u, "-n", "12", "--no-pager", "-o", "cat"], timeout=15) or ""
+                    if _npm_explain(tail, name)[0] in ("npm_reason_schema", "npm_reason_schema_new"):
+                        break   # 資料格式不合是確定的，重試幾次都一樣，不用空等一分鐘
+                    if not retrying:   # systemd 會自己再拉（Restart=），別急著判敗
+                        retrying = True; self._log(msg("npm_unit_retrying", LANG_DEFAULT, unit=u))
             if state != "active":
                 dead.append((u, state))
         _NPM["ts"] = 0
