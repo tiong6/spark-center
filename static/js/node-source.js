@@ -17,7 +17,7 @@ async function loadNodeSource() {
     const target = pending ? s.target : j.target;
     // 目標版本已在磁碟上但 dpkg 沒裝完（解包了、設定失敗）也要能重試；只有「完整裝好」才收掉安裝鈕（那時 effective_state 已把 phase 轉成 installed）
     const canInstall = pending && ['prepared', 'installing', 'install_failed'].includes(s.phase) && j.source_text === s.replacement && !(j.installed.startsWith(s.target + '.') && j.fully_installed);
-    let html = `<b>${t('node.title')}</b><div class="sub1">${t('node.current', {version: esc(j.installed), major: j.major})}</div>`;
+    let html = `<b>${t('node.title')}</b>${infoBtn('node.scope')}<div class="sub1">${t('node.current', {version: esc(j.installed), major: j.major})}</div>`;
     if (pending && s.phase === 'installed') html += `<div class="sub1">${t('node.completed', {old: esc(s.old_version), version: esc(j.installed)})}</div>`;
     if (pending && s.phase !== 'installed') html += `<div class="panel notice ${s.phase.endsWith('failed') ? 'danger' : 'warn'}" style="margin-top:10px">${t('node.phase_' + s.phase)}<div class="sub1">${t('node.saved', {version: esc(s.old_version)})}</div></div>`;
     if (j.release_error) html += `<div class="sub1">${esc(j.release_error)}</div>`;
@@ -25,7 +25,7 @@ async function loadNodeSource() {
     if ((!pending || s.phase === 'installed') && j.target > j.major) html += `<button class="small" data-node="prepare" data-target="${j.target}">${t('node.prepare', {major: j.target})}</button>`;
     if (canInstall) html += `<button class="small primary" data-node="install">${t('node.install', {major: target})}</button>`;
     if (pending) html += `<button class="small" data-node="restore">${t(j.installed === s.old_version ? 'node.cancel' : 'node.restore')}</button>`;
-    html += `</div><div class="sub1" style="margin-top:8px">${t('node.scope')}</div>`;
+    html += `</div>`;
     box.innerHTML = html;
     box.querySelectorAll('[data-node]').forEach(b => b.onclick = () => previewNodeSource(b.dataset.node, Number(b.dataset.target || target), b));
   } catch (e) { box.innerHTML = `<div class="sub1">${esc(e.message)}</div>`; }

@@ -55,14 +55,15 @@
           <button id="btnGo" class="primary" disabled data-i18n="common.check_impact_and_update_0">檢查影響並更新 (0)</button>
         </div>
       </div>
-      <div id="dashCompare" class="sub1" style="margin-top:8px"></div>
+      <div class="steps flow" style="margin-top:12px"><span class="done" data-i18n="updates.flow_simulate">模擬相依</span><span class="done" data-i18n="updates.flow_keep">留舊版</span><span class="done" data-i18n="updates.flow_install">安裝</span><span class="no" data-i18n="updates.flow_noreboot">不會重開機</span></div>
+      <div id="dashCompare" class="cmp"></div>
       <div id="phasedPolicy" class="sub1 hide" style="margin-top:8px"></div>
       <div id="list"></div>
     </div>
     <div class="panel hide" id="selfPanel"><div class="panel-h"><h2 data-i18n="self.title">Spark Center 本身</h2><span class="sub" id="selfMeta"></span><div class="actions"><button id="btnSelfCheck" class="small" data-i18n="self.check">查新版</button><button id="btnSelfUpdate" class="small primary hide" data-i18n="self.update">更新並重啟</button></div></div><div id="self"></div></div>
-    <div class="panel" id="fwPanel"><div class="panel-h"><h2 data-i18n="common.firmware_fwupd">韌體（fwupd）</h2><span class="sub" id="fwMeta" data-i18n="updates.loading">讀取中…</span><div class="actions"><button id="btnFwRefresh" class="small" data-i18n="common.query_lvfs_again">向 LVFS 重新查詢</button><button id="btnFwUpdate" class="small primary hide" data-i18n="common.update_firmware_with_fwupd">用 fwupd 更新韌體</button><button id="btnFwReboot" class="small primary hide" data-i18n="updates.reboot_apply_firmware">重新開機套用韌體</button></div></div><div id="fw"></div></div>
-    <div class="panel" id="npmPanel"><div class="panel-h"><h2 data-i18n="updates.npm_title">npm 全域套件</h2><span class="sub" id="npmMeta" data-i18n="updates.loading">讀取中…</span><div class="actions"><button id="btnNpmRefresh" class="small" data-i18n="updates.npm_recheck">重新查詢</button><button id="btnNpmUpdate" class="small primary hide" data-i18n="updates.npm_update_all">更新全部有新版的</button></div></div><div id="nodeSource" style="margin:12px 0"></div><div id="npm"></div></div>
-    <div class="panel"><div class="panel-h"><h2 data-i18n="updates.rollback_title">可降回的上一版</h2><span class="sub" data-i18n="updates.rollback_sub">更新前把被換掉的舊版 .deb 留一份（最近 5 次或 30 天內）。降回後這個更新會再次出現在清單，不勾它就不會再裝上。</span><span class="sub" id="rbMeta"></span><div class="actions"><button id="btnRbPrune" class="small hide" data-i18n="updates.rollback_prune_btn">清掉 30 天以前</button></div></div><div id="rollback"><div class="empty">…</div></div></div>
+    <div class="panel" id="fwPanel"><div class="panel-h"><h2 data-i18n="common.firmware_fwupd">韌體（fwupd）<button type="button" class="info" data-info="updates.version_mismatch_means_fwupd_history_records" data-i18n-aria-label="common.info" aria-expanded="false">ⓘ</button></h2><span class="sub" id="fwMeta" data-i18n="updates.loading">讀取中…</span><div class="actions"><button id="btnFwRefresh" class="small" data-i18n="common.query_lvfs_again">向 LVFS 重新查詢</button><button id="btnFwUpdate" class="small primary hide" data-i18n="common.update_firmware_with_fwupd">用 fwupd 更新韌體</button><button id="btnFwReboot" class="small primary hide" data-i18n="updates.reboot_apply_firmware">重新開機套用韌體</button></div></div><div id="fw"></div></div>
+    <div class="panel" id="npmPanel"><div class="panel-h"><h2 data-i18n="updates.npm_title">npm 全域套件<button type="button" class="info" data-info="updates.npm_trust_note" data-i18n-aria-label="common.info" aria-expanded="false">ⓘ</button></h2><span class="sub" id="npmMeta" data-i18n="updates.loading">讀取中…</span><div class="actions"><button id="btnNpmRefresh" class="small" data-i18n="updates.npm_recheck">重新查詢</button><button id="btnNpmUpdate" class="small primary hide" data-i18n="updates.npm_update_all">更新全部有新版的</button></div></div><div id="nodeSource" style="margin:12px 0"></div><div id="npm"></div></div>
+    <div class="panel"><div class="panel-h"><h2 data-i18n="updates.rollback_title">可降回的上一版<button type="button" class="info" data-info="updates.rollback_sub" data-i18n-aria-label="common.info" aria-expanded="false">ⓘ</button></h2><span class="sub" id="rbMeta"></span><div class="actions"><button id="btnRbPrune" class="small hide" data-i18n="updates.rollback_prune_btn">清掉 30 天以前</button></div></div><div id="rollback"><div class="empty">…</div></div></div>
   </section>
 
   <section id="tab-apps" class="hide">
@@ -95,7 +96,7 @@
     <div id="clockPanel" class="panel hide">
       <div class="panel-h"><h2 data-i18n="mon.clock_panel_title">GPU 時脈上限</h2><span class="sub" id="clockCapNow"></span></div>
       <div class="clockctl"><div class="clockslide"><input type="range" id="clockRange" list="clockTicks"><datalist id="clockTicks"></datalist><div class="clockscale" id="clockScale"></div></div><b id="clockSel" class="mono">— MHz</b>
-        <button class="small primary" id="clockApply" data-i18n="mon.clock_apply">確定</button><button class="small" id="clockReset" data-i18n="mon.clock_reset">還原預設</button></div>
+        <button class="small primary" id="clockApply" data-i18n="mon.clock_apply">確定</button><button class="small" id="clockReset" data-i18n="mon.clock_reset">還原預設</button><span id="clockInfo"></span></div>
       <div class="sub1" id="clockHint" style="margin-top:6px"></div>
     </div>
   </section>
@@ -133,8 +134,8 @@
   </section>
 
   <section id="tab-setup" class="hide">
-    <div class="panel notice"><div class="panel-h"><h2 data-i18n="setup.title">選用功能</h2><span class="sub" id="setupMeta"></span><div class="actions"><button id="btnSetupReload" class="small" data-i18n="setup.recheck">重新檢查</button></div></div>
-      <div class="sub1" style="margin-top:8px" data-i18n="setup.intro">主程式不需要 root。下面每一項都是選用的：寫清楚它給你什麼、要付出什麼，指令已填好你的路徑，複製到終端機貼上就好。不裝，其他功能照常。</div></div>
+    <div class="panel notice"><div class="panel-h"><h2 data-i18n="setup.title">選用功能<button type="button" class="info" data-info="setup.intro" data-i18n-aria-label="common.info" aria-expanded="false">ⓘ</button></h2><span class="sub" id="setupMeta"></span><div class="actions"><button id="btnSetupReload" class="small" data-i18n="setup.recheck">重新檢查</button></div></div>
+    </div>
     <div id="setup"></div>
   </section>
   <section id="tab-faq" class="hide">

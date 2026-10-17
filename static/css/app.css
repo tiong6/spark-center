@@ -184,6 +184,27 @@
   .meter.warn i { background: var(--warn); } .meter.hot i { background: var(--danger); }
   .tag.warn { color: var(--warn); border-color: var(--warn); } .tag.bad { color: var(--danger); border-color: var(--danger); }
   .tag.phased { color: #c88fe0; border-color: #6b3f80; }
+  /* 更新分頁三處圖形化：流程列（四格靜態，沿用工作卡 .steps）、Dashboard 對照兩張卡、分階段策略分段按鈕 */
+  .steps.flow span.no { color: var(--accent); } .steps.flow span.no::before { border-color: var(--accent); }
+  .steps.flow span:not(:last-child)::after { content: '→'; color: var(--muted); margin-left: 4px; }
+  .cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+  .cmp .card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; background: #0f1110; }
+  .cmp .card h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); font-weight: 500; display: flex; align-items: center; }
+  .cmp .card .nums { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; align-items: center; } .cmp .card .nums b { font-weight: 700; } .cmp .card .nums .tag { margin-left: 0; }
+  .cmp .card.here { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; vertical-align: middle; }
+  .seg button { border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 3px 12px; font-size: 12px; white-space: nowrap; }
+  .seg button + button { border-left: 1px solid var(--line); } .seg button.on { background: var(--surface2); color: var(--text); } .seg button:disabled { opacity: .5; cursor: not-allowed; }
+  /* fwupd 裝置的類別小圖示（主機板／儲存／周邊／安全），白話說明在 title */
+  .fwic { display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; vertical-align: -4px; margin-right: 6px; color: var(--muted); cursor: help; }
+  .fwic svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  /* 設定分頁：給你／代價 兩欄固定版面，字不減、掃讀用 */
+  .gc { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; margin-top: 8px; font-size: 13px; }
+  .gc > div { display: flex; gap: 10px; align-items: flex-start; }
+  .gc .lbl { flex: none; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin-top: 2px; white-space: nowrap; }
+  .gc .g .lbl { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); } .gc .c .lbl { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, var(--line)); }
+  .gc .c { color: var(--muted); }
+  @media (max-width: 720px) { .cmp, .gc { grid-template-columns: 1fr; } }
   /* 印表機：一台一區；耗材條用印表機回報的顏色，黑色在深底上看不到，所以條與色塊都描一圈淡邊 */
   .pr-dev { padding: 16px 0 14px; border-bottom: 1px solid var(--line); } .pr-dev:last-of-type { border-bottom: 0; }
   .pr-top { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; } .pr-top .links { margin-left: auto; font-size: 12px; }
@@ -218,7 +239,7 @@
   .mcard h3 .t { font-size: 16px; font-weight: 700; color: var(--text); margin-left: 0; }
   .mcard h3 span { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 8px; }
   .mcard h3 span.sub { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
-  .mcard h3 span.sub::after { content: ' ⓘ'; opacity: .55; }
+  .mcard h3 span.sub::after { content: ' ⓘ'; opacity: .55; } .mcard h3 span.sub.noi { cursor: default; flex: 0 1 auto; }   /* 有真 ⓘ 的副標不撐滿，ⓘ 緊貼在它後面 */ .mcard h3 span.sub.noi::after { content: none; }
   /* Wi-Fi 卡：四行狀態橫跨整張卡、兩欄排，卡片才不會比別人高一截 */
   .mcard .wifikv { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 20px; font-size: 13px; margin-top: 2px; }
   .mcard .wifikv div { display: flex; gap: 8px; min-width: 0; } .mcard .wifikv dt { color: var(--muted); flex: none; width: 52px; } .mcard .wifikv dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

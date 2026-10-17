@@ -94,8 +94,8 @@ function bindHover(el, series, fmt) {
 }
 const fmtPct = v => v == null ? '—' : Math.round(v) + ' %';
 const fmtRate = v => v == null ? '—' : v >= 1048576 ? (v/1048576).toFixed(2) + ' MB/s' : v >= 1024 ? (v/1024).toFixed(1) + ' KB/s' : Math.round(v) + ' B/s';
-function monCard(id, title, sub, left, series, ymax, fmt, legend) {
-  return `<div class="mcard" id="mon-${id}"><h3><span class="t">${esc(title)}</span>${sub ? `<span class="sub" title="${esc(sub)}">${esc(sub)}</span>` : ''}</h3>${left}<div class="spark" data-k="${id}">${sparkSvg(series, ymax, fmt)}</div>${legend ? `<div class="legend">${legend}</div>` : ''}</div>`;
+function monCard(id, title, sub, left, series, ymax, fmt, legend, info) {   // info：共用 ⓘ 等 HTML，有它時副標不再用 title＋偽 ⓘ
+  return `<div class="mcard" id="mon-${id}"><h3><span class="t">${esc(title)}</span>${sub ? (info ? `<span class="sub noi">${esc(sub)}</span>` : `<span class="sub" title="${esc(sub)}">${esc(sub)}</span>`) : ''}${info || ''}</h3>${left}<div class="spark" data-k="${id}">${sparkSvg(series, ymax, fmt)}</div>${legend ? `<div class="legend">${legend}</div>` : ''}</div>`;
 }
 function gaugeLeft(pct, hero, sub) { return `<div class="gauge">${gaugeSvg(pct)}<div class="hero"><b>${esc(hero)}</b></div><div class="sub">${esc(sub)}</div></div>`; }
 function kvRight(rows) { return `<dl class="kv" style="margin-top:0;grid-template-columns:90px 1fr">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`; }
@@ -150,10 +150,11 @@ function renderMon(j, rerender) {
     hovers.push(['clock', [{color: C_LINE, data: hw.hist.clock || []}], v => Math.round(v) + ' MHz']);
     if (g.temp_c != null) pushHist('temp', sampleTime, g.temp_c);
     const tmax = S.gpu.throttle_temp_c || 100;
-    const tsrc = S.gpu.throttle_source === 'NVML slowdown threshold' ? t("mon.slowdown_threshold_c_actual_nvml_driver", {v0: S.gpu.throttle_temp_c, v1: S.gpu.shutdown_temp_c ? t("mon.shutdown_c", {v0: S.gpu.shutdown_temp_c}) : ''}) : S.gpu.throttle_temp_c ? t("mon.slowdown_threshold_about_c_estimated_from", {v0: S.gpu.throttle_temp_c}) : t("mon.gauge_maximum_100_c_slowdown_threshold");
-    // 過熱警報只在拿得到驅動降頻點時才存在；卡片底下講清楚規則，正在警報中就標紅
-    const hotHint = S.gpu.throttle_temp_c ? (j.gpu_hot ? `<span style="color:var(--danger)">${t("mon.hot_now", {v0: esc((j.gpu_hot.since || '').replace('T', ' ')), v1: j.gpu_hot.peak})}</span>` : t("mon.hot_hint", {v0: S.gpu.throttle_temp_c})) : '';
-    cards.push(monCard('temp', t("mon.gpu_temperature"), tsrc + (hotHint ? ` · ${hotHint}` : ''), gaugeLeft(g.temp_c == null ? null : g.temp_c / tmax * 100, g.temp_c == null ? '—' : g.temp_c + ' °C', S.gpu.throttle_temp_c ? t("mon.c_below_slowdown_threshold", {v0: (S.gpu.throttle_temp_c - g.temp_c).toFixed(0)}) : ''), [{color: C_LINE, data: hw.hist.temp || []}], tmax, v => Math.round(v) + ' °C'));
+    // 門檻來源與通知規則收進標題旁 ⓘ（刻度上的 86／90 標記本來就在儀表上）；正在警報中才在標題旁標紅（B 類結論，不藏）
+    const tsrc = S.gpu.throttle_source === 'NVML slowdown threshold' ? ["mon.slowdown_threshold_c_actual_nvml_driver", {v0: S.gpu.throttle_temp_c, v1: S.gpu.shutdown_temp_c ? t("mon.shutdown_c", {v0: S.gpu.shutdown_temp_c}) : ''}] : S.gpu.throttle_temp_c ? ["mon.slowdown_threshold_about_c_estimated_from", {v0: S.gpu.throttle_temp_c}] : ["mon.gauge_maximum_100_c_slowdown_threshold", null];
+    const hotNow = S.gpu.throttle_temp_c && j.gpu_hot ? `<span class="sub1" style="color:var(--danger);margin-left:8px">${t("mon.hot_now", {v0: esc((j.gpu_hot.since || '').replace('T', ' ')), v1: j.gpu_hot.peak})}</span>` : '';
+    const tempInfo = infoBtn(tsrc[0], tsrc[1], S.gpu.throttle_temp_c ? t("mon.hot_hint", {v0: S.gpu.throttle_temp_c}) : '') + hotNow;
+    cards.push(monCard('temp', t("mon.gpu_temperature"), '', gaugeLeft(g.temp_c == null ? null : g.temp_c / tmax * 100, g.temp_c == null ? '—' : g.temp_c + ' °C', S.gpu.throttle_temp_c ? t("mon.c_below_slowdown_threshold", {v0: (S.gpu.throttle_temp_c - g.temp_c).toFixed(0)}) : ''), [{color: C_LINE, data: hw.hist.temp || []}], tmax, v => Math.round(v) + ' °C', '', tempInfo));
     hovers.push(['temp', [{color: C_LINE, data: hw.hist.temp || []}], v => v.toFixed(0) + ' °C']);
     if (g.power_w != null) pushHist('power', sampleTime, g.power_w);
     const ph = hw.hist.power || [], pmax = S.gpu.power_limit_w || Math.max(1, ...ph.map(d => d[1])) * 1.15;
@@ -191,7 +192,7 @@ function renderMon(j, rerender) {
   // NVMe 溫度（hwmon nvme Composite，免 root）
   const nv = (j.sensors || []).find(x => x.chip === 'nvme' && /composite/i.test(x.label));
   if (nv) { pushHist('nvtemp', sampleTime, nv.temp_c);
-    cards.push(monCard('nvtemp', t("mon.nvme_temperature"), t("mon.hwmon_nvme_composite_gauge_maximum_85"), gaugeLeft(nv.temp_c / 85 * 100, nv.temp_c.toFixed(0) + ' °C', t("mon.ssd_controller_composite_temperature")), [{color: C_LINE, data: hw.hist.nvtemp || []}], 85, v => Math.round(v) + ' °C'));
+    cards.push(monCard('nvtemp', t("mon.nvme_temperature"), t("mon.nvme_scale_short"), gaugeLeft(nv.temp_c / 85 * 100, nv.temp_c.toFixed(0) + ' °C', t("mon.ssd_controller_composite_temperature")), [{color: C_LINE, data: hw.hist.nvtemp || []}], 85, v => Math.round(v) + ' °C', '', infoBtn("mon.hwmon_nvme_composite_gauge_maximum_85")));   // 「非本機讀值」的理由在 ⓘ
     hovers.push(['nvtemp', [{color: C_LINE, data: hw.hist.nvtemp || []}], v => v.toFixed(1) + ' °C']); }
   // 磁碟用量卡已移除：用量幾分鐘內不變，磁碟分頁與硬體分頁都有
   // 網路：每個有 IPv4 且非虛擬的介面，rx/tx 速率
@@ -281,7 +282,7 @@ function renderClockPanel(cc, g, sg) {
       if (factory && v === hwMax) continue;
       labels.push(`<span class="${v === cc.min ? 'first' : v === hwMax ? 'last' : ''}" style="left:${pos(v)}">${v}</span>`);
     }
-    if (factory) labels.push(`<span class="def last" style="left:${pos(hwMax)}">${t("mon.clock_factory_mark", {v0: sg.app_clock_mhz})}</span>`);
+    if (factory) labels.push(`<span class="def last" style="left:${pos(hwMax)}" title="${esc(t("mon.clock_cap_hint", {v0: sg.app_clock_mhz}))}">${t("mon.clock_factory_mark", {v0: sg.app_clock_mhz})}</span>`);
     $('#clockScale').innerHTML = labels.join('');
   }
   const target = cc.cap_mhz && cc.cap_mhz < hwMax ? cc.cap_mhz : hwMax;
@@ -289,7 +290,8 @@ function renderClockPanel(cc, g, sg) {
   if (!hw.clockTouched) { r.value = target; paint(target); }
   r.disabled = apply.disabled = !cc.enabled; reset.disabled = !cc.enabled || !cc.cap_mhz;
   setTxt('#clockCapNow', cc.cap_mhz ? t("mon.clock_cap_now", {v0: cc.cap_mhz}) : t("mon.clock_cap_none"));
-  setHtml('#clockHint', cc.enabled ? t("mon.clock_cap_hint", {v0: sg.app_clock_mhz || '—'}) : `${t("mon.clock_cap_setup_hint")} <a href="#setup">${t("setup.title")}</a>`);
+  setHtml('#clockHint', cc.enabled ? '' : `${t("mon.clock_cap_setup_hint")} <a href="#setup">${t("setup.title")}</a>`);
+  setHtml('#clockInfo', cc.enabled ? infoBtn("mon.clock_cap_hint", {v0: sg.app_clock_mhz || '—'}) : '');   // 用法與「再高沒作用」的說明在滑桿旁 ⓘ；原廠刻度標籤的 title 也帶同一段
   if (!hw.clockBound) {
     hw.clockBound = true;
     r.oninput = () => { hw.clockTouched = true; paint(parseInt(r.value, 10)); };

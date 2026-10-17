@@ -35,7 +35,7 @@ document.addEventListener('click', e => {
    行為：滑過開（移開就關）、點一下釘住（觸控／鍵盤走這條）、再點／Esc／點外面關；同時只開一個。
    面板絕對定位在 ⓘ 下方，靠右邊緣往左翻、靠底往上翻；面板所在區塊重畫（每 2 秒的後面板）時改認同 key 的新按鈕，找不到就關。 */
 const infoBtn = (key, vars, after) => `<button type="button" class="info" data-info="${esc(key)}"${vars ? ` data-info-vars="${esc(JSON.stringify(vars))}"` : ''}${after ? ` data-info-after="${esc(after)}"` : ''} aria-label="${esc(t("common.info"))}" aria-expanded="false">ⓘ</button>`;
-const infopop = { el: null, btn: null, pinned: false, timer: null, watch: null };
+const infopop = { el: null, btn: null, pinned: false, timer: null, watch: null, hoverLock: null };
 function infoText(btn) {
   let vars = null; try { vars = btn.dataset.infoVars ? JSON.parse(btn.dataset.infoVars) : null; } catch (e) {}
   const s = t(btn.dataset.info, vars) + (btn.dataset.infoAfter ? '\n' + btn.dataset.infoAfter : '');
@@ -66,7 +66,8 @@ function infoOpen(btn, pinned) {
 }
 function infoClose() {
   clearTimeout(infopop.timer); clearInterval(infopop.watch); infopop.watch = null;
-  if (infopop.btn) { infopop.btn.classList.remove('open'); infopop.btn.setAttribute('aria-expanded', 'false'); }
+  // 關掉後鎖住同一個 key 的「滑過即開」，直到滑鼠真的移動：監控／後面板每 2 秒重畫，按鈕在停住的游標底下被換掉時瀏覽器會補發 mouseover，不鎖就會 Esc 完又自己開回來
+  if (infopop.btn) { infopop.hoverLock = infopop.btn.dataset.info; infopop.btn.classList.remove('open'); infopop.btn.setAttribute('aria-expanded', 'false'); }
   if (infopop.el) infopop.el.remove();
   infopop.el = null; infopop.btn = null; infopop.pinned = false;
 }
@@ -78,7 +79,13 @@ document.addEventListener('click', e => {
 document.addEventListener('mouseover', e => {
   if (e.target.closest('.infopop')) { clearTimeout(infopop.timer); return; }
   const b = e.target.closest('.info[data-info]');
-  if (b) { if (infopop.btn === b) clearTimeout(infopop.timer); else infoOpen(b, false); }
+  if (!b || b.dataset.info === infopop.hoverLock) return;
+  if (infopop.btn === b) clearTimeout(infopop.timer); else infoOpen(b, false);
+});
+document.addEventListener('mousemove', e => {   // 真的移動了才解鎖；若此刻就在某顆 ⓘ 上，補開
+  if (infopop.hoverLock == null) return;
+  infopop.hoverLock = null;
+  const b = e.target.closest('.info[data-info]'); if (b && !infopop.el) infoOpen(b, false);
 });
 document.addEventListener('mouseout', e => {
   if (infopop.pinned || !infopop.el) return;

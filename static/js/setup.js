@@ -16,7 +16,7 @@ async function loadSetup(data) {
     if (it.id === 'usbc') control = `<a class="btnlink small" href="#hardware" data-act="goto-hardware">${t("setup.usbc_go")}</a>`;
     else if (it.action === 'instructions') control = `<span class="sub1">${t('setup.manual_policy')}</span>`;
     else if (it.id === 'pwa') control = it.enabled ? '' : `<button class="small primary" data-act="pwa_install" ${j.readonly ? 'disabled' : ''}>${t("setup.pwa_button")}</button>`;
-    else control = `<label class="switchrow"><input type="checkbox" data-toggle="${it.id}" ${it.enabled ? 'checked' : ''} ${j.readonly ? 'disabled' : ''}><span>${it.enabled ? t("setup.on") : t("setup.off")}</span></label>`;
+    else control = `<label class="switchrow"${it.sudo ? ` title="${esc(t(it.id === 'node_helper' ? "setup.prompt_two" : it.id === 'remote' ? "setup.prompt_remote" : "setup.prompt_one"))}"` : ''}><input type="checkbox" data-toggle="${it.id}" ${it.enabled ? 'checked' : ''} ${j.readonly ? 'disabled' : ''}><span>${it.enabled ? t("setup.on") : t("setup.off")}</span></label>`;   // 「按開關會跳密碼視窗…」在開關的 title
     const rd = it.id === 'remote' && it.detail ? it.detail : null;
     const remote = rd ? `<div style="margin-top:8px"><b>${t("setup.remote_sync_title")}</b><table style="margin-top:4px;width:auto"><tbody>
         <tr><td class="sub1" style="padding:2px 12px 2px 0">Name</td><td class="mono">Spark Center</td></tr>
@@ -26,11 +26,9 @@ async function loadSetup(data) {
         <div class="sub1" style="margin-top:6px">${t("setup.remote_addr", {mdns: esc(rd.mdns || '—'), ips: esc(rd.ips.join(', ') || '—'), ts: rd.tailscale ? ` · Tailscale ${esc(rd.tailscale)}` : '', user: esc(rd.user), port: rd.port})}</div>
         ${it.enabled && !rd.boot ? `<div class="sub1">${t("setup.remote_not_boot")}</div>` : ''}</div>` : '';
     const detail = remote + (it.id === 'node_helper' && it.detail ? `<div class="sub1">${t("setup.node_detail", {node: esc(it.detail.node || '—'), lts: esc(it.detail.lts || '—')})}</div>` : '');
-    const prompt = it.sudo ? `<div class="sub1">${t(it.id === 'node_helper' ? "setup.prompt_two" : it.id === 'remote' ? "setup.prompt_remote" : "setup.prompt_one")}</div>` : '';
     const cmds = it.commands.length ? `<details style="margin-top:8px"><summary class="sub1" style="cursor:pointer">${t("setup.diy")}</summary><div style="margin-top:6px;display:flex;gap:8px;align-items:flex-start"><pre class="cl" style="flex:1">${esc(it.commands.join('\n'))}</pre><button class="small" data-copy="${esc(it.commands.join('\n'))}">${t("setup.copy")}</button></div></details>` : '';
     html += `<div class="panel"><div class="panel-h"><h2>${t("setup." + it.id + ".title")}</h2>${st}<div class="actions">${control}</div></div>
-      <div style="margin-top:6px">${t("setup." + it.id + ".gives")}</div>
-      <div class="sub1" style="margin-top:4px">${t("setup." + it.id + ".costs")}</div>${detail}${prompt}${it.id === 'pwa' && !it.enabled ? `<div class="sub1">${t("setup.pwa_button_hint")}</div>` : ''}${cmds}</div>`;
+      <div class="gc"><div class="g"><span class="lbl">${t("setup.gives_label")}</span><span>${t("setup." + it.id + ".gives")}</span></div><div class="c"><span class="lbl">${t("setup.costs_label")}</span><span>${t("setup." + it.id + ".costs")}</span></div></div>${detail}${it.id === 'pwa' && !it.enabled ? `<div class="sub1">${t("setup.pwa_button_hint")}</div>` : ''}${cmds}</div>`;
   }
   html += `<div class="sub1" style="margin:4px 0 20px">${t("setup.footer")}</div>`;
   box.innerHTML = html;

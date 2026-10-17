@@ -88,6 +88,7 @@ function updateGo() {
   const n = state.selected.size, running = state.job && state.job.status === 'running';
   $('#btnGo').textContent = t("updates.check_impact_and_update", {v0: n});
   $('#btnGo').disabled = n === 0 || running; $('#btnRefresh').disabled = running;
+  const cs = $('#cmpSel'); if (cs) cs.textContent = n;   // 對照右卡「勾了 N」跟著勾選即時變
 }
 /* ---- 韌體（fwupd）：Dashboard 說成功不算，以 fwupd 的版本與歷史為準 ---- */
 async function loadFirmware(force) {
@@ -110,6 +111,10 @@ async function loadFirmware(force) {
     if (/SoC/i.test(n)) return 'soc'; if (/Embedded Controller/i.test(n)) return 'ec'; if (/USB-C PD|PD FW/i.test(n)) return 'pd';
     if (p === 'uefi_capsule') return 'capsule'; if (p === 'nvme') return 'nvme'; if (p === 'uefi_dbx') return 'dbx'; if (p === 'uefi_sbat') return 'sbat';
     if (SECURE.includes(p)) return 'cert'; if (/usb4|hub/i.test(p + n)) return 'hub'; if (/hidpp|mouse|keyboard|receiver/i.test(p + n)) return 'hid'; return 'generic'; };
+  const FW_IC = { board: '<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M8 5V3M12 5V3M16 5V3M8 21v-2M12 21v-2M16 21v-2"/></svg>',
+    storage: '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 14h.01M11 14h6"/></svg>',
+    peripheral: '<svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="5"/><path d="M12 6v4"/></svg>',
+    secure: '<svg viewBox="0 0 24 24"><path d="M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z"/><path d="M9 12l2 2 4-4"/></svg>' };
   const friendly = d => { const k = kindOf(d); return ['generic', 'cert', 'hid', 'capsule', 'dbx', 'sbat'].includes(k) ? d.name : t("updates.fwd_" + k + "_name"); };
   const row = d => { const last = d.history[0]; const st = d.mismatch ? `<span class="tag reboot">${t("updates.history_reports_success_but_version_differs")}</span>` : d.pending ? `<span class="tag sec">${t("updates.awaiting_reboot_to_apply")}</span>` : d.update_available ? `<span class="tag sec">${t("updates.new_version", {v0: esc(d.latest)})}</span>` : j.updates == null ? `<span class="tag">${t("updates.unknown_query_failed")}</span>` : `<span class="tag ok">${t("updates.up_to_date")}</span>`;
     // LVFS 的版本說明另起一列橫跨整張表：塞在 30% 寬的裝置欄裡會把一列撐到兩百多像素高、右邊三欄空著
@@ -123,7 +128,7 @@ async function loadFirmware(force) {
     const notes = sec('latest', t("updates.fw_notes_latest", {v: esc((n.latest || {}).version || '')})) + sec('installed', t("updates.fw_notes_installed", {v: esc((n.installed || {}).version || '')}));
     const noteRow = notes ? `<tr class="fwnote"><td colspan="4" style="padding:0 12px 10px 28px;border-top:0"><details class="sub1"${d.update_available && n.latest ? ' open' : ''}><summary style="cursor:pointer">${t("updates.fw_notes_toggle")}</summary>${notes}</details></td></tr>` : '';
     const raw = friendly(d) !== d.name ? `${esc(d.name)} · ` : '';
-    return `<tr><td><b>${esc(friendly(d))}</b><div class="sub1">${t("updates.fwd_" + kindOf(d))}</div><div class="sub1" style="opacity:.7">${raw}${esc(d.vendor || '')}</div></td><td class="mono">${esc(d.version || '—')}</td><td>${st}</td><td class="sub1">${last ? `${esc(last.old || '?')} → ${esc(last.new || '?')}，${esc(last.state_zh)}${last.error ? '：' + esc(last.error) : ''}<br>${esc((last.when || '').replace('T',' '))}` : '—'}</td></tr>${noteRow}`; };
+    return `<tr><td><span class="fwic" title="${esc(t("updates.fwd_" + kindOf(d)))}">${FW_IC[groupOf(d)]}</span><b>${esc(friendly(d))}</b><div class="sub1" style="opacity:.7">${raw}${esc(d.vendor || '')}</div></td><td class="mono">${esc(d.version || '—')}</td><td>${st}</td><td class="sub1">${last ? `${esc(last.old || '?')} → ${esc(last.new || '?')}，${esc(last.state_zh)}${last.error ? '：' + esc(last.error) : ''}<br>${esc((last.when || '').replace('T',' '))}` : '—'}</td></tr>${noteRow}`; };
   const order = ['board', 'storage', 'peripheral', 'secure'];
   let html = errBanner;
   for (const g of order) {
@@ -131,12 +136,11 @@ async function loadFirmware(force) {
     const body = `<table><thead><tr><th style="width:30%">${t("updates.device")}</th><th style="width:16%">${t("updates.current_version_2")}</th><th style="width:20%">${t("updates.status")}</th><th>${t("updates.last_update_fwupd_history")}</th></tr></thead><tbody>${items.map(row).join('')}</tbody></table>`;
     // 開機安全那組預設收起：憑證與撤銷清單有更新裝就好，不需要理解
     html += g === 'secure'
-      ? `<details style="margin-top:10px"><summary class="sub1" style="cursor:pointer"><b>${t("updates.fwg_" + g)}</b>（${items.length}）· ${t("updates.fwg_" + g + "_desc")}</summary>${body}</details>`
-      : `<div style="margin-top:${html ? 14 : 0}px"><b>${t("updates.fwg_" + g)}</b> <span class="sub1">· ${t("updates.fwg_" + g + "_desc")}</span></div>${body}`;
+      ? `<details style="margin-top:10px"><summary class="sub1" style="cursor:pointer"><b>${t("updates.fwg_" + g)}</b>（${items.length}）${infoBtn("updates.fwg_" + g + "_desc")}</summary>${body}</details>`
+      : `<div style="margin-top:${html ? 14 : 0}px"><b>${t("updates.fwg_" + g)}</b>${infoBtn("updates.fwg_" + g + "_desc")}</div>${body}`;
   }
   if (hid.length) html += `<details style="margin-top:8px"><summary class="sub1">${t("updates.hidden_devices_certificates_and_keys", {v0: hid.length})}</summary><table><tbody>${hid.map(row).join('')}</tbody></table></details>`;
-  html += `<div class="sub1" style="margin-top:8px">${t("updates.version_mismatch_means_fwupd_history_records")}</div>`;
-  box.innerHTML = html;
+  box.innerHTML = html;   // 「版本對不上」的解釋在面板標題旁的 ⓘ
 }
 $('#btnFwRefresh').onclick = async () => { $('#fwMeta').textContent = t("updates.querying_lvfs"); const r = await api('/api/disk/action', {action: 'fwupd_refresh'}); if (!r.ok) { alert(r.error); return; } startPolling(t("updates.fwupd_refresh_lvfs_metadata")); const w = setInterval(async () => { const jj = await api('/api/job'); if (jj.status !== 'running') { clearInterval(w); loadFirmware(true); } }, 1500); };
 $('#btnFwUpdate').onclick = async () => { if (!confirm(t("updates.install_all_available_firmware_updates_with"))) return; const r = await api('/api/disk/action', {action: 'fwupd_update'}); if (!r.ok) { alert(r.error); return; } startPolling(t("updates.fwupd_install_firmware_updates")); window.scrollTo({top: 0, behavior: 'smooth'}); };
@@ -209,7 +213,7 @@ async function loadNpm(force) {
     const staleBtns = stale.length ? `<div class="sub1" style="margin-top:4px">${t("updates.npm_stale_hint")} ${staleUnits.map(u => `<button class="small" data-restart="${esc(u)}">${t("updates.npm_restart_btn", {unit: esc(u)})}</button>`).join(' ')}${stale.some(r => !r.unit) ? ` ${esc(t("updates.npm_restart_manual"))}` : ''}</div>` : '';
     html += `<tr><td><span class="mono">${esc(p.name)}</span>${runTag}${p.description ? `<div class="sub1">${esc(p.description)}</div>` : ''}<div class="sub1">${who || t("updates.npm_no_meta")}</div>${staleBtns}</td><td class="mono">${esc(p.current || '—')}</td><td class="mono">${esc(p.latest || '—')}</td><td>${st}</td><td>${p.outdated ? `<button class="small primary" data-npm="${esc(p.name)}">${t("common.update")}</button>` : p.newer ? `<button class="small" data-npm="${esc(p.name)}" title="${t("updates.npm_newer_hint")}">${t("updates.npm_install_compat", {v0: esc(p.latest)})}</button>` : ''}</td></tr>`;
   }
-  box.innerHTML = html + `</tbody></table><div class="sub1" style="margin-top:8px">${t("updates.npm_trust_note")}</div>`;
+  box.innerHTML = html + `</tbody></table>`;   // 可信度怎麼判斷：面板標題旁的 ⓘ
   state.npmPkgs = j.packages;
   const slot = box.querySelector('#nodeSlot'), ns = $('#nodeSource');
   if (slot && ns) slot.appendChild(ns);   // 搬 DOM 節點，loadNodeSource 之後不管先後都會渲染到它現在的位置
@@ -341,7 +345,7 @@ async function loadRollback() {
   // 面板會越留越長（5 次 × 每次好幾個套件）：只有還能降回的整筆照常顯示，已經降回或什麼都沒留的收進底下可展開的「其他紀錄」
   const keptOf = job => job.packages.filter(p => (p.deb || (p.kind === 'npm' && p.old)) && p.installed !== p.old && !p.superseded);   // 已經是舊版、或後來又被更新過的不算，按鈕沒意義
   const MB = b => (b / 1e6).toFixed(b >= 1e8 ? 0 : 1);
-  $('#rbMeta').textContent = ' · ' + t("updates.rollback_meta", {n: jobs.length, mb: MB(j.total_bytes || 0)});
+  $('#rbMeta').textContent = t("updates.rollback_meta", {n: jobs.length, mb: MB(j.total_bytes || 0)});
   $('#btnRbPrune').classList.toggle('hide', !jobs.length);
   const active = jobs.filter(j => keptOf(j).length), inactive = jobs.filter(j => !keptOf(j).length);
   let html = '';
@@ -419,13 +423,22 @@ async function load() {
   const nPassive = j.items.filter(i => i.firmware && i.firmware.passive).length, nHeld = j.items.filter(i => isHeld(i) && !(i.firmware && i.firmware.passive)).length;
   // 數字的語意：「可升級」是 apt upgrade 真的會裝的；等待放量的另外數，不混進去也不藏起來
   $('#meta').textContent = t("updates.upgradable_apt_index_last_updated", {v0: j.items.length - nPassive - nHeld, v1: (nPassive ? t("updates.another_firmware_packages_this_machine_does", {v0: nPassive}) : '') + (nHeld ? t("updates.phased_waiting_n", {n: nHeld}) : ''), v2: j.last_refresh ? j.last_refresh.replace('T',' ') : '—'});
-  const D = j.dashboard;
-  const dashSkip = D && D.phased_held === null ? t("updates.dash_phased_unknown") : D && D.phased_held && D.phased_held.length ? t("updates.dash_phased_skip", {n: D.phased_held.length, list: esc(D.phased_held.join(', '))}) : '';
-  $('#dashCompare').innerHTML = D ? `${t("updates.comparison")}<b>${t("updates.dgx_dashboard_s_update")}</b>${t("updates.performs_all_at_once_upgrade", {v0: D.upgrade, v1: D.install ? t("updates.newly_install", {v0: D.install}) : '', v2: D.remove ? ` · <span style="color:var(--danger)">${t("updates.remove", {v0: D.remove})}</span>` : '', v3: D.firmware != null ? t("updates.firmware", {v0: D.firmware}) : ''})}<span style="color:var(--warn)">${t("updates.forced_reboot")}</span>${t("updates.without_showing_the_list", {v4: esc(D.note)})}${dashSkip}` : '';
+  renderDashCompare(j.dashboard);
   renderPhasedPolicy(j.phased_policy);
   renderReboot(j.reboot); renderList();
 }
 
+/* Dashboard 對照兩張卡：左「DGX Dashboard 會」右「這裡你會」。數字只用 /api/updates 的 dashboard 與 state.selected，勾選變動時右卡跟著變（updateGo）。
+   強制重開機是紅標、不重開機是綠標；略過分階段的套件名單進 title；Dashboard 的做法說明（伺服器的 note）進左卡 ⓘ */
+function renderDashCompare(D) {
+  const el = $('#dashCompare'); if (!el) return;
+  if (!D) { el.innerHTML = ''; return; }
+  const ph = D.phased_held, n = v => `<b>${v}</b>`;
+  const phased = ph === null ? `<span title="${esc(t("updates.dash_phased_unknown"))}">${t("updates.cmp_phased", {n: n('—')})}</span>`
+    : ph.length ? `<span class="tag phased" title="${esc(t("updates.dash_phased_skip", {n: ph.length, list: ph.join(', ')}))}">${t("updates.cmp_phased", {n: ph.length})}</span>` : '';
+  el.innerHTML = `<div class="card"><h4>${t("updates.cmp_dash_title")}${D.note ? infoBtn('', null, D.note) : ''}</h4><div class="nums"><span>${t("updates.cmp_upgrade", {n: n(D.upgrade)})}</span>${D.install ? `<span>${t("updates.cmp_install", {n: n(D.install)})}</span>` : ''}${D.remove ? `<span style="color:var(--danger)">${t("updates.cmp_remove", {n: n(D.remove)})}</span>` : ''}${D.firmware != null ? `<span>${t("updates.cmp_firmware", {n: n(D.firmware)})}</span>` : ''}<span class="tag reboot">${t("updates.forced_reboot")}</span>${phased}<span class="sub1">${t("updates.cmp_no_list")}</span></div></div>` +
+    `<div class="card here"><h4>${t("updates.cmp_here_title")}</h4><div class="nums"><span>${t("updates.cmp_selected", {n: `<b id="cmpSel">${state.selected.size}</b>`})}</span><span class="tag ok">${t("updates.cmp_no_reboot")}</span></div></div>`;
+}
 /* 全機分階段策略：寫 /etc/apt/apt.conf.d/99spark-center-phased（跳一次密碼）。生效值用 apt-config 讀，不信任本地選擇。
    這是 apt 層的設定，apt upgrade／aptdaemon（DGX Dashboard）／unattended-upgrades 都讀同一份；Dashboard 的後台是獨立程序，推測要到它下次啟動才讀到。 */
 function renderPhasedPolicy(pp) {
@@ -433,16 +446,18 @@ function renderPhasedPolicy(pp) {
   if (!pp) { el.classList.add('hide'); return; }
   el.classList.remove('hide');
   const mode = pp.mode || 'default', known = pp.mode != null;
-  const opts = ['default', 'always', 'never'].map(m => `<option value="${m}" ${m === mode ? 'selected' : ''}>${t("updates.phased_policy_" + m)}</option>`).join('');
-  const src = !known ? t("updates.phased_policy_unreadable") : pp.other.length ? t("updates.phased_policy_other", {files: esc(pp.other.join(', '))}) : pp.ours ? t("updates.phased_policy_ours", {file: esc(pp.file)}) : t("updates.phased_policy_nofile");
-  el.innerHTML = `<span><b>${t("updates.phased_policy_label")}</b> <select id="phasedSel" ${document.body.classList.contains('ro') ? 'disabled' : ''}>${opts}</select> <a href="#faq/phased" data-faq="phased">${t("updates.phased_why")}</a></span><div class="sub1" style="margin-top:4px">${t("updates.phased_policy_hint_" + mode)}</div><div class="sub1">${src} · ${t("updates.phased_policy_note")}</div>`;
-  const sel = $('#phasedSel'); if (!sel) return;
-  sel.onchange = async () => {
-    const want = sel.value; sel.disabled = true;
+  const ro = document.body.classList.contains('ro');
+  const opts = ['default', 'always', 'never'].map(m => `<button type="button" class="${m === mode ? 'on' : ''}" data-phased="${m}" role="radio" aria-checked="${m === mode}" ${ro ? 'disabled' : ''}>${t("updates.phased_policy_" + m)}</button>`).join('');
+  const src = !known ? t("updates.phased_policy_unreadable") : pp.other.length ? t("updates.phased_policy_other", {files: pp.other.join(', ')}) : pp.ours ? t("updates.phased_policy_ours", {file: pp.file}) : t("updates.phased_policy_nofile");
+  el.innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap"><b>${t("updates.phased_policy_label")}</b><span class="seg" role="radiogroup">${opts}</span><a href="#faq/phased" data-faq="phased">${t("updates.phased_why")}</a>${infoBtn("updates.phased_policy_note", null, src)}</span>` +
+    `<div class="sub1" style="margin-top:4px">${t("updates.phased_policy_hint_" + mode)}</div><div class="sub1" title="${esc(src + ' · ' + t("updates.phased_policy_note"))}">${t("updates.phased_policy_scope_short")}</div>`;
+  el.querySelectorAll('button[data-phased]').forEach(b => b.onclick = async () => {
+    const want = b.dataset.phased; if (want === mode) return;
+    el.querySelectorAll('button[data-phased]').forEach(x => x.disabled = true);
     const r = await api('/api/setup/phased', {mode: want});
     if (!r.ok) alert(r.error);
     load();   // 以伺服器讀回的生效值重畫；清單與 Dashboard 對照也會跟著變
-  };
+  });
 }
 
 $('#btnGo').onclick = async () => {
