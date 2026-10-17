@@ -466,29 +466,34 @@ def _rollback_changes(cache, names):
     return out
 
 
-def _fetch_file(url, dest, max_bytes):
-    """下載到 dest；先看 Content-Length 擋太大的；回 (ok, reason)。"""
+def _fetch_file(url, dest, max_bytes, progress=lambda got, total: None):
+    """下載到 dest；先看 Content-Length 擋太大的；回 (ok, reason)。
+    progress(got, total)：每收到一塊就叫一次（total 讀不到是 0）——Launchpad 抓 30 MB 的舊版在慢連線要一分多鐘，
+    沒有進度的話工作卡看起來像當掉（2026-10-17 真機踩到）。"""
     req = urllib.request.Request(url, headers={"User-Agent": "spark-center"})
     with urllib.request.urlopen(req, timeout=60) as r:
         n = int(r.headers.get("Content-Length") or 0)
         if n > max_bytes:
             return False, ("too_big", n)
         got = 0
+        progress(0, n)
         with open(dest, "wb") as f:
             while True:
-                chunk = r.read(1 << 20)
+                chunk = r.read(256 << 10)
                 if not chunk:
                     break
                 got += len(chunk)
                 if got > max_bytes:
                     return False, ("too_big", got)
                 f.write(chunk)
+                progress(got, n)
     return True, None
 
 
-def rollback_prepare(names, log=lambda s: None, status=lambda s: None, step=lambda i, n, name: None):
+def rollback_prepare(names, log=lambda s: None, status=lambda s: None, step=lambda i, n, name: None, progress=lambda text: None):
     """在升級前呼叫。回這次的紀錄（也已寫進 index）。任何一個套件失敗都不影響升級本身。
-    step(i, n, name)：正在處理第 i 個（從 0 起）／共 n 個，給進度卡用；134 個套件逐一去 Launchpad 抓，沒步數會像當掉。"""
+    step(i, n, name)：正在處理第 i 個（從 0 起）／共 n 個，給進度卡用；134 個套件逐一去 Launchpad 抓，沒步數會像當掉。
+    progress(text)：下載中的一行人話（「snapd · Launchpad 12.3 / 32.7 MB」），給工作卡的「目前」欄；每半秒最多一次。"""
     cache = apt.Cache()
     job_id = datetime.now().strftime("%Y%m%dT%H%M%S")
     job_dir = os.path.join(ROLLBACK_DIR, job_id)
@@ -537,11 +542,23 @@ def rollback_prepare(names, log=lambda s: None, status=lambda s: None, step=lamb
             noepoch = inst.version.split(":", 1)[-1]
             cands.append(("launchpad", f"https://launchpad.net/ubuntu/+archive/primary/+files/{name}_{noepoch}_{inst.architecture}.deb"))
         reason = msg("rollback_no_source", LANG_DEFAULT)
+        if not cands:
+            log(msg("rollback_no_cache_no_source", LANG_DEFAULT, name=name, old=inst.version))
         for source, url in cands:
+            src_name = msg(f"rollback_src_{source}", LANG_DEFAULT)
+            log(msg("rollback_fetching", LANG_DEFAULT, name=name, old=inst.version, source=src_name, url=url))
+            t0 = time.time(); last = [0.0]; got_total = [0, 0]
+            def _prog(got, total, _src=src_name):
+                got_total[0], got_total[1] = got, total
+                if time.time() - last[0] < 0.5 and got and got != total:
+                    return
+                last[0] = time.time()
+                progress(msg("rollback_progress", LANG_DEFAULT, name=name, source=_src, got=f"{got / 1e6:.1f}", total=f"{total / 1e6:.1f}" if total else "?"))
             try:
-                ok, why = _fetch_file(url, dest, max_bytes)
+                ok, why = _fetch_file(url, dest, max_bytes, _prog)
             except Exception as e:
-                reason = msg("rollback_fetch_failed", LANG_DEFAULT, err=str(e)[:80]); continue
+                reason = msg("rollback_fetch_failed", LANG_DEFAULT, err=str(e)[:80])
+                log(msg("rollback_fetch_failed_src", LANG_DEFAULT, source=src_name, err=str(e)[:80])); continue
             if not ok:
                 reason = msg("rollback_too_big", LANG_DEFAULT, mb=round(why[1] / 1048576), max=ROLLBACK_MAX_MB); break
             if not _deb_matches(dest, name, inst.version):
@@ -555,7 +572,7 @@ def rollback_prepare(names, log=lambda s: None, status=lambda s: None, step=lamb
             else:
                 reason = msg("rollback_no_trusted_hash", LANG_DEFAULT); continue
             entry.update(deb=os.path.relpath(dest, ROLLBACK_DIR), source=source, verified=verified)
-            log(msg("rollback_kept", LANG_DEFAULT, name=name, old=inst.version, source=msg(f"rollback_src_{source}", LANG_DEFAULT))); break
+            log(msg("rollback_kept_dl", LANG_DEFAULT, name=name, old=inst.version, source=src_name, mb=f"{got_total[0] / 1e6:.1f}", sec=f"{time.time() - t0:.0f}")); break
         if not entry["deb"]:
             try:
                 os.remove(dest)
@@ -1767,7 +1784,10 @@ class Job:
                 def _step(i, n, name):
                     with self.lock:
                         self.state.update(step=[i, n], details=name, progress=int(i / n * 100) if n else None)
-                rollback_prepare(packages, self._log, lambda txt: self.state.__setitem__("status_text", txt), _step)
+                def _progress(text):
+                    with self.lock:
+                        self.state["details"] = text
+                rollback_prepare(packages, self._log, lambda txt: self.state.__setitem__("status_text", txt), _step, _progress)
             except Exception as e:
                 self._log("rollback prepare failed: " + str(e))
             with self.lock:   # 留舊版結束；接下來的階段由 aptdaemon 的狀態決定，進度歸零不沿用
