@@ -44,7 +44,7 @@
   button { border: 1px solid #3a3f3c; background: var(--surface2); color: var(--text); padding: 9px 16px; border-radius: 6px; font: inherit; font-size: 14px; cursor: pointer; }
   button:hover { border-color: #555; }
   button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 700; }
-  button.small { padding: 4px 10px; font-size: 12px; }
+  button.small { padding: 4px 10px; font-size: 12px; white-space: nowrap; }   /* 80px 的表格欄裡 "Details" 不折成兩行 */
   /* 按鈕內的小圖示：inline SVG，跟著文字顏色走，不用外部資源 */
   button[data-act] { white-space: nowrap; }
   button svg.ic { width: 14px; height: 14px; vertical-align: -2px; margin-right: 5px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

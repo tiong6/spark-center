@@ -1,0 +1,121 @@
+# Spark Center: everything it does
+
+The [README](../README.md) shows the three things the stock Dashboard cannot do and how to install. This page is the full reference, tab by tab, plus the optional root-owned pieces, what the tool deliberately does not do, and the files in the repository.
+
+## What it does
+
+| Tab | What you get |
+|---|---|
+| **Monitor** | DGX-style gauges and sparklines, sampled every 2 s: unified memory, CPU (overall or per-core with clocks), GPU via NVML, GPU temperature against the real NVML slowdown threshold, GPU power, NVMe temperature, per-interface throughput with the negotiated link speed in the card title (a 10GbE cable plugged in later appears within seconds), and Wi-Fi quality (signal, MCS, retry rate, beacon loss, 24 h disconnects) with a channel analyser. Detects the **"GPU stuck at 611 MHz"** PD-controller failure and shows the cold-drain fix. An **overheat alert** fires when the GPU stays at or above the driver's own slowdown threshold (read from NVML; 86 °C on this unit) for 60 s: a desktop notification plus an alarm sound (four rings), repeated every 2 minutes for as long as it lasts, cleared 3 °C below the threshold. No threshold from the driver means no alert rather than a guessed number. A **GPU clock** card shows the current SM clock against the driver's default operating point (2418 MHz on GB10; the 3003 MHz hardware maximum is never reached under sustained load) and names any active throttle reason. With the optional *GPU clock cap* switch on the Setup tab (a sudoers line listing `nvidia-smi -lgc 0,<1000…3000 in 100 MHz steps>` and `-rgc` explicitly, no wildcard), a slider under the cards caps the clock; you drag, then press Apply. Community measurements on GB10 put a 2000 to 2200 MHz cap at roughly 12 °C and a third of the power for about 1 % slower LLM decode. The driver forgets the cap on reboot, so Spark Center reapplies it when it starts at login. |
+| **Models** | Separate running services, persisted SSD/NAS file inventory, and collapsed benchmark history. API failures remain unknown rather than empty. Text benchmarks require completion capability; load and benchmark requests go through the Strata/Ollama admission guard. See [model sources and guard setup](docs/MODEL_PAGE.md). |
+| **Updates** | Pick the packages you want. A dependency simulation runs first and shows everything that will really be touched, including what your selection drags in. No forced reboot; it only reads `/var/run/reboot-required` and tells you. Packages are grouped by source with readable names and a colour per source (the raw apt `Origin` is still shown, since vendors fill it with things like `code stable` or `. nodistro`). Firmware sub-packages that Ubuntu's `linux-firmware` meta-package drags in but no loaded driver uses on this machine (AMD graphics, Qualcomm, Netronome…) are folded away, judged by intersecting the package's files with `modinfo -F firmware` of every loaded module; they do not light the tab's badge and *Select all* skips them. While downloading, the job bar shows bytes done / total, speed and ETA, because aptdaemon's percentage is not linear in bytes and sits at 1 % for a long time. Before it installs, it simulates the upgrade and keeps the `.deb` of every version that will really be replaced, including the ones pulled in by dependencies (from the apt cache, the repository pool, or Launchpad for Ubuntu packages; downloads are checked against the sha256 in the apt index), so a bad update can be rolled back from the same tab, one package or the whole set, via `pkexec apt-get install --allow-downgrades --no-remove` after the same simulate-and-confirm step as an update (a rollback that would remove other software is refused, and edited configuration files are kept); packages whose source does not keep old versions are marked as such rather than silently skipped. Below it, a **firmware panel** reads fwupd directly, so a flash that reported success but did not change the version shows up as a mismatch, and an **npm global packages panel** lists the CLI tools installed with `npm -g` (Claude Code, Gemini CLI, OpenClaw…) with their latest versions; they update without a password because they live in your home directory, and the version being replaced is recorded so the same roll-back panel can reinstall it. pip and Docker images are deliberately not covered: system pip packages belong to apt, virtualenv versions are pinned by their projects, and pulling a Docker image does not update the running container. npm updates install only versions whose `engines` match your Node (checked with npm's own semver, never a silent fall-back to `@latest`), processes still running a package are detected and, when they are systemd user services, the update runs as one transaction: stop the service, back up its data with the program's own backup command (OpenClaw is the program Spark Center knows so far; the last two backups are kept under `~/.local/share/spark-center/npm-backups`), install, run the program's own repair or migration step, start it and wait until it has stayed alive for a few seconds. A plan dialog explains all of this before you confirm. If the service does not come back, the job card explains why in plain words (data format too new for the old version, migration not done, a half-replaced install, a port in use) and offers the way out as buttons: go back to the newer version and repair, let the program repair itself, or restart, plus the backup path; a desktop notification tells you even if the window is not in front. Programs Spark Center does not know are just stopped, updated, started and checked. When your Node is older than the current LTS, the same panel guides a **Node major-version upgrade** (see below). |
+| **Apps** | Every desktop application across apt, snap and flatpak, with icons, versions, origins, installed size and install date. flatpak and snap updates are one click. snap updates show real byte-level progress read from snapd's API. |
+| **Disk** | A macOS-style segmented bar of what is eating space (models, Docker, app data, caches, logs, trash, other) with a legend, then the breakdown with relative bars: models, Docker, snap data, caches, logs, big files. Cleanup actions are a fixed whitelist. Desktop notification at 90 %. |
+| **Hardware** | An "About this machine" header (model, chip, unified memory, storage, DGX OS, serial, BIOS; the BIOS tile opens the full version string, the EC / SoC / USB-C PD firmware versions with their LVFS release notes, and a link to your vendor's support page, matched from DMI for ASUS, MSI, GIGABYTE, Dell, HP, Lenovo, Acer and NVIDIA Founders Edition), then a Windows-style inventory: rear-panel diagram with per-port USB-C mapping (built in for the ASUS Ascent GX10; other GB10 models calibrate it by plugging something in, and the result stays on the machine), DMI serial and memory modules, NVMe SMART health, USB device tree, Bluetooth, printers (live status, alerts and toner levels asked from the printer itself over IPP, re-checked every 30 s), PCI link speeds. A **Devices on this network** panel lists what this machine can see on its own subnet: the ARP/NDP neighbour table (with vendor from the IEEE OUI table; randomised MACs are labelled as private, not guessed) plus mDNS announcements, names from the router's DHCP host names or mDNS. It is passive by default; an explicit *Scan the subnet* button pings every address once (no root) so every device gets a MAC and vendor. It only ever sees the subnet this machine is on; other VLANs are the router's business, and the traffic column says whether a device talked to *this machine*, not whether it is online. |
+| **History** | Recent apt transactions with who ran them. |
+| **FAQ** | NVIDIA's official *DGX Spark / GB10 FAQ* (the post the NVIDIA team keeps pinned on the developer forum), grouped by topic in both languages, searchable, with copyable commands. Where an answer depends on the machine, a separate **This machine** box shows what is true here, kept apart from NVIDIA's text: the ConnectX-7 hotplug flag and whether CX7 is on the PCI bus, buff/cache summed the way `free` does, the Wi-Fi interface name the FAQ's command assumes, and the DMI manufacturer for the BIOS-password answer. The page records which revision of the original it was written from and asks the forum once a day; when NVIDIA has edited the post since, it says so instead of passing the old copy off as current. |
+
+
+## Node major-version upgrades
+
+The npm panel offers the current LTS from the official Node release schedule for a standard NodeSource installation using `/usr/bin/node`. **Prepare upgrade** first downloads the installed `.deb`, verifies its SHA-256 against trusted apt metadata, saves the original repository, and switches the existing `nodesource.sources` using its existing signing key. It then refreshes and checks the target package. Preparation failure attempts to restore the original source; any recovery failure remains visible.
+
+Installation is a separate **Check impact and install** action with an apt simulation and desktop authorization. You can cancel preparation or restore the saved Node version and repository. Removal of other packages is prohibited. Restoration warns about incompatible installed npm tools; it does not restore those tools, project dependencies, or running services. Restart affected tools after installation.
+
+One major-upgrade backup (maximum 150 MiB) is kept under root-owned `/var/lib/spark-center/node-source/`; preparing a subsequent major upgrade replaces it. nvm, snap, custom or multiple NodeSource sources are not handled. No downloaded setup script is executed.
+
+### Optional: let the DGX Dashboard re-check after updates
+
+The stock Dashboard's "update available" badge comes from a snapshot kept by its root service, so it often stays lit for an hour or more after you have installed everything. Spark Center can make it re-check right after each install by restarting that one service, which needs root. Like the two rules above, this is a sudoers line that allows exactly one command and nothing else:
+
+```sh
+echo "$USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart dgx-dashboard-admin.service" | sudo tee /etc/sudoers.d/spark-center-dashboard
+sudo chmod 440 /etc/sudoers.d/spark-center-dashboard
+```
+
+It only runs when the Dashboard back end reports itself idle ("ready"), never while an NVIDIA OTA is in progress. Without the line nothing breaks and nothing prompts: `sudo -n` fails silently and the job log reminds you of the manual command. (A polkit rule was tried first and rejected: `systemctl` still pops the desktop password dialog when the rule does not match.)
+
+### Optional: install the Node upgrade helper
+
+Node major upgrades require a separately installed, root-owned helper. The app refuses to run the repository copy with privilege. Without a matching installed helper, the panel explains that this feature is unavailable; other update features still work. The helper runs only on demand through pkexec, not as a background root service.
+
+After reviewing `tools/node_source.py`, run these commands from the repository directory. Repeat after changes to that file; installation does not switch repositories or install Node. The destination and all parent directories must be owned by root, not symlinks, and not writable by group or others.
+
+```sh
+sudo install -d -o root -g root -m 0755 /usr/local/libexec/spark-center
+sudo install -o root -g root -m 0755 tools/node_source.py /usr/local/libexec/spark-center/node_source.py
+sudo install -o root -g root -m 0644 tools/spark-center-node-source.policy /usr/share/polkit-1/actions/io.github.tiong6.spark-center.node-source.policy
+```
+
+The third line installs a polkit policy so the password dialog says "Spark Center wants to switch the NodeSource repository and install or restore Node.js" instead of a generic "run a program as root". Each run asks for the password again; nothing is remembered.
+
+The preparation preview shows the expected upstream LTS version; the signed NodeSource apt index determines the actual install version. Successful upgrades appear as a neutral history line with a restore action.
+
+Validation: isolated workflow tests and live read-only API/browser checks cover this feature. The real privileged repository-switch/install/restore sequence has **not yet been exercised**.
+
+
+## Optional: two read-only sudoers rules
+
+Everything works without root. Two panels need it, and each is a single read-only command with its arguments pinned:
+
+```sh
+
+## Remote access
+
+Spark Center listens on 127.0.0.1 only and has no login, on purpose. To use it from another machine, forward the port over SSH so the connection still arrives as local:
+
+```
+ssh -L 11001:127.0.0.1:11001 <user>@<your GB10>
+```
+
+then open http://127.0.0.1:11001 on that machine. NVIDIA Sync's *Add Custom* does the same thing: name it, set port 11001, tick *Auto open in browser*, leave the path empty. Any local port works on the remote side. Password dialogs for apt, snap and firmware still appear on the GB10's own desktop, not on the remote machine.
+
+
+## What it touches on your system
+
+Everything `install.sh` writes lives in your home directory; nothing is installed as root:
+
+| Path | What | Written by |
+|---|---|---|
+| `~/.config/systemd/user/spark-center.service` | the user service | install.sh |
+| `~/.local/share/applications/spark-center.desktop`, `~/.local/share/icons/hicolor/*/apps/spark-center.*` | app-menu entry and icons | install.sh |
+| `<repo>/data/` | run-time data: measurement history, hardware snapshot, USB-C calibration, kept `.deb` files for roll-back | the service |
+| `~/.config/autostart/spark-center.desktop` | only if you tick *open at login* | the service |
+
+Everything that needs root goes through polkit and asks for your password each time (apt, snap, firmware, roll-back). Two things are optional and root-owned, and only exist if you run the documented `sudo` lines yourself: the two read-only sudoers rules, and the Node-upgrade helper with its polkit policy (plus its state under `/var/lib/spark-center/`).
+
+
+## What it does not do
+
+- **It does not replace the Spark OS firmware OTA.** That path is NVIDIA's and closed. When `dgx-release`, `dgx-spark-ota-update-meta` or `linux-image-nvidia` appear in the update list, use the stock Dashboard for those.
+- It does not change router settings, kill your applications, or remove Docker volumes. Where something is risky it tells you and stops.
+- **It never scans a network on its own.** The subnet sweep is a button you press, sends one ping per address on this machine's subnet only, and is blocked in read-only mode. On a network that is not yours, ask before pressing it. To remove the button entirely (company networks, security policy), start the service with `SPARK_CENTER_NO_SWEEP=1`; the passive neighbour list keeps working.
+- **Rollback is per package, not a system restore.** It reinstalls the exact `.deb` that was replaced, after an apt simulation; it does not snapshot the filesystem, and it refuses when going back would remove other software. Tested end to end on a real security update (curl: update → roll back the set → verify → update again).
+- It lists only applications that have a desktop entry. Command-line tools and libraries are not in the Apps tab; they are in Updates.
+
+
+## One trade-off to know about
+
+The Updates tab lets you pick packages yourself. That is the reason it exists, and it is also the one way it is more dangerous than the stock Dashboard: **the kernel and the NVIDIA signed modules are two separate meta-packages with no dependency between them.** Tick the kernel without the modules and the simulation shows no warning, but after the reboot you are on a kernel with no signed GPU driver. When you upgrade the kernel, tick `linux-modules-nvidia-*-nvidia-hwe-*` with it. Spark Center points this out when it sees one without the other.
+
+
+## Requirements
+
+Ubuntu 24.04 / DGX OS 7.x on aarch64. Everything below ships with DGX OS; nothing needs to be installed:
+`python3-apt`, `python3-aptdaemon`, `python3-dbus`, `python3-gi`, `fwupd`, `nvme-cli`, `bluez`, `iw`, `network-manager`.
+
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `server.py` | Back end on the standard-library `http.server`, about 5,400 lines |
+| `index.html` | Front-end skeleton (markup only), about 170 lines |
+| `static/css/app.css`, `static/js/*.js` | Styles and one script per tab, served straight by server.py; no build step, no external resources. `i18n.js` holds the English and Chinese strings |
+| `tools/check.sh` | Static checks before a change: syntax, duplicate CSS selectors, duplicate ids, string-table alignment |
+| `tools/node_source.py`, `tools/spark-center-node-source.policy` | The optional root-owned helper for Node.js major upgrades and its polkit policy (installed from the Setup tab) |
+| `install.sh`, `uninstall.sh` | Create or remove the systemd user unit, the app-menu entry and the icons |
+| `spark-center.service.in`, `app/spark-center.desktop.in` | Templates with `@ROOT@` and `@PORT@` placeholders |
+| `data/` | Run-time data: USB-C port calibration, benchmark history, hardware snapshot, and the `.deb` files kept for roll-back under `rollback/`. Ignored by git |
+| `docs/` | README screenshots and completed work orders |
+| `HANDOFF.md`, `CLAUDE.md` | The maintainer's working notes, in Chinese: current state, next steps, and conventions for the coding agent. Not needed to install or use the tool |
