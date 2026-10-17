@@ -1,4 +1,4 @@
-// 量各分頁「可見說明文字」字數（.sub1/.sub/p/.muted/.empty，不含表格格、FAQ 內文、視窗）。用法：HC=<空目錄> node tools/measure_prose.mjs（服務要在 11001 跑）
+// 量各分頁「可見說明文字」字數（prose：.sub1/.sub/p/.muted/.empty，不含表格格、FAQ 內文、視窗；expl：再排除 .tree/.kv/.stat/.slot/.pr-dev/清單這些資料容器）。用法：HC=<空目錄> node tools/measure_prose.mjs（服務要在 11001 跑）
 import { spawn } from 'node:child_process';
 const port = 9349;
 const chrome = spawn('google-chrome', ['--headless=new', '--disable-gpu', '--no-sandbox', `--user-data-dir=${process.env.HC}`, `--remote-debugging-port=${port}`, '--window-size=1400,1000', 'about:blank'], { stdio: 'ignore' });
@@ -20,8 +20,10 @@ try {
       // 說明性文字：.sub1 / .sub / p / .muted / details>summary 這些「解釋用」元素，不含表格儲存格裡的
       const prose = [...root.querySelectorAll('.sub1, .sub, p, .muted, .empty')].filter(e => !e.closest('td') && !e.closest('.faq') && !e.closest('.modal'));
       const n = prose.reduce((s, e) => s + e.innerText.replace(/\\s+/g,'').length, 0);
+      // expl：再排除資料容器（USB 樹節點、kv 清單、數字磚、孔位、印表機卡、條列的歷史）——這些是資料不是說明，和表格儲存格同性質。原 prose 定義保留並列
+      const expl = prose.filter(e => !e.closest('.tree, .kv, .stat, .slot, .pr-dev, ul, ol')).reduce((s, e) => s + e.innerText.replace(/\\s+/g,'').length, 0);
       const top = prose.map(e => e.innerText.replace(/\\s+/g,' ').trim()).filter(t => t.length > 60).sort((a,b) => b.length - a.length).slice(0, 3).map(t => t.length + ': ' + t.slice(0, 70) + '…');
-      return JSON.stringify({all, prose: n, panels: root.querySelectorAll('.panel').length, top}); })()`);
-    const j = JSON.parse(r); console.log(tab.padEnd(9), 'all', String(j.all).padStart(6), 'prose', String(j.prose).padStart(6), (j.prose / Math.max(j.all,1) * 100).toFixed(0).padStart(3) + '%', 'panels', j.panels); for (const t of j.top) console.log('    ', t);
+      return JSON.stringify({all, prose: n, expl, panels: root.querySelectorAll('.panel').length, top}); })()`);
+    const j = JSON.parse(r); console.log(tab.padEnd(9), 'all', String(j.all).padStart(6), 'prose', String(j.prose).padStart(6), (j.prose / Math.max(j.all,1) * 100).toFixed(0).padStart(3) + '%', 'expl', String(j.expl).padStart(6), 'panels', j.panels); for (const t of j.top) console.log('    ', t);
   }
 } finally { try { ws && ws.close(); } catch {} chrome.kill(); }

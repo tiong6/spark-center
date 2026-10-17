@@ -89,7 +89,7 @@
 
   <section id="tab-monitor">
     <div id="gpuAlert" class="panel notice danger hide"></div>
-    <div class="montools"><span class="sub1" style="align-self:center" data-i18n="common.size">尺寸</span><span class="switch" id="monSize"><span data-size="large" data-i18n="common.large">大</span><span data-size="compact" data-i18n="common.small">小</span></span><button class="small hide" id="monReset" data-i18n="mon.reset_layout">還原版面</button><span class="info" id="monNote" title="">ⓘ</span></div>
+    <div class="montools"><span class="sub1" style="align-self:center" data-i18n="common.size">尺寸</span><span class="switch" id="monSize"><span data-size="large" data-i18n="common.large">大</span><span data-size="compact" data-i18n="common.small">小</span></span><button class="small hide" id="monReset" data-i18n="mon.reset_layout">還原版面</button><button type="button" class="info" id="monNote" data-info="mon.sampled_every_seconds_the_chart_keeps" data-i18n-aria-label="common.info" aria-expanded="false">ⓘ</button></div>
     <p id="monFreshness" class="sub1" role="status"></p>
     <div id="mon" class="mon"><div class="panel"><div class="empty" data-i18n="updates.loading">讀取中…</div></div></div>
     <div id="clockPanel" class="panel hide">
@@ -118,10 +118,10 @@
   </section>
 
   <section id="tab-hardware" class="hide">
-    <div style="display:flex;gap:10px;align-items:center;margin:-8px 0 14px"><div id="hwNote" class="sub1" style="flex:1"></div><button id="btnHwReload" class="small" data-i18n="hw.reload_hardware">重新讀取硬體</button></div>
+    <div style="display:flex;gap:10px;align-items:center;justify-content:flex-end;margin:-8px 0 14px"><span id="hwNote" class="sub1" style="display:inline-flex;align-items:center"></span><button id="btnHwReload" class="small" data-i18n="hw.reload_hardware">重新讀取硬體</button></div>
     <div class="panel hide" id="hwHero"></div>
-    <div class="panel" id="usbPortsPanel"><div class="panel-h"><h2 data-i18n="common.rear_panel">後面板</h2><span class="sub" id="usbPortsSub" data-i18n="updates.loading">讀取中…</span><div class="actions"><button id="btnCalib" class="small" data-i18n="hw.calibrate_ports">校準孔位</button><button id="btnCalibReset" class="small" data-i18n="common.clear_calibration">清除校準</button></div></div><div id="rear"></div><div id="usbPorts" style="margin-top:14px"></div></div>
-    <div class="panel" id="lanPanel"><div class="panel-h"><h2 data-i18n="hw.lan_title">區網裝置</h2><span class="sub" id="lanMeta" data-i18n="updates.loading">讀取中…</span><div class="actions"><button id="btnLanReload" class="small" data-i18n="hw.lan_rescan">重新整理</button><button id="btnLanScan" class="small primary" data-i18n="hw.lan_scan" data-i18n-title="hw.lan_scan_hint">主動掃描網段</button></div></div><div id="lan"></div></div>
+    <div class="panel" id="usbPortsPanel"><div class="panel-h"><h2 data-i18n="common.rear_panel">後面板<button type="button" class="info" data-info="hw.left_to_right_kensington_usb_c" data-info-vars='{"v0":"","v1":""}' data-i18n-aria-label="common.info" aria-expanded="false">ⓘ</button></h2><span class="sub" id="usbPortsSub" data-i18n="updates.loading">讀取中…</span><div class="actions"><button id="btnCalib" class="small" data-i18n="hw.calibrate_ports">校準孔位</button><button id="btnCalibReset" class="small" data-i18n="common.clear_calibration">清除校準</button></div></div><div id="rear"></div><div id="usbPorts" style="margin-top:14px"></div></div>
+    <div class="panel" id="lanPanel"><div class="panel-h"><h2 data-i18n="hw.lan_title">區網裝置<button type="button" class="info" data-info="hw.lan_note" data-i18n-aria-label="common.info" aria-expanded="false">ⓘ</button></h2><span class="sub" id="lanMeta" data-i18n="updates.loading">讀取中…</span><div class="actions"><button id="btnLanReload" class="small" data-i18n="hw.lan_rescan">重新整理</button><button id="btnLanScan" class="small primary" data-i18n="hw.lan_scan" data-i18n-title="hw.lan_scan_hint">主動掃描網段</button></div></div><div id="lan"></div></div>
     <div id="hw" class="grid"><div class="panel"><div class="empty" data-i18n="updates.loading">讀取中…</div></div></div>
   </section>
 

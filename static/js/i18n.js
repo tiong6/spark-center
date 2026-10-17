@@ -390,6 +390,14 @@ const STR = {
     "hw.bios_last_update": "上次更新 {from} → {to}，{state}，{when}",
     "hw.bios_no_capsule": "fwupd 沒有列出系統韌體元件（EC／SoC／PD）。",
     "hw.bios_note": "版本說明是廠商上傳到 LVFS 的英文原文；DGX Dashboard 的 Update Now 會一起刷這些，這裡可以先看。",
+    "common.info": "說明",
+    "hw.snapshot_at": "快照 {v0}",
+    "hw.empty_root_ports": "{n} 個空根埠",
+    "hw.fan_na_short": "風扇轉速無法顯示",
+    "hw.dc_no_badblocks_short": "不含壞軌掃描（chkdsk /r）",
+    "hw.pr_none_short": "CUPS 與區網都沒找到印表機",
+    "hw.pr_sub_short": "CUPS {v0} · {v1}",
+    "hw.usb_nodes_short": "{v0} 個節點",
     "hw.lan_title": "區網裝置",
     "hw.lan_rescan": "重新整理",
     "hw.lan_scan": "主動掃描網段",
@@ -1622,6 +1630,14 @@ const STR = {
     "hw.bios_last_update": "last update {from} → {to}, {state}, {when}",
     "hw.bios_no_capsule": "fwupd lists no system firmware components (EC / SoC / PD).",
     "hw.bios_note": "Release notes are the vendor's English text on LVFS. The DGX Dashboard's Update Now flashes these together; here you can read them first.",
+    "common.info": "Details",
+    "hw.snapshot_at": "Snapshot {v0}",
+    "hw.empty_root_ports": "{n} empty root ports",
+    "hw.fan_na_short": "Fan speed unavailable",
+    "hw.dc_no_badblocks_short": "No bad-block scan (chkdsk /r)",
+    "hw.pr_none_short": "No printer in CUPS or on the LAN",
+    "hw.pr_sub_short": "CUPS {v0} · {v1}",
+    "hw.usb_nodes_short": "{v0} nodes",
     "hw.lan_title": "Devices on this network",
     "hw.lan_rescan": "Refresh",
     "hw.lan_scan": "Scan the subnet",
@@ -2468,7 +2484,7 @@ if (!STR[LANG]) LANG = navigator.language.toLowerCase().startsWith('zh') ? 'zh-T
 const t = (key, vars) => { let s = (STR[LANG] && STR[LANG][key]) ?? (STR['zh-TW'][key] ?? key); if (vars) for (const k in vars) s = s.split('{' + k + '}').join(vars[k]); return s; };
 document.documentElement.lang = LANG;
 document.querySelectorAll('[data-i18n]').forEach(el => { if (el.children.length) el.firstChild.nodeValue = t(el.dataset.i18n); else el.textContent = t(el.dataset.i18n); });
-for (const attr of ['title', 'placeholder', 'alt']) document.querySelectorAll('[data-i18n-' + attr + ']').forEach(el => el.setAttribute(attr, t(el.getAttribute('data-i18n-' + attr))));
+for (const attr of ['title', 'placeholder', 'alt', 'aria-label']) document.querySelectorAll('[data-i18n-' + attr + ']').forEach(el => el.setAttribute(attr, t(el.getAttribute('data-i18n-' + attr))));
 document.querySelectorAll('#langSwitch [data-lang]').forEach(el => {
   el.classList.toggle('on', el.dataset.lang === LANG);
   el.onclick = () => { LANG = el.dataset.lang; try { localStorage.setItem('spark-center.lang', LANG); } catch (e) {} location.reload(); };

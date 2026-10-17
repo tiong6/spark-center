@@ -29,7 +29,69 @@ document.addEventListener('click', e => {
     .then(r => r.json()).then(j => { if (!j || !j.ok) fallback(); }).catch(fallback);
 }, true);
 
+/* 共用 ⓘ：把「來源／怎麼判定／為什麼」收起來，第一眼只看資料與結論。
+   標記：infoBtn(key, vars, after) → <button class="info" data-info="<i18n key>">ⓘ</button>；內容就是 t(key)（同一個 key，不另複製字串），
+   可用 faqRich 的輕量標記，裡面的 data-faq 連結照常跳 FAQ。after 是額外接在後面的純文字（例如伺服器回來的 note）。
+   行為：滑過開（移開就關）、點一下釘住（觸控／鍵盤走這條）、再點／Esc／點外面關；同時只開一個。
+   面板絕對定位在 ⓘ 下方，靠右邊緣往左翻、靠底往上翻；面板所在區塊重畫（每 2 秒的後面板）時改認同 key 的新按鈕，找不到就關。 */
+const infoBtn = (key, vars, after) => `<button type="button" class="info" data-info="${esc(key)}"${vars ? ` data-info-vars="${esc(JSON.stringify(vars))}"` : ''}${after ? ` data-info-after="${esc(after)}"` : ''} aria-label="${esc(t("common.info"))}" aria-expanded="false">ⓘ</button>`;
+const infopop = { el: null, btn: null, pinned: false, timer: null, watch: null };
+function infoText(btn) {
+  let vars = null; try { vars = btn.dataset.infoVars ? JSON.parse(btn.dataset.infoVars) : null; } catch (e) {}
+  const s = t(btn.dataset.info, vars) + (btn.dataset.infoAfter ? '\n' + btn.dataset.infoAfter : '');
+  return typeof faqRich === 'function' ? faqRich(s) : `<p>${esc(s)}</p>`;   // faq.js 在 core.js 之後載入，呼叫時才查
+}
+function infoPlace() {
+  const { el, btn } = infopop; if (!el || !btn) return;
+  const r = btn.getBoundingClientRect(), vw = document.documentElement.clientWidth, vh = window.innerHeight;
+  el.style.left = '0px'; el.style.top = '0px';
+  const w = el.offsetWidth, h = el.offsetHeight;
+  let left = r.left; if (left + w > vw - 12) left = Math.max(12, r.right - w);
+  let top = r.bottom + 6; if (top + h > vh - 12 && r.top - h - 6 > 12) top = r.top - h - 6;
+  el.style.left = Math.round(left + window.scrollX) + 'px'; el.style.top = Math.round(top + window.scrollY) + 'px';
+}
+function infoOpen(btn, pinned) {
+  clearTimeout(infopop.timer);
+  if (infopop.btn && infopop.btn !== btn) infoClose();
+  if (!infopop.el) { infopop.el = document.createElement('div'); infopop.el.className = 'infopop'; infopop.el.setAttribute('role', 'tooltip'); document.body.appendChild(infopop.el); }
+  if (infopop.btn !== btn) { infopop.el.innerHTML = infoText(btn); infopop.btn = btn; btn.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); }
+  infopop.pinned = infopop.pinned || !!pinned;
+  infoPlace();
+  if (!infopop.watch) infopop.watch = setInterval(() => {   // 按鈕被重畫掉：改認同一個 key 的新按鈕；沒有就關
+    const b = infopop.btn; if (!b || document.contains(b)) return;
+    const nb = [...document.querySelectorAll(`.info[data-info="${b.dataset.info.replace(/"/g, '\\"')}"]`)].find(x => !x.closest('.hide'));
+    if (!nb) return infoClose();
+    infopop.btn = nb; nb.classList.add('open'); nb.setAttribute('aria-expanded', 'true'); infoPlace();
+  }, 500);
+}
+function infoClose() {
+  clearTimeout(infopop.timer); clearInterval(infopop.watch); infopop.watch = null;
+  if (infopop.btn) { infopop.btn.classList.remove('open'); infopop.btn.setAttribute('aria-expanded', 'false'); }
+  if (infopop.el) infopop.el.remove();
+  infopop.el = null; infopop.btn = null; infopop.pinned = false;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('.info[data-info]');
+  if (b) { e.preventDefault(); if (infopop.btn === b && infopop.pinned) infoClose(); else infoOpen(b, true); return; }
+  if (infopop.el && !e.target.closest('.infopop')) infoClose();
+});
+document.addEventListener('mouseover', e => {
+  if (e.target.closest('.infopop')) { clearTimeout(infopop.timer); return; }
+  const b = e.target.closest('.info[data-info]');
+  if (b) { if (infopop.btn === b) clearTimeout(infopop.timer); else infoOpen(b, false); }
+});
+document.addEventListener('mouseout', e => {
+  if (infopop.pinned || !infopop.el) return;
+  if (!e.target.closest('.info[data-info], .infopop')) return;
+  const to = e.relatedTarget;
+  if (to && (to.closest('.infopop') || to.closest('.info[data-info]') === infopop.btn)) return;
+  clearTimeout(infopop.timer); infopop.timer = setTimeout(infoClose, 220);
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && infopop.el) { infoClose(); } });
+window.addEventListener('resize', infoClose);
+
 function showTab(t) {
+  infoClose();
   document.querySelectorAll('nav.tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === t));
   for (const k of Object.keys(TITLES)) $('#tab-'+k).classList.toggle('hide', k !== t);
   $('#pageTitle').textContent = TITLES[t];

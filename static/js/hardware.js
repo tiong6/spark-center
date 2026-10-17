@@ -17,14 +17,14 @@ async function loadLan(force) {
   $('#lanMeta').textContent = t("hw.lan_meta", {n: j.devices.length, subnets, when: j.generated.replace('T', ' ')});
   $('#btnLanScan').classList.toggle('hide', j.sweep === false);   // 管理員關掉主動掃描（或唯讀模式）時不給按鈕
   if (!j.devices.length) { box.innerHTML = `<div class="empty">${t("hw.lan_none")}</div>`; return; }
-  let html = `<table><thead><tr><th style="width:16%">IP</th><th style="width:26%">${t("hw.lan_name")}</th><th style="width:24%">${t("hw.lan_vendor")}</th><th style="width:20%">MAC</th><th>${t("hw.lan_state")}</th></tr></thead><tbody>`;
+  let html = `<table><thead><tr><th style="width:16%">IP</th><th style="width:26%">${t("hw.lan_name")}</th><th style="width:24%">${t("hw.lan_vendor")}</th><th style="width:20%">MAC</th><th title="${esc(t("hw.lan_note"))}">${t("hw.lan_state")}</th></tr></thead><tbody>`;
   for (const d of j.devices) {
     const name = d.name || d.mdns || '—', alt = d.name && d.mdns && d.mdns !== d.name ? `<div class="sub1">mDNS: ${esc(d.mdns)}</div>` : '';
     const vendor = d.private_mac ? `<span class="sub1" title="${t("hw.lan_private_mac_hint")}">${t("hw.lan_private_mac")}</span>` : esc(d.vendor || '—');
     const st = d.state === 'reachable' ? `<span class="tag ok">${t("hw.lan_reachable")}</span>` : d.state === 'mdns' ? `<span class="tag" title="${t("hw.lan_mdns_only_hint")}">${t("hw.lan_mdns_only")}</span>` : `<span class="tag">${t("hw.lan_stale")}</span>`;
     html += `<tr><td class="mono">${esc(d.ip || '—')}${d.ipv4.length > 1 ? `<div class="sub1 mono">${d.ipv4.slice(1).map(esc).join(', ')}</div>` : ''}</td><td>${esc(name)}${alt}</td><td>${vendor}</td><td class="mono sub1">${esc(d.mac || '—')}</td><td>${st}${d.ipv6 ? `<span class="sub1"> · IPv6 ×${d.ipv6}</span>` : ''}</td></tr>`;
   }
-  box.innerHTML = html + `</tbody></table><div class="sub1" style="margin-top:8px">${t("hw.lan_note")}</div>`;
+  box.innerHTML = html + `</tbody></table>`;   // 被動查詢的說明在面板標題旁的 ⓘ 與「和本機的通訊」表頭的 title
 }
 // 兩段式：先說清楚會做什麼、範圍、在別人的網路要先問，按「我了解」才掃。決定權在知道脈絡的人手上。
 $('#btnLanScan').onclick = () => {
@@ -136,12 +136,12 @@ async function pollRear() {
   // 只算四個外露孔的控制器（00–03）；04 與 8001:00 韌體標「後方」，是內部（藍牙模組）
   const orphan = j.controllers.filter(c => /^NVDA8000:0[0-3]$/.test(c.controller) && !assigned.has(c.controller) && (c.devices.length || (dispByCtrl(c.controller) || {}).connected));
   const orphanHtml = orphan.length ? `<div class="sub1" style="margin-top:10px">${t("hw.controllers_with_connected_devices_but_no", {v0: orphan.map(c => `${esc(c.controller.replace('NVDA8000:', t("hw.controller")))}（${c.devices.map(d => esc(d.name)).join('、') || t("hw.display_3")}）`).join('；')})}</div>` : '';
-  const legend = `<div class="lgd"><span><i style="background:#e5484d"></i>${t("hw.power")}</span><span><i style="background:#76b900"></i>${t("hw.usb_c_data")}</span><span><i style="background:#3583d6"></i>HDMI</span><span><i style="background:#f5a524"></i>10GbE</span><span><i style="background:#a78bfa"></i>QSFP</span><span class="sub1">${t("hw.solid_border_connected_faint_border_empty")}</span></div>`;
+  const legend = `<div class="lgd"><span><i style="background:#e5484d"></i>${t("hw.power")}</span><span><i style="background:#76b900"></i>${t("hw.usb_c_data")}</span><span><i style="background:#3583d6"></i>HDMI</span><span><i style="background:#f5a524"></i>10GbE</span><span><i style="background:#a78bfa"></i>QSFP</span>${infoBtn("hw.solid_border_connected_faint_border_empty")}</div>`;
   $('#rear').innerHTML = `<div class="chassis"><div class="vents"></div><div class="slots">${slots.join('')}</div></div>${legend}${orphanHtml}`;
   $('#rear').querySelectorAll('.slot[data-slot]').forEach(el => el.onclick = () => { if (hw.calibMode && +el.dataset.slot !== 0) { hw.calibSlot = +el.dataset.slot; pollRear(); } });
   const n = Object.keys(calib).filter(k => k !== '0' && calib[k].source !== 'inferred').length;
   $('#usbPortsSub').textContent = hw.calibMode ? (hw.calibSlot == null ? t("hw.calibrating_click_a_usb_c_port") : t("hw.calibrating_plug_a_device_into_usb", {v0: hw.calibSlot + 1})) :
-    t("hw.left_to_right_kensington_usb_c", {v0: n < 3 ? t("hw.3_data_ports_calibrated", {v0: n}) : '', v1: j.displays_available ? '' : t("hw.xrandr_unavailable_display_status_unknown")});
+    (n < 3 ? t("hw.3_data_ports_calibrated", {v0: n}) : '') + (j.displays_available ? '' : t("hw.xrandr_unavailable_display_status_unknown"));   // 「左→右：…」在標題旁的 ⓘ
 }
 async function pollPorts() { return pollRear(); }
 $('#btnCalib').onclick = () => { hw.calibMode = !hw.calibMode; hw.calibSlot = null; $('#btnCalib').textContent = hw.calibMode ? t("hw.finish_calibration") : t("hw.calibrate_ports"); pollRear(); };
@@ -149,7 +149,7 @@ $('#btnCalibReset').onclick = async () => { if (!confirm(t("hw.clear_all_port_ma
 function stopHw() { hw.epoch++; if (hw.timer) { clearInterval(hw.timer); hw.timer = null; } if (hw.wifiTimer) { clearInterval(hw.wifiTimer); hw.wifiTimer = null; } if (hw.portTimer) { clearInterval(hw.portTimer); hw.portTimer = null; } if (hw.prTimer) { clearInterval(hw.prTimer); hw.prTimer = null; } if (hw.dcTimer) { clearInterval(hw.dcTimer); hw.dcTimer = null; } if (hw.llmTimer) { clearInterval(hw.llmTimer); hw.llmTimer = null; } if (hw.llmFast) { clearInterval(hw.llmFast); hw.llmFast = null; } }
 function renderHwStatic() {
   const j = hw.static, S = j.system, C = j.cpu, G = j.gpu, D = j.dmi || {available:false};
-  $('#hwNote').textContent = t("hw.static_data_is_cached_for_60_with_value", {value: t("hw.hardware_data_is_cached_for_1_with_value", {value: D.available ? t("hw.serial_numbers_and_memory_modules_come") : ''})}) + (D.available ? '' : ' ' + (D.note || ''));
+  $('#hwNote').innerHTML = esc(t("hw.snapshot_at", {v0: (j.generated || '').slice(11, 16) || '—'})) + infoBtn("hw.static_data_is_cached_for_60_with_value", {value: t("hw.hardware_data_is_cached_for_1_with_value", {value: D.available ? t("hw.serial_numbers_and_memory_modules_come") : ''})}, D.available ? '' : (D.note || ''));   // 來源／快取說明收進 ⓘ，畫面只留快照時間
   // 關於這台機器：每一格都是實際讀到的值，讀不到就「—」
   const disk0 = (j.disks || []).find(d => (d.partitions || []).some(p => (p.mountpoints || []).includes('/'))) || (j.disks || [])[0];
   const family = D.available && D.system.family ? D.system.family : '';
@@ -182,10 +182,9 @@ function renderHwStatic() {
     <dt>${t("hw.cores_2")}</dt><dd>${dash(C.cpus)}</dd>
     ${C.clusters.map(k => `<dt>${esc(k.model)}</dt><dd>${t("hw.cores_up_to", {v1: dash(k.cores), v2: k.max_mhz ? (parseFloat(k.max_mhz)/1000).toFixed(2)+' GHz' : '—'})}</dd>`).join('')}
     <dt>L2 / L3</dt><dd>${dash(C.l2)} / ${dash(C.l3)}</dd></dl></div>` : `<div class="panel"><h2>${t("hw.processor")}</h2><div class="empty">${t("hw.lscpu_unavailable")}</div></div>`;
-  const mem = `<div class="panel"><div class="panel-h"><h2>${t("hw.memory")}</h2></div>
+  const mem = `<div class="panel"><div class="panel-h"><h2>${t("hw.memory")}${G && G.unified_memory ? infoBtn("hw.gb10_uses_a_unified_memory_architecture") : ''}</h2></div>
     <div class="stat"><div><b id="hwMemUsed">—</b><span>${t("hw.used")}</span></div><div><b>${GB(j.memory.total)}</b><span>${t("disk.total")}</span></div><div><b id="hwSwap">—</b><span>${t("hw.swap_used", {v1: GB(j.memory.swap_total)})}</span></div></div>
-    <div id="hwMemMeter"></div>
-    ${G && G.unified_memory ? `<div class="sub1" style="margin-top:8px">${t("hw.gb10_uses_a_unified_memory_architecture")}</div>` : ''}</div>`;
+    <div id="hwMemMeter"></div></div>`;
   const dimm = D.available ? `<div class="panel"><div class="panel-h"><h2>${t("hw.memory_modules")}</h2><span class="sub">${t("hw.maximum_slots", {v0: dash(D.memory.max_capacity), v1: dash(D.memory.slots), v2: D.memory.error_correction ? ' · ' + esc(D.memory.error_correction) : ''})}</span></div>` +
     (D.memory.modules.length ? `<table><thead><tr><th style="width:80px">${t("hw.slot")}</th><th style="width:80px">${t("hw.capacity")}</th><th>${t("hw.specifications")}</th><th>${t("hw.manufacturer_part_number")}</th></tr></thead><tbody>` +
       D.memory.modules.map(m => `<tr><td class="mono">${dash(m.slot)}</td><td>${dash(m.size)}</td><td>${dash(m.type)}${m.form ? ' · ' + esc(m.form) : ''}<div class="sub1">${m.speed ? esc(m.speed) : '—'}${m.configured_speed && m.configured_speed !== m.speed ? t("hw.actual_with_value", {value: esc(m.configured_speed)}) : ''}</div></td><td>${dash(m.manufacturer)}<div class="sub1">${m.part ? esc(m.part) : t("hw.part_number_not_provided")}</div></td></tr>`).join('') + `</tbody></table>` : `<div class="empty">${t("hw.dmidecode_did_not_report_any_modules")}</div>`) + `</div>` : '';
@@ -198,25 +197,24 @@ function renderHwStatic() {
     <div class="stat"><div><b id="gpuTemp">—</b><span>${t("hw.temperature")}</span></div><div><b id="gpuUtil">—</b><span>${t("hw.utilization")}</span></div><div><b id="gpuPower">—</b><span>${t("hw.power_2")}</span></div><div><b id="gpuClk">—</b><span>${t("hw.sm_clock")}</span></div></div>
     <div id="gpuMeter"></div></div>` : `<div class="panel"><h2>GPU</h2><div class="empty">${t("hw.nvidia_smi_unavailable")}</div></div>`;
   const N = j.nvme;
-  const nvmeHtml = !N ? '' : `<div class="panel"><div class="panel-h"><h2>${t("hw.nvme_health")}</h2><span class="sub">${t("hw.firmware", {v0: esc(N.model), v1: esc(N.firmware), v2: N.available ? ' · ' + esc(N.source) : ''})}</span></div>` +
+  const nvmeHtml = !N ? '' : `<div class="panel"><div class="panel-h"><h2>${t("hw.nvme_health")}${N.available ? infoBtn("hw.life_percentage_is_the_manufacturer_s") : ''}</h2><span class="sub">${t("hw.firmware", {v0: esc(N.model), v1: esc(N.firmware), v2: N.available ? ' · ' + esc(N.source) : ''})}</span></div>` +
     (N.available ? `${N.warnings.length ? `<div class="panel notice danger" style="margin-top:10px;padding:10px 14px"><b>${t("hw.controller_warnings")}</b>${N.warnings.map(esc).join('、')}</div>` : `<div class="sub1" style="margin-top:8px"><span class="tag ok">${t("hw.no_warnings")}</span> critical_warning = 0</div>`}
       <div class="stat" style="margin-top:12px"><div><b>${N.percent_used ?? '—'} %</b><span>${t("hw.life_used_manufacturer_estimate")}</span></div><div><b>${N.avail_spare ?? '—'} %</b><span>${t("hw.available_spare_blocks_threshold", {v3: N.spare_thresh ?? '—'})}</span></div><div><b>${N.temp_c ?? '—'} °C</b><span>${t("hw.temperature")}</span></div><div><b>${N.power_on_hours != null ? t("hw.days_with_value", {value: (N.power_on_hours / 24).toFixed(0)}) : '—'}</b><span>${t("hw.powered_on_for_hours", {v6: N.power_on_hours ?? '—'})}</span></div></div>
       ${meter(N.percent_used || 0, 70, 90)}
-      <dl class="kv"><dt>${t("hw.total_written")}</dt><dd>${GB(N.data_written)}${N.data_written ? `<span class="sub1">（${(N.data_written / 1e12).toFixed(2)} TB）</span>` : ''}</dd><dt>${t("hw.total_read")}</dt><dd>${GB(N.data_read)}</dd><dt>${t("hw.power_cycles")}</dt><dd>${dash(N.power_cycles)}</dd><dt>${t("hw.unsafe_shutdowns")}</dt><dd>${dash(N.unsafe_shutdowns)}${N.unsafe_shutdowns ? `<span class="sub1">${t("hw.times_power_loss_or_forced_shutdown")}</span>` : ''}</dd><dt>${t("hw.media_errors")}</dt><dd>${dash(N.media_errors)}</dd><dt>${t("hw.error_log_entries")}</dt><dd>${dash(N.num_err_log_entries)}</dd><dt>${t("hw.time_above_temperature_limits")}</dt><dd>${t("hw.min_warning_min_critical", {v16: dash(N.warning_temp_time), v17: dash(N.critical_comp_time)})}</dd><dt>${t("hw.serial_number_3")}</dt><dd class="mono">${esc(N.serial)}</dd></dl>
-      <div class="sub1" style="margin-top:8px">${t("hw.life_percentage_is_the_manufacturer_s")}</div>`
+      <dl class="kv"><dt>${t("hw.total_written")}</dt><dd>${GB(N.data_written)}${N.data_written ? `<span class="sub1">（${(N.data_written / 1e12).toFixed(2)} TB）</span>` : ''}</dd><dt>${t("hw.total_read")}</dt><dd>${GB(N.data_read)}</dd><dt>${t("hw.power_cycles")}</dt><dd>${dash(N.power_cycles)}</dd><dt>${t("hw.unsafe_shutdowns")}</dt><dd>${dash(N.unsafe_shutdowns)}${N.unsafe_shutdowns ? `<span class="sub1">${t("hw.times_power_loss_or_forced_shutdown")}</span>` : ''}</dd><dt>${t("hw.media_errors")}</dt><dd>${dash(N.media_errors)}</dd><dt>${t("hw.error_log_entries")}</dt><dd>${dash(N.num_err_log_entries)}</dd><dt>${t("hw.time_above_temperature_limits")}</dt><dd>${t("hw.min_warning_min_critical", {v16: dash(N.warning_temp_time), v17: dash(N.critical_comp_time)})}</dd><dt>${t("hw.serial_number_3")}</dt><dd class="mono">${esc(N.serial)}</dd></dl>`
     : `<dl class="kv"><dt>${t("hw.serial_number_3")}</dt><dd class="mono">${esc(N.serial)}</dd><dt>${t("updates.status")}</dt><dd>${dash(N.state)}</dd></dl><div class="sub1" style="margin-top:8px">${esc(N.note)}</div>`) + `</div>`;
   const disks = `<div class="panel"><div class="panel-h"><h2>${t("hw.storage")}</h2></div>` + (j.disks ? j.disks.map(d => `
     <dl class="kv"><dt>${esc(d.name)}</dt><dd>${dash(d.model)}<div class="sub1">${GB(d.size)} · ${d.transport ? esc(d.transport.toUpperCase()) : '—'} · ${d.rotational ? 'HDD' : 'SSD'}</div>${d.name === 'nvme0n1' && N ? `<div class="sub1">${t("hw.manufacturer")}<b style="color:var(--text)">${esc(N.vendor || '—')}</b>${N.oui_vendor ? `（PCI ${esc(N.vendor_pci_id)}，EUI OUI ${esc(N.oui)}）` : ''}${N.firmware ? t("updates.firmware", {v0: esc(N.firmware)}) : ''}</div><div class="sub1">${t("hw.controller_2", {v3: esc((N.controller || '—').replace(/ \[.*$/, '')), v4: N.dramless ? t("hw.dram_less", {v0: N.hmb ? t("hw.uses_hmb_to_borrow_host_memory") : ''}) : ''})}</div><div class="sub1">${esc(N.form_factor_note)}；M.2 2242</div>` : ''}</dd></dl>
     ${d.partitions.filter(p => p.usage).map(p => { const u = p.usage, pct = Math.round((u.total - u.free) / u.total * 100); return `
       <div style="margin-top:10px"><span class="mono">${esc(p.name)}</span> <span class="sub1">${t("hw.used_2", {v1: p.mountpoints.join(', '), v2: esc(p.fstype||''), v3: GB(u.total - u.free), v4: GB(u.total), v5: pct})}</span>${meter(pct, 85, 95)}</div>`; }).join('')}`).join('') : `<div class="empty">${t("hw.lsblk_unavailable")}</div>`) + `</div>`;
-  const net = `<div class="panel"><div class="panel-h"><h2>${t("hw.network")}</h2></div>` + (j.network ? `<table><thead><tr><th>${t("hw.interface")}</th><th style="width:64px">${t("updates.status")}</th><th style="width:118px">${t("hw.address")}</th><th style="width:56px">${t("hw.rate")}</th></tr></thead><tbody>` +
-    j.network.filter(n => n.kind !== 'virtual' || (n.state === 'UP' && n.ipv4.length)).map(n => `<tr><td><span class="mono">${esc(n.name)}</span> <span class="tag">${n.kind}</span><div class="sub1 mono" style="font-size:11px">${dash(n.mac)}</div></td><td><span class="tag ${n.state==='UP'?'ok':''}">${dash(n.state)}</span></td><td class="mono" style="white-space:nowrap;font-size:12px">${n.ipv4.map(esc).join('<br>') || '—'}</td><td class="sub1">${n.speed_mbps ? (n.speed_mbps >= 1000 ? n.speed_mbps/1000 + ' Gb/s' : n.speed_mbps + ' Mb/s') : '—'}</td></tr>`).join('') + `</tbody></table><div class="sub1" style="margin-top:8px">${t("hw.wi_fi_and_disconnected_interfaces_do")}</div>` : `<div class="empty">${t("hw.ip_unavailable")}</div>`) + `</div>`;
+  const net = `<div class="panel"><div class="panel-h"><h2>${t("hw.network")}${j.network ? infoBtn("hw.wi_fi_and_disconnected_interfaces_do") : ''}</h2></div>` + (j.network ? `<table><thead><tr><th>${t("hw.interface")}</th><th style="width:64px">${t("updates.status")}</th><th style="width:118px">${t("hw.address")}</th><th style="width:56px">${t("hw.rate")}</th></tr></thead><tbody>` +
+    j.network.filter(n => n.kind !== 'virtual' || (n.state === 'UP' && n.ipv4.length)).map(n => `<tr><td><span class="mono">${esc(n.name)}</span> <span class="tag">${n.kind}</span><div class="sub1 mono" style="font-size:11px">${dash(n.mac)}</div></td><td><span class="tag ${n.state==='UP'?'ok':''}">${dash(n.state)}</span></td><td class="mono" style="white-space:nowrap;font-size:12px">${n.ipv4.map(esc).join('<br>') || '—'}</td><td class="sub1">${n.speed_mbps ? (n.speed_mbps >= 1000 ? n.speed_mbps/1000 + ' Gb/s' : n.speed_mbps + ' Mb/s') : '—'}</td></tr>`).join('') + `</tbody></table>` : `<div class="empty">${t("hw.ip_unavailable")}</div>`) + `</div>`;
   const B = j.bluetooth;
-  const bt = `<div class="panel"><div class="panel-h"><h2>${t("hw.bluetooth")}</h2>${B && B.available ? `<span class="sub">${esc(B.controller.address||'')} · ${B.controller.powered === 'yes' ? t("hw.on") : t("hw.off")}${B.rfkill_blocked ? t("hw.blocked_by_rfkill") : ''}</span>` : ''}</div>` +
+  const bt = `<div class="panel"><div class="panel-h"><h2>${t("hw.bluetooth")}${B && B.available && B.devices.length ? infoBtn("hw.battery_level_is_available_only_when") : ''}</h2>${B && B.available ? `<span class="sub">${esc(B.controller.address||'')} · ${B.controller.powered === 'yes' ? t("hw.on") : t("hw.off")}${B.rfkill_blocked ? t("hw.blocked_by_rfkill") : ''}</span>` : ''}</div>` +
     (!B ? `<div class="empty">${t("hw.bluetoothctl_unavailable")}</div>` : !B.available ? `<div class="empty">${esc(B.note)}</div>` :
     (B.devices.length ? `<table><thead><tr><th>${t("updates.device")}</th><th style="width:64px">${t("hw.type")}</th><th style="width:78px">${t("updates.status")}</th><th style="width:56px">${t("hw.battery")}</th></tr></thead><tbody>` +
-      B.devices.map(d => `<tr><td><b>${esc(d.name)}</b><div class="sub1 mono" style="font-size:11px">${esc(d.mac)}</div></td><td class="sub1" style="white-space:nowrap" title="${esc(d.icon||'')}">${esc(BT_KIND[d.icon] || d.icon || '—')}</td><td>${d.connected ? `<span class="tag ok">${t("hw.connected_2")}</span>` : `<span class="tag">${t("hw.paired")}</span>`}</td><td>${d.battery == null ? '<span class="sub1">—</span>' : d.battery + ' %'}</td></tr>`).join('') + `</tbody></table><div class="sub1" style="margin-top:8px">${t("hw.battery_level_is_available_only_when")}</div>` : `<div class="empty">${t("hw.no_paired_devices")}</div>`)) + `</div>`;
-  const sens = `<div class="panel"><div class="panel-h"><h2>${t("hw.sensors")}</h2><span class="sub">${t("hw.fan_speed_hwmon_nvml_and_acpi")}</span></div><div id="hwSensors"><div class="empty">${t("updates.loading")}</div></div></div>`;
+      B.devices.map(d => `<tr><td><b>${esc(d.name)}</b><div class="sub1 mono" style="font-size:11px">${esc(d.mac)}</div></td><td class="sub1" style="white-space:nowrap" title="${esc(d.icon||'')}">${esc(BT_KIND[d.icon] || d.icon || '—')}</td><td>${d.connected ? `<span class="tag ok">${t("hw.connected_2")}</span>` : `<span class="tag">${t("hw.paired")}</span>`}</td><td>${d.battery == null ? '<span class="sub1">—</span>' : d.battery + ' %'}</td></tr>`).join('') + `</tbody></table>` : `<div class="empty">${t("hw.no_paired_devices")}</div>`)) + `</div>`;
+  const sens = `<div class="panel"><div class="panel-h"><h2>${t("hw.sensors")}</h2><span class="sub" title="${esc(t("hw.fan_speed_hwmon_nvml_and_acpi"))}">${t("hw.fan_na_short")}</span>${infoBtn("hw.fan_speed_hwmon_nvml_and_acpi")}</div><div id="hwSensors"><div class="empty">${t("updates.loading")}</div></div></div>`;
   const U = j.usb_tree;
   const USB_IC = { roothub: '⌂', hub: '⊞', hid: '⌨', storage: '▤', wireless: '◉', audio: '♪', video: '▣', printer: '⎙', comm: '⇄', billboard: '⊡', vendor: '?', other: '•', image: '▣' };
   const usbNode = d => {
@@ -225,7 +223,7 @@ function renderHwStatic() {
     if (d.children.length) return `<li><details open><summary>${node}</summary><ul>${d.children.map(usbNode).join('')}</ul></details></li>`;
     return `<li class="leaf">${node}</li>`;
   };
-  const usb = `<div class="panel" style="grid-column: 1 / -1"><div class="panel-h"><h2>${t("hw.usb_devices")}</h2><span class="sub">${U ? t("hw.nodes_including_empty_root_hubs_collapsed", {v0: U.total, v1: U.empty_roothubs, v2: U.ids_file ? '＋usb.ids' : ''}) : '—'}</span></div>` +
+  const usb = `<div class="panel" style="grid-column: 1 / -1"><div class="panel-h"><h2>${t("hw.usb_devices")}</h2><span class="sub">${U ? t("hw.usb_nodes_short", {v0: U.total}) : '—'}</span>${U ? infoBtn("hw.nodes_including_empty_root_hubs_collapsed", {v0: U.total, v1: U.empty_roothubs, v2: U.ids_file ? '＋usb.ids' : ''}) : ''}</div>` +
     (U ? (U.roots.length ? `<div class="tree"><ul>${U.roots.map(usbNode).join('')}</ul></div>` : `<div class="empty">${t("hw.no_usb_devices_connected")}</div>`) : (j.usb ? `<pre class="raw">${esc(j.usb.join('\n'))}</pre>` : `<div class="empty">${t("hw.sys_bus_usb_is_unreadable")}</div>`)) + `</div>`;
   const P = j.pci_devices;
   const genLbl = (g, w) => g ? `PCIe ${g}.0 ×${w ?? '?'}` : '—';
@@ -233,8 +231,11 @@ function renderHwStatic() {
     (P ? `<table><thead><tr><th style="width:26%">${t("updates.device")}</th><th style="width:16%">${t("hw.type")}</th><th style="width:20%">${t("hw.link_current_maximum")}</th><th style="width:14%">${t("hw.bandwidth")}</th><th style="width:12%">${t("hw.driver_2")}</th><th>${t("hw.address")}</th></tr></thead><tbody>` +
       P.devices.map(d => { const down = d.cur_gen && d.max_gen && (d.cur_gen < d.max_gen || (d.cur_width || 0) < (d.max_width || 0)); const isGpu = d.kind === 'GPU';
         return `<tr><td><b>${esc(d.friendly)}</b><div class="sub1 mono" style="font-size:11px">${esc(d.vid)}:${esc(d.did)}${d.subsystem ? ' · ' + esc(d.subsystem) : ''}</div></td><td>${esc(d.kind)}</td><td class="mono" style="font-size:12px">${genLbl(d.cur_gen, d.cur_width)}<span class="sub1"> / ${genLbl(d.max_gen, d.max_width)}</span>${isGpu ? `<div class="sub1">${t("hw.built_into_the_soc_pcie_values")}</div>` : down ? `<div class="sub1" style="color:var(--warn)">${t("hw.below_maximum_normal_slowdown_when_idle")}</div>` : ''}</td><td class="sub1">${d.cur_gbps != null && !isGpu ? `${d.cur_gbps} GB/s` : '—'}</td><td class="mono" style="font-size:12px">${esc(d.driver || t("llm.none"))}</td><td class="mono sub1" style="font-size:11px">${esc(d.slot)}</td></tr>`; }).join('') +
+      (P.empty_ports.length ? (() => {   // 空根埠：表格最後一列灰字一句，全文（含 CX7 熱插拔的解釋）進 title；FAQ 連結留在列上
+        const gen5 = P.empty_ports.some(e => e.max_gen === 5 && e.max_width === 4);
+        const full = t("hw.another_root_ports_have_no_connected", {v0: P.empty_ports.length, v1: P.empty_ports.map(e => t("hw.maximum", {v0: e.slot, v1: genLbl(e.max_gen, e.max_width)})).join('、'), v2: gen5 ? (P.cx7_hotplug ? t("hw.the_two_empty_gen5_4_ports_hotplug") : t("hw.the_two_empty_gen5_4_ports")) : ''});
+        return `<tr><td colspan="6" class="sub1" title="${esc(full)}">${t("hw.empty_root_ports", {n: P.empty_ports.length})}${gen5 && P.cx7_hotplug ? ` <a href="#faq/cx7" data-faq="cx7">${t("hw.cx7_why")}</a>` : ''}</td></tr>`; })() : '') +
       `</tbody></table>` +
-      (P.empty_ports.length ? `<div class="sub1" style="margin-top:10px">${t("hw.another_root_ports_have_no_connected", {v0: P.empty_ports.length, v1: P.empty_ports.map(e => t("hw.maximum", {v0: esc(e.slot), v1: genLbl(e.max_gen, e.max_width)})).join('、'), v2: P.empty_ports.some(e => e.max_gen === 5 && e.max_width === 4) ? (P.cx7_hotplug ? t("hw.the_two_empty_gen5_4_ports_hotplug") + ` <a href="#faq/cx7" data-faq="cx7">${t("hw.cx7_why")}</a>` : t("hw.the_two_empty_gen5_4_ports")) : ''})}</div>` : '') +
       `<details style="margin-top:8px"><summary class="sub1">${t("hw.raw_lspci_output")}</summary><pre class="raw">${esc((j.pci || []).join('\n'))}</pre></details>`
     : (j.pci ? `<pre class="raw">${esc(j.pci.join('\n'))}</pre>` : `<div class="empty">${t("hw.lspci_unavailable")}</div>`)) + `</div>`;
   const printer = `<div class="panel" id="hwPrinters"></div>`;   // 內容由 renderPrinters() 填（即時端點，不跟靜態快取）
@@ -286,7 +287,7 @@ function renderDiskCheck() {
       : `<div class="sub1">${t("hw.dc_no_history")}</div>`;
     st = `<div style="margin-top:6px">${status}</div><div class="actions" style="margin-top:8px">${btns}</div><div class="sub1" style="margin-top:8px"><b>${t("hw.dc_history")}</b></div>${hist}`;
   }
-  const selftest = `<h3 style="margin-top:14px">${t("hw.dc_selftest")}</h3><div class="sub1">${t("hw.dc_selftest_hint")}</div>${st}`;
+  const selftest = `<h3 style="margin-top:14px">${t("hw.dc_selftest")}${infoBtn("hw.dc_selftest_hint")}</h3>${st}`;
   // 3. 開機檔案系統檢查
   let fs;
   if (F.applies === false) fs = `<div class="sub1">${esc(F.note || '—')}</div>`;
@@ -300,8 +301,8 @@ function renderDiskCheck() {
       `<dt>${t("hw.dc_fsck_next")}</dt><dd>${sched}</dd></dl>` +
       (F.last_result ? `<div class="sub1">${t("hw.dc_fsck_result", {v0: esc(F.last_result.checked_at), v1: esc(F.last_result.state || '—')})}</div>` : '');
   }
-  const fsck = `<h3 style="margin-top:14px">${t("hw.dc_fsck")}</h3><div class="sub1">${t("hw.dc_fsck_hint")}</div>${fs}`;
-  box.innerHTML = head(t("hw.dc_sub", {v0: esc((D.generated || '').slice(11))})) + passive + selftest + fsck + `<div class="sub1" style="margin-top:12px">${t("hw.dc_no_badblocks")}</div>`;
+  const fsck = `<h3 style="margin-top:14px">${t("hw.dc_fsck")}${infoBtn("hw.dc_fsck_hint")}</h3>${fs}`;
+  box.innerHTML = head(t("hw.dc_sub", {v0: esc((D.generated || '').slice(11))})) + passive + selftest + fsck + `<div class="sub1" style="margin-top:12px" title="${esc(t("hw.dc_no_badblocks"))}">${t("hw.dc_no_badblocks_short")}${infoBtn("hw.dc_no_badblocks")}</div>`;
   $('#btnDcReload').onclick = async () => { const b = $('#btnDcReload'); b.disabled = true; await loadDiskCheck(true); };
   box.querySelectorAll('button[data-dc]').forEach(b => b.onclick = async () => {
     const act = b.dataset.dc;
@@ -362,12 +363,13 @@ function prDevice(d, PR) {
 function renderPrinters() {
   const box = $('#hwPrinters'); if (!box) return;
   const PR = hw.printers;
-  const head = sub => `<div class="panel-h"><h2>${t("common.printer")}</h2><span class="sub">${sub}</span><div class="actions"><button id="btnPrReload" class="small">${t("hw.pr_refresh")}</button></div></div>`;
+  const head = (sub, info) => `<div class="panel-h"><h2>${t("common.printer")}</h2><span class="sub">${sub}</span>${info || ''}<div class="actions"><button id="btnPrReload" class="small">${t("hw.pr_refresh")}</button></div></div>`;
   if (!PR) box.innerHTML = head(t("updates.loading"));
   else if (!PR.ok) box.innerHTML = head('') + `<div class="empty">${t("apps.could_not_load", {v0: esc(PR.error)})}</div>`;
-  else box.innerHTML = head(t("hw.pr_sub", {v0: PR.cups_active ? t("hw.running") : t("hw.not_running"), v1: esc((PR.generated || '').slice(11))})) +
-    (PR.devices.length ? PR.devices.map(d => prDevice(d, PR)).join('') : `<div class="sub1" style="margin-top:8px">${t("hw.pr_none")}</div>`) +
+  else { const v = {v0: PR.cups_active ? t("hw.running") : t("hw.not_running"), v1: (PR.generated || '').slice(11)};
+    box.innerHTML = head(t("hw.pr_sub_short", v), infoBtn("hw.pr_sub", v)) +
+    (PR.devices.length ? PR.devices.map(d => prDevice(d, PR)).join('') : `<div class="sub1" style="margin-top:8px" title="${esc(t("hw.pr_none"))}">${t("hw.pr_none_short")}${infoBtn("hw.pr_none")}</div>`) +
     (PR.jobs ? `<div class="sub1" style="margin-top:6px">${t("hw.queued_jobs", {v1: PR.jobs})}</div>` : '') +
-    (PR.usb.length ? `<div class="sub1" style="margin-top:6px">${t("hw.usb_printers", {v0: PR.usb.map(u => esc((u.manufacturer ? u.manufacturer + ' ' : '') + u.name)).join(t("common.list_sep"))})}</div>` : `<div class="sub1" style="margin-top:6px">${t("hw.no_usb_printers_connected")}</div>`);
+    (PR.usb.length ? `<div class="sub1" style="margin-top:6px">${t("hw.usb_printers", {v0: PR.usb.map(u => esc((u.manufacturer ? u.manufacturer + ' ' : '') + u.name)).join(t("common.list_sep"))})}</div>` : `<div class="sub1" style="margin-top:6px">${t("hw.no_usb_printers_connected")}</div>`); }
   $('#btnPrReload').onclick = async () => { const b = $('#btnPrReload'); b.disabled = true; await loadPrinters(true); };
 }

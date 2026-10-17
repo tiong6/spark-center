@@ -256,7 +256,7 @@ function renderMon(j, rerender) {
   const cpuH3 = document.querySelector('#mon-cpu h3'); if (cpuH3 && !cpuH3.querySelector('.switch')) cpuH3.insertAdjacentHTML('beforeend', sw);
   document.querySelectorAll('[data-cpuview]').forEach(el => el.onclick = () => { hw.cpuView = el.dataset.cpuview; if (hw.prev) renderMon(hw.prev, true); });
   for (const [k, ser, fmt] of hovers) { const el = document.querySelector(`.spark[data-k="${k}"]`); if (el) bindHover(el, ser, fmt); }
-  $('#monNote').title = t("mon.sampled_every_seconds_the_chart_keeps", {v0: MON_INTERVAL_MS/1000, v1: MON_MAX_POINTS, v2: Math.round(MON_INTERVAL_MS*MON_MAX_POINTS/60000)});
+  $('#monNote').dataset.infoVars = JSON.stringify({v0: MON_INTERVAL_MS/1000, v1: MON_MAX_POINTS, v2: Math.round(MON_INTERVAL_MS*MON_MAX_POINTS/60000)});   // 內容由共用 ⓘ（core.js）在開啟時用 t(key, vars) 組
   if (!rerender) { hw.prevPrev = hw.prev; hw.prev = j; }
 }
 

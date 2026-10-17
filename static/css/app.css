@@ -101,6 +101,15 @@
   .badge.remove, .badge.purge { border-color: #6b2a2a; color: #ff8a8a; }
   .pk { display: inline-block; font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: #0f1110; border: 1px solid #2c302e; border-radius: 4px; padding: 1px 6px; margin: 2px 4px 2px 0; }
   .sub1 { color: var(--muted); font-size: 12px; }
+  /* 共用 ⓘ（core.js infoBtn）：說明收在這顆按鈕後面，面板 .infopop 掛在 body 上絕對定位 */
+  .info { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 400; line-height: 1; cursor: help; margin-left: 6px; vertical-align: middle; flex: none; align-self: center; }
+  .info:hover, .info.open { color: var(--text); border-color: #555; background: var(--surface2); }
+  .info:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .infopop { position: absolute; z-index: 20; max-width: min(420px, calc(100vw - 24px)); width: max-content; background: #0f1110; border: 1px solid #3a3f3c; border-radius: 10px; padding: 10px 14px; font-size: 13px; line-height: 1.55; color: var(--text); box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+  .infopop p { margin: 0 0 6px; } .infopop p:last-child, .infopop ul:last-child, .infopop ol:last-child { margin-bottom: 0; }
+  .infopop ul, .infopop ol { margin: 0 0 6px; padding-left: 20px; } .infopop li { margin: 2px 0; } .infopop h4 { margin: 6px 0 2px; font-size: 13px; }
+  .infopop code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: #1a1c1b; border: 1px solid #2c302e; border-radius: 4px; padding: 0 5px; overflow-wrap: anywhere; }
+  .infopop a { color: var(--accent); text-decoration: none; } .infopop a:hover { text-decoration: underline; }
   /* 設定分頁的開關：原生 checkbox 畫成滑動開關，狀態文字在旁邊 */
   .clockctl { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
   .clockslide { flex: 1 1 260px; min-width: 180px; position: relative; padding-bottom: 16px; }
@@ -219,7 +228,6 @@
   .mcard.dropbefore { box-shadow: -4px 0 0 var(--accent); } .mcard.dropafter { box-shadow: 4px 0 0 var(--accent); }
   .mcard h3 .hidebtn { order: 99; margin-left: 8px; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line); color: var(--muted); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; cursor: pointer; opacity: 0; transition: opacity .15s; }
   .mcard:hover h3 .hidebtn { opacity: 1; }
-  .montools .info { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line); color: var(--muted); font-size: 12px; cursor: help; margin-left: 8px; align-self: center; }
   .mcard h3 .warnbtn { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--warn); color: var(--warn); font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 8px; }
   .mcard h3 .warnbtn.danger { border-color: var(--danger); color: var(--danger); }
   .mcard .warnbox { grid-column: 1 / -1; display: none; } .mcard .warnbox.open { display: block; }
