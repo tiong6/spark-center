@@ -37,24 +37,27 @@ function groupColor(name, site) {
   let h = 0; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return GRP_PALETTE[h % GRP_PALETTE.length];
 }
+/* Ubuntu 分階段放量還沒輪到這台機器的套件：apt upgrade 與 DGX Dashboard 都會跳過它，這裡也不當待辦、不進全選；勾了就是提前安裝 */
+const isHeld = it => !!(it.phased && it.phased.held);
 function renderList() {
   const box = $('#list');
-  // 綠點與空狀態只看主清單：折疊起來的「本機用不到的 firmware 子套件」不算待辦
-  const active = state.items.filter(it => !(it.firmware && it.firmware.passive) && !it.node_flow);
+  // 綠點與空狀態只看主清單：折疊起來的「本機用不到的 firmware 子套件」與等待放量的不算待辦
+  const active = state.items.filter(it => !(it.firmware && it.firmware.passive) && !it.node_flow && !isHeld(it));
   $('#dotUpd').classList.toggle('hide', active.length === 0);
   if (!state.items.length) { box.innerHTML = `<div class="empty">${t("updates.there_are_currently_no_upgradable_packages")}</div>`; updateGo(); return; }
   const THEAD = `<thead><tr><th style="width:36px"></th><th style="width:32%">${t("updates.package")}</th><th style="width:24%">${t("updates.version")}</th><th class="col-opt">${t("updates.description")}</th><th style="width:80px">${t("updates.size")}</th><th style="width:80px"></th></tr></thead>`;
   const row = it => `<tr class="sub">
         <td><input type="checkbox" data-pkg="${esc(it.name)}" ${it.node_flow ? 'disabled' : (state.selected.has(it.name)?'checked':'')}></td>
-        <td>${esc(it.name)}${state.newAfterRefresh && state.newAfterRefresh.has(it.name) ? `<span class="tag ok" title="${t("updates.new_after_refresh_hint")}">${t("updates.new_after_refresh")}</span>` : ''}${it.node_flow?`<span class="tag" title="${t("updates.node_flow_hint")}">${t("updates.node_flow")}</span>`:''}${it.security?'<span class="tag sec">security</span>':''}${it.spark_core?`<span class="tag" style="color:#76b900;border-color:#4b6b1e" title="${t("updates.spark_os_nvidia_platform_packages_dashboard")}">${t("updates.spark_os_use_the_stock_dashboard")}</span>`:''}${it.reboot_hint?`<span class="tag reboot" title="${t("updates.based_on_the_package_name_estimated")}">${t("updates.usually_needs_reboot_estimated")}</span>`:''}${it.firmware && it.firmware.passive?`<span class="tag" title="${t("updates.none_of_the_loaded_kernel_modules", {v0: esc(it.firmware.pulled_by ? t("updates.pulled_in_as_a_dependency_of", {v0: it.firmware.pulled_by}) : t("updates.automatically_installed")), v1: it.firmware.files})}">${t("updates.no_local_driver_declares_use")}</span>`:''}</td>
+        <td>${esc(it.name)}${state.newAfterRefresh && state.newAfterRefresh.has(it.name) ? `<span class="tag ok" title="${t("updates.new_after_refresh_hint")}">${t("updates.new_after_refresh")}</span>` : ''}${it.node_flow?`<span class="tag" title="${t("updates.node_flow_hint")}">${t("updates.node_flow")}</span>`:''}${it.security?'<span class="tag sec">security</span>':''}${isHeld(it)?`<span class="tag phased" title="${esc(t("updates.phased_tag_hint", {p: it.phased.percent == null ? '—' : it.phased.percent}))}">${t("updates.phased_tag", {p: it.phased.percent == null ? '—' : it.phased.percent})}</span> <a href="#faq/phased" data-faq="phased" class="sub1">${t("updates.phased_why")}</a>`:''}${it.spark_core?`<span class="tag" style="color:#76b900;border-color:#4b6b1e" title="${t("updates.spark_os_nvidia_platform_packages_dashboard")}">${t("updates.spark_os_use_the_stock_dashboard")}</span>`:''}${it.reboot_hint?`<span class="tag reboot" title="${t("updates.based_on_the_package_name_estimated")}">${t("updates.usually_needs_reboot_estimated")}</span>`:''}${it.firmware && it.firmware.passive?`<span class="tag" title="${t("updates.none_of_the_loaded_kernel_modules", {v0: esc(it.firmware.pulled_by ? t("updates.pulled_in_as_a_dependency_of", {v0: it.firmware.pulled_by}) : t("updates.automatically_installed")), v1: it.firmware.files})}">${t("updates.no_local_driver_declares_use")}</span>`:''}</td>
         <td class="mono">${esc(it.installed)}<br><span class="to">→ ${esc(it.candidate)}</span></td>
         <td class="col-opt sub1">${esc(it.summary)}</td>
         <td class="sub1">${fmtBytes(it.size)}</td>
         <td><button class="small" data-cl="apt" data-id="${esc(it.name)}" data-inst="${esc(it.installed)}">${t("updates.details")}</button></td></tr>`;
   // 被 linux-firmware 總包拖入、本機已載入模組都用不到的 firmware 子套件：收進折疊區，不占視線（仍可勾選）
   const passive = state.items.filter(it => it.firmware && it.firmware.passive);
+  const held = state.items.filter(it => isHeld(it) && !passive.includes(it));
   const groups = {};
-  for (const it of state.items) if (!passive.includes(it)) (groups[it.group] ||= []).push(it);
+  for (const it of state.items) if (!passive.includes(it) && !held.includes(it)) (groups[it.group] ||= []).push(it);
   let html = Object.keys(groups).length ? `<table>${THEAD}<tbody>` : '';
   for (const g of Object.keys(groups).sort()) {
     const items = groups[g]; const allSel = items.every(i => state.selected.has(i.name));
@@ -63,6 +66,10 @@ function renderList() {
   }
   if (Object.keys(groups).length) html += `</tbody></table>`;
   else html += `<div class="empty">${t("updates.there_are_currently_no_updates_requiring")}</div>`;
+  if (held.length) {   // 排最後一組、不折疊：看得到、但不在全選裡；這組自己的勾選框就是「我要提前裝」的明確動作
+    const allSel = held.every(i => state.selected.has(i.name));
+    html += `<table style="margin-top:12px">${THEAD}<tbody><tr class="grp" style="--grpc:#c88fe0"><td><input type="checkbox" data-held="1" ${allSel?'checked':''}></td><td colspan="5"><span class="gname">${t("updates.phased_group")}</span> <span class="site">${t("updates.phased_group_sub", {n: held.length})}</span></td></tr>${held.map(row).join('')}</tbody></table>`;
+  }
   if (passive.length) {
     const allSel = passive.every(i => state.selected.has(i.name));
     html += `<details id="passiveFw" style="margin-top:12px" ${state.passiveOpen ? 'open' : ''}><summary class="sub1">${t("updates.firmware_sub_packages_this_machine_does", {v1: passive.length})}</summary>` +
@@ -71,8 +78,9 @@ function renderList() {
   box.innerHTML = html;
   const det = box.querySelector('#passiveFw'); if (det) det.ontoggle = () => { state.passiveOpen = det.open; };
   box.querySelectorAll('input[data-passive]').forEach(cb => cb.onchange = () => { for (const it of passive) cb.checked ? state.selected.add(it.name) : state.selected.delete(it.name); renderList(); });
+  box.querySelectorAll('input[data-held]').forEach(cb => cb.onchange = () => { for (const it of held) cb.checked ? state.selected.add(it.name) : state.selected.delete(it.name); renderList(); });
   box.querySelectorAll('input[data-pkg]').forEach(cb => cb.onchange = () => { cb.checked ? state.selected.add(cb.dataset.pkg) : state.selected.delete(cb.dataset.pkg); renderList(); });
-  box.querySelectorAll('input[data-group]').forEach(cb => cb.onchange = () => { for (const it of state.items) if (it.group === cb.dataset.group && !passive.includes(it) && !it.node_flow) cb.checked ? state.selected.add(it.name) : state.selected.delete(it.name); renderList(); });
+  box.querySelectorAll('input[data-group]').forEach(cb => cb.onchange = () => { for (const it of state.items) if (it.group === cb.dataset.group && !passive.includes(it) && !it.node_flow && !isHeld(it)) cb.checked ? state.selected.add(it.name) : state.selected.delete(it.name); renderList(); });
   box.querySelectorAll('button[data-cl]').forEach(b => b.onclick = () => toggleChangelog(b, b.dataset.cl, b.dataset.id, b.dataset.inst));
   updateGo();
 }
@@ -344,7 +352,8 @@ async function loadRollback() {
     const allBtn = kept.length > 1 ? ` <button class="small" data-rb-job="${esc(job.id)}" data-rb-name="" data-rb-all="${kept.map(p => p.name).join(', ')}">${t("updates.rollback_all_btn", {n: kept.length})}</button>` : '';
     html += `<details class="rbjob" ${open ? 'open' : ''}><summary style="cursor:pointer;padding:6px 0"><span class="gname" style="color:var(--muted)">${t("updates.updated_at")} ${esc(job.started.replace('T', ' '))}</span> <span class="sub1">· ${t("updates.rollback_job_line", {n: job.packages.length, kept: kept.length, mb: MB(job.bytes || 0)})}</span>${allBtn}</summary>${head}`;
     for (const p of job.packages) {
-      const dep = p.selected === false ? ` <span class="tag" title="${t("updates.dep_pulled_hint")}">${t("updates.dep_pulled")}</span>` : '';
+      const dep = (p.selected === false ? ` <span class="tag" title="${t("updates.dep_pulled_hint")}">${t("updates.dep_pulled")}</span>` : '')
+        + (p.phased != null ? ` <span class="tag phased" title="${t("updates.phased_early_hint", {p: p.phased})}">${t("updates.phased_early")}</span>` : '');
       const has = p.deb || (p.kind === 'npm' && p.old);
       const atOld = has && p.installed === p.old;
       const st = has ? `<span class="tag ok">${esc(src[p.source] || p.source)}</span><span class="sub1"> ${esc(ver[p.verified] || '')}</span>` : `<span class="tag" title="${esc(p.reason || '')}">${t("updates.not_kept")}</span><span class="sub1"> ${esc(p.reason || '')}</span>`;
@@ -407,11 +416,33 @@ async function load() {
   if (state.namesBeforeRefresh) { state.newAfterRefresh = new Set([...names].filter(n => !state.namesBeforeRefresh.has(n))); state.namesBeforeRefresh = null; }   // 只在重新整理來源後標，裝完套件不重算
   else if (state.newAfterRefresh) for (const n of [...state.newAfterRefresh]) if (!names.has(n)) state.newAfterRefresh.delete(n);
   state.items = j.items;
-  const nPassive = j.items.filter(i => i.firmware && i.firmware.passive).length;
-  $('#meta').textContent = t("updates.upgradable_apt_index_last_updated", {v0: j.items.length - nPassive, v1: nPassive ? t("updates.another_firmware_packages_this_machine_does", {v0: nPassive}) : '', v2: j.last_refresh ? j.last_refresh.replace('T',' ') : '—'});
+  const nPassive = j.items.filter(i => i.firmware && i.firmware.passive).length, nHeld = j.items.filter(i => isHeld(i) && !(i.firmware && i.firmware.passive)).length;
+  // 數字的語意：「可升級」是 apt upgrade 真的會裝的；等待放量的另外數，不混進去也不藏起來
+  $('#meta').textContent = t("updates.upgradable_apt_index_last_updated", {v0: j.items.length - nPassive - nHeld, v1: (nPassive ? t("updates.another_firmware_packages_this_machine_does", {v0: nPassive}) : '') + (nHeld ? t("updates.phased_waiting_n", {n: nHeld}) : ''), v2: j.last_refresh ? j.last_refresh.replace('T',' ') : '—'});
   const D = j.dashboard;
-  $('#dashCompare').innerHTML = D ? `${t("updates.comparison")}<b>${t("updates.dgx_dashboard_s_update")}</b>${t("updates.performs_all_at_once_upgrade", {v0: D.upgrade, v1: D.install ? t("updates.newly_install", {v0: D.install}) : '', v2: D.remove ? ` · <span style="color:var(--danger)">${t("updates.remove", {v0: D.remove})}</span>` : '', v3: D.firmware != null ? t("updates.firmware", {v0: D.firmware}) : ''})}<span style="color:var(--warn)">${t("updates.forced_reboot")}</span>${t("updates.without_showing_the_list", {v4: esc(D.note)})}` : '';
+  const dashSkip = D && D.phased_held === null ? t("updates.dash_phased_unknown") : D && D.phased_held && D.phased_held.length ? t("updates.dash_phased_skip", {n: D.phased_held.length, list: esc(D.phased_held.join(', '))}) : '';
+  $('#dashCompare').innerHTML = D ? `${t("updates.comparison")}<b>${t("updates.dgx_dashboard_s_update")}</b>${t("updates.performs_all_at_once_upgrade", {v0: D.upgrade, v1: D.install ? t("updates.newly_install", {v0: D.install}) : '', v2: D.remove ? ` · <span style="color:var(--danger)">${t("updates.remove", {v0: D.remove})}</span>` : '', v3: D.firmware != null ? t("updates.firmware", {v0: D.firmware}) : ''})}<span style="color:var(--warn)">${t("updates.forced_reboot")}</span>${t("updates.without_showing_the_list", {v4: esc(D.note)})}${dashSkip}` : '';
+  renderPhasedPolicy(j.phased_policy);
   renderReboot(j.reboot); renderList();
+}
+
+/* 全機分階段策略：寫 /etc/apt/apt.conf.d/99spark-center-phased（跳一次密碼）。生效值用 apt-config 讀，不信任本地選擇。
+   這是 apt 層的設定，apt upgrade／aptdaemon（DGX Dashboard）／unattended-upgrades 都讀同一份；Dashboard 的後台是獨立程序，推測要到它下次啟動才讀到。 */
+function renderPhasedPolicy(pp) {
+  const el = $('#phasedPolicy'); if (!el) return;
+  if (!pp) { el.classList.add('hide'); return; }
+  el.classList.remove('hide');
+  const mode = pp.mode || 'default', known = pp.mode != null;
+  const opts = ['default', 'always', 'never'].map(m => `<option value="${m}" ${m === mode ? 'selected' : ''}>${t("updates.phased_policy_" + m)}</option>`).join('');
+  const src = !known ? t("updates.phased_policy_unreadable") : pp.other.length ? t("updates.phased_policy_other", {files: esc(pp.other.join(', '))}) : pp.ours ? t("updates.phased_policy_ours", {file: esc(pp.file)}) : t("updates.phased_policy_nofile");
+  el.innerHTML = `<span><b>${t("updates.phased_policy_label")}</b> <select id="phasedSel" ${document.body.classList.contains('ro') ? 'disabled' : ''}>${opts}</select> <a href="#faq/phased" data-faq="phased">${t("updates.phased_why")}</a></span><div class="sub1" style="margin-top:4px">${t("updates.phased_policy_hint_" + mode)}</div><div class="sub1">${src} · ${t("updates.phased_policy_note")}</div>`;
+  const sel = $('#phasedSel'); if (!sel) return;
+  sel.onchange = async () => {
+    const want = sel.value; sel.disabled = true;
+    const r = await api('/api/setup/phased', {mode: want});
+    if (!r.ok) alert(r.error);
+    load();   // 以伺服器讀回的生效值重畫；清單與 Dashboard 對照也會跟著變
+  };
 }
 
 $('#btnGo').onclick = async () => {
@@ -426,15 +457,17 @@ $('#btnGo').onclick = async () => {
   if (sim.pairing) html += `<div class="panel notice danger"><b>${t("updates.upgrade_the_kernel_and_nvidia_driver")}</b><div style="margin-top:6px">${esc(sim.pairing.message)}</div><div class="sub1" style="margin-top:6px">${t("updates.missing")}<span class="mono">${sim.pairing.missing.map(esc).join('、')}</span></div><div style="margin-top:8px"><button class="small primary" id="pairAdd">${t("updates.select_them_too_and_check_again")}</button></div></div>`;
   html += `<p>${t("updates.you_selected")}<b>${names.length}</b>${t("updates.packages_apt_will_actually_change")}<b>${sim.changes.length}</b>${t("updates.packages_download_approximately_disk_space_change", {v2: fmtBytes(sim.download_bytes), v3: fmtBytes(Math.abs(sim.space_bytes)), v4: sim.space_bytes<0?t("updates.freed"):''})}</p>`;
   if (rm.length) html += `<div class="panel notice danger">${t("updates.this_will")}<b>${t("updates.remove_2")}</b>${t("updates.packages_please_confirm_this_is_what", {v0: rm.length})}</div>`;
+  const ph = sim.phased || [];
+  if (ph.length) html += `<div class="panel notice danger"><b>${t("updates.phased_confirm_title", {n: ph.length})}</b><div style="margin-top:6px">${t("updates.phased_confirm_body")}</div><div class="mono" style="margin-top:6px">${ph.map(x => `${esc(x.name)} → ${esc(x.to)}${LANG === 'zh-TW' ? '（' : ' ('}${t("updates.phased_tag", {p: x.percent == null ? '—' : x.percent})}${LANG === 'zh-TW' ? '）' : ')'}`).join('<br>')}</div></div>`;
   if (extra.length) html += `<div class="panel notice warn">${t("updates.packages_you_did_not_select_will", {v0: extra.length})}</div>`;
-  html += `<div class="chg">` + sim.changes.map(c => `<div class="${c.action==='remove'?'rm':(c.requested?'':'extra')}">${c.action.padEnd(9)} ${esc(c.name)} ${esc(c.from)}${c.to?' → '+esc(c.to):''}</div>`).join('') + `</div>`;
+  html += `<div class="chg">` + sim.changes.map(c => `<div class="${c.action==='remove'?'rm':(c.requested?'':'extra')}">${c.action.padEnd(9)} ${esc(c.name)} ${esc(c.from)}${c.to?' → '+esc(c.to):''}${c.phased && c.phased.held ? ` <span class="tag phased">${t("updates.phased_early")}</span>` : ''}</div>`).join('') + `</div>`;
   html += `<p class="muted" style="margin-top:12px">${t("updates.after_confirmation_a_polkit_password_dialog")}<b>${t("updates.not")}</b>${t("updates.reboot_automatically")}</p>`;
   body.innerHTML = html; $('#mOk').classList.remove('hide'); $('#mOk').textContent = t("common.confirm_update");
   const pa = $('#pairAdd');
   if (pa) pa.onclick = () => { sim.pairing.missing.forEach(n => state.selected.add(n)); closeModal(); renderList(); $('#btnGo').click(); };
   $('#mOk').onclick = async () => {
     closeModal();
-    const r = await api('/api/install', {packages: names});
+    const r = await api('/api/install', {packages: names, allow_phased: ph.map(x => x.name)});   // 確認的是這份模擬；後端會再比對一次
     if (!r.ok) { alert(t("updates.could_not_start_with_value", {value: r.error})); return; }
     state.selected.clear(); startPolling(names.length > 6 ? t("updates.updating_n", {n: names.length}) : t("updates.updating_with_value", {value: names.join(', ')}));
   };
@@ -442,7 +475,7 @@ $('#btnGo').onclick = async () => {
 };
 $('#btnRefresh').onclick = async () => { state.namesBeforeRefresh = new Set(state.items.map(i => i.name)); const r = await api('/api/refresh', {}); if (!r.ok) { alert(t("updates.could_not_start_with_value", {value: r.error})); return; } startPolling(t("job.refresh_apt_sources")); };
 // 全選只選主清單；折疊區的 firmware 子套件要升級就展開用它自己的群組勾選框
-$('#btnAll').onclick = () => { state.items.filter(i => !(i.firmware && i.firmware.passive) && !i.node_flow).forEach(i => state.selected.add(i.name)); renderList(); };
+$('#btnAll').onclick = () => { state.items.filter(i => !(i.firmware && i.firmware.passive) && !i.node_flow && !isHeld(i)).forEach(i => state.selected.add(i.name)); renderList(); };
 $('#btnNone').onclick = () => { state.selected.clear(); renderList(); };
 function openModal(t) { $('#mTitle').textContent = t; $('#overlay').classList.add('open'); }
 function closeModal() { $('#overlay').classList.remove('open'); }

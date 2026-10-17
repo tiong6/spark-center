@@ -174,6 +174,7 @@
   .meter i { display: block; height: 100%; background: var(--accent); }
   .meter.warn i { background: var(--warn); } .meter.hot i { background: var(--danger); }
   .tag.warn { color: var(--warn); border-color: var(--warn); } .tag.bad { color: var(--danger); border-color: var(--danger); }
+  .tag.phased { color: #c88fe0; border-color: #6b3f80; }
   /* 印表機：一台一區；耗材條用印表機回報的顏色，黑色在深底上看不到，所以條與色塊都描一圈淡邊 */
   .pr-dev { padding: 16px 0 14px; border-bottom: 1px solid var(--line); } .pr-dev:last-of-type { border-bottom: 0; }
   .pr-top { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; } .pr-top .links { margin-left: auto; font-size: 12px; }

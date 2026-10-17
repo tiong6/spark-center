@@ -37,6 +37,12 @@ const FAQ = [
     ['faq.link.forum_2510', 'https://forums.developer.nvidia.com/t/dgx-spark-ubuntu-upgrade-to-25-10/356468'],
     ['faq.link.forum_2604', 'https://forums.developer.nvidia.com/t/ubuntu-26-04-lts-kernel-6-17-0-arm64-on-dgx-spark-anyone/350517'],
     ['faq.link.dgxos7', 'https://docs.nvidia.com/dgx/dgx-os-7-user-guide/additional_software.html']] },
+  { id: 'phased', cat: 'software', own: true, local: 'phased', cmds: [
+    ['faq.cmd.phased_policy', 'apt-cache policy snapd'],
+    ['faq.cmd.phased_sim', 'apt-get -s upgrade | grep -A3 -i "kept back\\|未被升級\\|保留"'],
+    ['faq.cmd.phased_conf', 'cat /etc/apt/apt.conf.d/99spark-center-phased']], links: [
+    ['faq.link.ubuntu_phased', 'https://wiki.ubuntu.com/PhasedUpdates'],
+    ['faq.link.apt_phased', 'https://discourse.ubuntu.com/t/phased-updates-in-apt-in-21-04/20345']] },
   { id: 'nemoclaw', cat: 'software', links: [
     ['faq.link.nemoclaw', 'https://github.com/NVIDIA/NemoClaw/discussions'],
     ['faq.link.nemoclaw_faq', 'https://github.com/NVIDIA/NemoClaw/discussions/categories/q-a?discussions_q=category%3AQ%26A+is%3Aclosed+author%3AzNeill+'],
@@ -131,6 +137,14 @@ function faqLocalRows(kind) {
     const never = r.prompt.toLowerCase() === 'never';
     return row(t('faq.l.release_prompt'), `<code>Prompt=${esc(r.prompt)}</code> · <span class="fv ${never ? 'ok' : 'warn'}">${esc(t(never ? 'faq.l.release_quiet' : 'faq.l.release_nags'))}</span>`)
       + row(t('faq.l.release_flag'), esc(t(r.flag ? 'faq.l.release_flag_yes' : 'faq.l.release_flag_no')));
+  }
+  if (kind === 'phased') {
+    const p = L.phased;
+    if (!p) return na('faq.l.phased_policy');
+    const pol = p.policy || {}, mode = pol.mode;
+    const polText = mode == null ? t('faq.l.unreadable') : t('updates.phased_policy_' + mode) + (pol.other && pol.other.length ? ` · ${t('updates.phased_policy_other', {files: pol.other.join(', ')})}` : pol.ours ? ` · ${t('updates.phased_policy_ours', {file: pol.file})}` : '');
+    const heldText = p.held == null ? t('faq.l.unreadable') : p.held.length ? p.held.map(h => `${h.name} ${h.candidate || ''}${LANG === 'zh-TW' ? '（' : ' ('}${t('updates.phased_tag', {p: h.percent == null ? '—' : h.percent})}${LANG === 'zh-TW' ? '）' : ')'}`).join(LANG === 'zh-TW' ? '、' : ', ') : t('faq.l.phased_none');
+    return row(t('faq.l.phased_policy'), esc(polText) + ` · <a href="#updates" data-goto="updates">${t('faq.goto_updates')}</a>`) + row(t('faq.l.phased_held'), esc(heldText));
   }
   if (kind === 'wifi') {
     const w = L.wifi;

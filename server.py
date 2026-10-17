@@ -225,6 +225,77 @@ def dashboard_recheck(log=lambda s: None):
     log(msg("dash_recheck_failed", LANG_DEFAULT, err=err[:120])); return False
 
 
+# ---------- Ubuntu 分階段更新（phased updates） ----------
+# Ubuntu 的 -updates 用 Phased-Update-Percentage 逐步放量；每台機器依 machine-id 雜湊決定有沒有被納入。
+# apt upgrade／aptdaemon 的整機升級（DGX Dashboard）／python-apt 的 cache.upgrade() 都會把沒納入的「保留」，
+# 但 is_upgradable 與 mark_upgrade() 不看它——所以這裡的清單要標出來、安裝前要另外確認，否則會無聲越過 Ubuntu 的放量。
+# 判定直接用 python-apt 的 pkg.phasing_applied（和 apt upgrade 同一個演算法），不自己算雜湊。
+PHASED_CONF = "/etc/apt/apt.conf.d/99spark-center-phased"
+PHASED_KEYS = {"always": "APT::Get::Always-Include-Phased-Updates", "never": "APT::Get::Never-Include-Phased-Updates"}
+PHASED_RE = re.compile(r"(Always|Never)-Include-Phased-Updates", re.I)
+
+
+def phased_info(pkg):
+    """{"percent": 放量百分比或 None, "held": 這台機器被擋住}；兩者都沒有就 None（不是分階段套件）。"""
+    pct = None
+    try:
+        v = pkg.candidate.record.get("Phased-Update-Percentage") if pkg.candidate else None
+        pct = int(v) if v is not None else None
+    except (ValueError, TypeError, KeyError, AttributeError):
+        pct = None
+    held = bool(getattr(pkg, "phasing_applied", False))
+    if pct is None and not held:
+        return None
+    return {"percent": pct, "held": held}
+
+
+def phased_policy_status():
+    """全機策略：生效值用 apt-config 讀（不管誰設的），再找是哪些檔設的。mode: default／always／never；讀不到就 None。"""
+    out = _run(["apt-config", "dump", "--format", "%f=%v%n", PHASED_KEYS["always"], PHASED_KEYS["never"]], timeout=10)
+    mode = None
+    if out is not None:
+        mode = "default"
+        vals = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+        if vals.get(PHASED_KEYS["always"], "").lower() in ("true", "1", "yes"):
+            mode = "always"
+        elif vals.get(PHASED_KEYS["never"], "").lower() in ("true", "1", "yes"):
+            mode = "never"
+    sources = []
+    for path in ["/etc/apt/apt.conf"] + sorted(glob.glob("/etc/apt/apt.conf.d/*")):
+        try:
+            for line in open(path, encoding="utf-8", errors="replace"):
+                if PHASED_RE.search(line) and not line.lstrip().startswith(("//", "#")):
+                    sources.append(path); break
+        except OSError:
+            continue
+    return {"mode": mode, "sources": sources, "file": PHASED_CONF, "ours": os.path.exists(PHASED_CONF),
+            "other": [x for x in sources if x != PHASED_CONF]}
+
+
+def phased_policy_set(mode):
+    """寫／刪 /etc/apt/apt.conf.d/99spark-center-phased（pkexec 跳一次密碼）。改完重讀本程序的 apt 設定，
+    否則 phasing_applied 還是舊判定；aptdaemon 與 Dashboard 的後台是獨立程序，要到它們下次啟動才讀到。"""
+    if READONLY:
+        return {"ok": False, "error": msg("readonly_mode", LANG_DEFAULT)}
+    if mode not in ("default", "always", "never"):
+        return {"ok": False, "error": msg("phased_bad_mode", LANG_DEFAULT)}
+    if mode == "default":
+        ok, err = _pkexec(["/usr/bin/rm", "-f", PHASED_CONF])
+    else:
+        d = tempfile.mkdtemp(prefix="spark-center-phased-")
+        src = os.path.join(d, os.path.basename(PHASED_CONF))
+        with open(src, "w", encoding="utf-8") as f:
+            f.write(f"// Spark Center: Ubuntu phased updates policy = {mode}\n{PHASED_KEYS[mode]} \"true\";\n")
+        os.chmod(src, 0o644)
+        ok, err = _pkexec(["/usr/bin/install", "-o", "root", "-g", "root", "-m", "0644", src, PHASED_CONF])
+        shutil.rmtree(d, ignore_errors=True)
+    if ok:
+        apt_pkg.init_config()
+        _DASH_CACHE["ts"] = 0
+    st = phased_policy_status()
+    return {"ok": ok, "error": err, "policy": st}
+
+
 def dashboard_equivalent():
     """DGX Dashboard 那顆 Update 實際涵蓋什麼。依據：apt 歷史裡它的 aptdaemon 角色是 role-upgrade-system，
     且歷次都有安裝甚至移除套件——aptdaemon 的 safe_mode=True 會跳過這類升級，所以它用的是完整升級。
@@ -242,8 +313,13 @@ def dashboard_equivalent():
         fw = fwupd_status().get("updates")
     except Exception:
         pass
+    held = []
+    try:
+        held = sorted(p.name for p in apt.Cache() if p.is_upgradable and getattr(p, "phasing_applied", False))
+    except Exception:
+        held = None   # 讀不到就 None，前端顯示「—」
     data = {"upgrade": len(ups), "install": len(news), "remove": len(remv), "firmware": fw,
-            "packages": sorted(set(ups + news)), "removes": sorted(set(remv)),
+            "packages": sorted(set(ups + news)), "removes": sorted(set(remv)), "phased_held": held,
             "note": msg('dashboard_note', LANG_DEFAULT)}
     _DASH_CACHE.update(ts=time.time(), data=data)
     return data
@@ -427,6 +503,8 @@ def rollback_prepare(names, log=lambda s: None, status=lambda s: None, step=lamb
         step(idx, len(targets), name)
         pkg = cache.get(name)
         entry = {"name": name, "selected": selected, "old": None, "new": None, "arch": None, "deb": None, "source": None, "verified": None, "reason": None}
+        if pkg and getattr(pkg, "phasing_applied", False):
+            entry["phased"] = (phased_info(pkg) or {}).get("percent")   # 當時 Ubuntu 的放量百分比；這台機器沒被納入卻裝了＝提前安裝
         rec["packages"].append(entry)
         if not pkg or not pkg.installed:
             entry["reason"] = msg("rollback_not_installed", LANG_DEFAULT); continue
@@ -1084,6 +1162,7 @@ def list_updates():
             "spark_core": bool(SPARK_CORE_RE.match(pkg.name)),
             "firmware": _firmware_usage(pkg, cache),
             "node_flow": node_flow if pkg.name == "nodejs" and node_flow else None,
+            "phased": phased_info(pkg),
         })
     items.sort(key=lambda x: (x["group"], x["name"]))
     return items
@@ -1095,6 +1174,8 @@ def simulate(names):
     unknown = [n for n in names if n not in cache]
     if unknown:
         return {"ok": False, "error": msg('pkgs_missing', LANG_DEFAULT, p0=', '.join(unknown))}
+    # 分階段判定要在標記前讀：mark_upgrade 不看它，但 phasing_applied 是政策層的屬性，標記後仍可讀；提前讀是為了保險
+    held_before = {p.name: phased_info(p) for p in cache if p.is_upgradable and getattr(p, "phasing_applied", False)}
     try:
         with cache.actiongroup():
             for n in names:
@@ -1102,6 +1183,7 @@ def simulate(names):
     except Exception as e:  # 相依性解不開
         return {"ok": False, "error": msg('deps_failed', LANG_DEFAULT, p0=e)}
     changes = []
+    phased = []   # 會被這次交易裝進去、但 Ubuntu 還沒對這台機器放量的（含相依帶入的）
     for p in cache.get_changes():
         if p.marked_delete:
             action = "remove"
@@ -1119,13 +1201,17 @@ def simulate(names):
             "from": p.installed.version if p.installed else "",
             "to": p.candidate.version if p.candidate else "",
             "requested": p.name in names,
+            "phased": held_before.get(p.name),
         })
+        if p.name in held_before and action in ("upgrade", "install"):
+            phased.append({"name": p.name, "to": p.candidate.version if p.candidate else "", "percent": held_before[p.name]["percent"]})
     changes.sort(key=lambda c: (not c["requested"], c["action"], c["name"]))
     upgradable = [p.name for p in apt.Cache() if p.is_upgradable]
     return {
         "ok": True,
         "changes": changes,
         "pairing": kernel_pairing_warning(names, upgradable),
+        "phased": phased,
         "download_bytes": cache.required_download,
         "space_bytes": cache.required_space,
         "broken": cache.broken_count,
@@ -3358,7 +3444,13 @@ def faq_local():
     for line in (hardware.read_text_file("/etc/update-manager/release-upgrades") or "").splitlines():
         if line.strip().lower().startswith("prompt="):
             release["prompt"] = line.split("=", 1)[1].strip()
-    return {"ok": True, "cx7": hardware.cx7_state(), "mem": mem, "wifi": wifi, "release": release}
+    phased = {"policy": phased_policy_status(), "held": None}
+    try:
+        phased["held"] = [{"name": p.name, "candidate": p.candidate.version if p.candidate else None, "percent": (phased_info(p) or {}).get("percent")}
+                          for p in apt.Cache() if p.is_upgradable and getattr(p, "phasing_applied", False)]
+    except Exception:
+        pass
+    return {"ok": True, "cx7": hardware.cx7_state(), "mem": mem, "wifi": wifi, "release": release, "phased": phased}
 
 
 FAQ_ARCHIVE_DIR = os.path.join(HERE, "data", "faq")
@@ -3525,6 +3617,7 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "items": list_updates(),
                     "dashboard": dashboard_equivalent(),
+                    "phased_policy": phased_policy_status(),
                     "reboot": reboot_status(),
                     "last_refresh": last_refresh(),
                     "job_running": JOB.snapshot()["status"] == "running",
@@ -3788,6 +3881,9 @@ class Handler(BaseHTTPRequestHandler):
             # 鎖看模擬的實際變更（含相依帶入、nodejs:arm64 這種架構限定名），不只看使用者送來的名字
             if any(c["name"].split(":")[0] == "nodejs" for c in sim["changes"]) and _node_flow_pending():
                 return self._json({"ok": False, "error": msg('node_flow_locked', LANG_DEFAULT)}, 409)
+            if sim.get("phased") and data.get("allow_phased") != [x["name"] for x in sim["phased"]]:
+                # 使用者確認的提前安裝集合要和現在模擬出來的一樣；清單開了幾天、放量變了，就回去重看
+                return self._json({"ok": False, "error": msg('phased_confirm_required', LANG_DEFAULT, names=", ".join(x["name"] for x in sim["phased"]))}, 409)
             if not JOB.start("install", names):
                 return self._json({"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 409)
             return self._json({"ok": True})
@@ -3809,6 +3905,9 @@ class Handler(BaseHTTPRequestHandler):
             if item not in ("gpu_clock", "dmidecode", "nvme", "dashboard_recheck", "node_helper", "autostart", "remote", "model_guard", "disk_selftest", "disk_fsck"):
                 return self._json({"ok": False, "error": msg("node_bad_action", LANG_DEFAULT)}, 400)
             r = setup_toggle(item, enable)
+            return self._json(r, 200 if r.get("ok") else 400)
+        if path == "/api/setup/phased":
+            r = phased_policy_set(data.get("mode"))
             return self._json(r, 200 if r.get("ok") else 400)
         if path == "/api/setup/pwa-install":
             r = pwa_install_launch()
