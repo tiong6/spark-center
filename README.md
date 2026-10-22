@@ -29,7 +29,7 @@ Requirements: Ubuntu 24.04 / DGX OS 7.x on aarch64; everything it needs ships wi
 
 ### 1. Show you what an update will do, and let you choose
 
-The Dashboard's **Update** button upgrades every apt package it can find, including Chrome and anything else you added a repository for, then forces a reboot. It cannot show you the list, and when a firmware flash fails silently it still reports success.
+The Dashboard's **Update** button upgrades every apt package it can find, including Chrome and anything else you added a repository for, then reboots. Since Dashboard 0.39 (October 2026) it shows the list of packages, but it is still all or nothing: no picking, no dependency preview, no roll-back, and when a firmware flash fails silently it still reports success.
 
 Spark Center lists the packages grouped by source, runs the dependency simulation first, and tells you exactly what will change, what your selection drags in, and whether a reboot is actually needed. Packages Ubuntu is still rolling out in phases are kept apart and marked, instead of being installed ahead of the rollout or listed as updates that then refuse to install. Firmware is read from fwupd itself, so a flash that reported success but did not change the version shows up as a mismatch.
 
