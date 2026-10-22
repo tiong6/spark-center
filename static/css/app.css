@@ -184,6 +184,7 @@
   .meter.warn i { background: var(--warn); } .meter.hot i { background: var(--danger); }
   .tag.warn { color: var(--warn); border-color: var(--warn); } .tag.bad { color: var(--danger); border-color: var(--danger); }
   .tag.phased { color: #c88fe0; border-color: #6b3f80; }
+  .clmeta { margin-top: 3px; line-height: 1.5; } .clmeta .tag { margin-right: 6px; vertical-align: middle; }
   /* 更新分頁三處圖形化：流程列（四格靜態，沿用工作卡 .steps）、Dashboard 對照兩張卡、分階段策略分段按鈕 */
   .steps.flow span.no { color: var(--accent); } .steps.flow span.no::before { border-color: var(--accent); }
   .steps.flow span:not(:last-child)::after { content: '→'; color: var(--muted); margin-left: 4px; }

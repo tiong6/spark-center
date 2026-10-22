@@ -2269,6 +2269,120 @@ def _apt_vendor_hint(pkg):
     return ""
 
 
+# ---------- 更新清單上的急迫度與一行摘要（學 DGX Dashboard 0.39 的 release highlights，但用真資料） ----------
+# 資料來源：Debian changelog 的標頭 `pkg (version) dist; urgency=low|medium|high|critical` 與第一條 `*`。
+# 第三方倉庫（Chrome、VS Code、NodeSource）多半沒有 changelog → 照實回 ok=False，畫面顯示「—」，不猜。
+# `apt-get changelog` 一個套件約 1–2 秒、走網路：結果存 data/changelog-meta.json（鍵＝套件＋候選版本），
+# 缺的交給 4 條背景執行緒抓，/api/updates 先回已有的，前端再輪詢 /api/updates/meta 補齊。
+CHANGELOG_META_FILE = os.path.join(HERE, "data", "changelog-meta.json")
+CHANGELOG_META_FAIL_TTL = 6 * 3600     # 抓不到的 6 小時後再試（changelogs.ubuntu.com 新版偶爾晚幾小時才有）
+URGENCY_RANK = {"low": 0, "medium": 1, "high": 2, "emergency": 3, "critical": 3}
+_CLMETA = {"lock": threading.Lock(), "cache": None, "pending": set(), "pool": None}
+_CL_HEAD_RE = re.compile(r"^(\S+) \(([^)]+)\)(?: [^;]*;\s*urgency=(\w+))?")
+
+
+def parse_changelog_meta(text, installed_version=""):
+    """從 changelog 全文取「比已安裝版新的那幾筆」的最高急迫度、最新一筆的第一條摘要、筆數、CVE 數。
+    沒有任何標頭 → None（不是 changelog）。已安裝版本找不到 → 全部當新的（和 changelog_apt 一樣）。"""
+    entries, cur = [], None
+    for line in text.splitlines():
+        if line.startswith(("Get:", "Hit:", "Fetched")):
+            continue
+        m = _CL_HEAD_RE.match(line)
+        if m:
+            if installed_version and m.group(2) == installed_version:
+                break
+            cur = {"version": m.group(2), "urgency": (m.group(3) or "").lower() or None, "bullets": [], "text": []}
+            entries.append(cur)
+            continue
+        if cur is None:
+            continue
+        cur["text"].append(line)
+        st = line.strip()
+        if st.startswith("* "):
+            cur["bullets"].append(st[2:].strip())
+        elif cur["bullets"] and line.startswith("    ") and st and not st.startswith("- "):
+            cur["bullets"][-1] += " " + st          # 續行（縮排四格、不是子項）
+    if not entries:
+        return None
+    urg = max((e["urgency"] for e in entries if e["urgency"]), key=lambda u: URGENCY_RANK.get(u, -1), default=None)
+    newer_text = "\n".join(l for e in entries for l in e["text"])
+    return {"urgency": urg, "summary": (entries[0]["bullets"][0] if entries[0]["bullets"] else "")[:200],
+            "entries": len(entries), "cves": len(set(re.findall(r"CVE-\d{4}-\d{4,}", newer_text)))}
+
+
+def _clmeta_load():
+    with _CLMETA["lock"]:
+        if _CLMETA["cache"] is None:
+            try:
+                with open(CHANGELOG_META_FILE, encoding="utf-8") as f:
+                    _CLMETA["cache"] = json.load(f)
+            except (OSError, ValueError):
+                _CLMETA["cache"] = {}
+        return _CLMETA["cache"]
+
+
+def _clmeta_save():
+    with _CLMETA["lock"]:
+        os.makedirs(os.path.dirname(CHANGELOG_META_FILE), exist_ok=True)
+        tmp = CHANGELOG_META_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_CLMETA["cache"], f, ensure_ascii=False)
+        os.replace(tmp, CHANGELOG_META_FILE)
+
+
+def changelog_meta_fetch(name, installed, candidate):
+    """同步抓一個套件並寫快取。回快取項：{"ok", "urgency", "summary", "entries", "cves", "ts"}；ok=False 時帶 note。"""
+    r = changelog_apt(name, installed)
+    if r.get("ok") and r.get("text"):
+        meta = parse_changelog_meta(r["text"], installed)
+        item = {"ok": True, "ts": time.time(), **meta} if meta else {"ok": False, "ts": time.time(), "note": r.get("note", "")}
+    elif r.get("ok"):   # 回 ok 但沒內容＝changelog 到已安裝版就截完（候選版沒有新條目）
+        item = {"ok": True, "ts": time.time(), "urgency": None, "summary": "", "entries": 0, "cves": 0}
+    else:
+        item = {"ok": False, "ts": time.time(), "note": r.get("note", "")}
+    cache = _clmeta_load()
+    with _CLMETA["lock"]:
+        cache[f"{name} {candidate}"] = item
+    _clmeta_save()
+    return item
+
+
+def _clmeta_worker(name, installed, candidate):
+    try:
+        changelog_meta_fetch(name, installed, candidate)
+    except Exception as e:
+        cache = _clmeta_load()
+        with _CLMETA["lock"]:
+            cache[f"{name} {candidate}"] = {"ok": False, "ts": time.time(), "note": str(e)[:120]}
+    finally:
+        with _CLMETA["lock"]:
+            _CLMETA["pending"].discard(f"{name} {candidate}")
+
+
+def updates_meta(items):
+    """items：list_updates() 的項目。回 {"meta": {name: 快取項或 None}, "pending": [還在抓的名字]}；
+    沒快取（或抓失敗已過 TTL）的丟給背景池，這一次先回 None。不等網路。"""
+    cache = _clmeta_load()
+    out, pending = {}, []
+    now = time.time()
+    for it in items:
+        key = f"{it['name']} {it['candidate']}"
+        with _CLMETA["lock"]:
+            hit = cache.get(key)
+            stale = hit is not None and not hit.get("ok") and now - hit.get("ts", 0) > CHANGELOG_META_FAIL_TTL
+            if hit is not None and not stale:
+                out[it["name"]] = hit; continue
+            out[it["name"]] = None
+            if key in _CLMETA["pending"]:
+                pending.append(it["name"]); continue
+            _CLMETA["pending"].add(key); pending.append(it["name"])
+            if _CLMETA["pool"] is None:
+                _CLMETA["pool"] = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="clmeta")
+            _CLMETA["pool"].submit(_clmeta_worker, it["name"], it["installed"], it["candidate"])
+    return {"meta": out, "pending": pending}
+
+
 def changelog_apt(pkg, installed_version=""):
     """用 `apt-get changelog`（不需 root）抓候選版本的 changelog，截到已安裝版本為止。
     第三方 repo 多半沒提供，照實回報。python-apt 的 get_changelog 在這台機器上抓不到，所以走子程序。"""
@@ -3631,11 +3745,18 @@ class Handler(BaseHTTPRequestHandler):
                 ctype = "image/svg+xml" if fn.endswith(".svg") else "image/png"
             self.send_response(200); self.send_header("Content-Type", ctype); self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store"); self.end_headers(); self.wfile.write(body)
+        elif path == "/api/updates/meta":
+            try:
+                self._json({"ok": True, **updates_meta(list_updates())})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/updates":
             try:
+                items = list_updates()
                 self._json({
                     "ok": True,
-                    "items": list_updates(),
+                    "items": items,
+                    **updates_meta(items),
                     "dashboard": dashboard_equivalent(),
                     "phased_policy": phased_policy_status(),
                     "reboot": reboot_status(),

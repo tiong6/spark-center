@@ -37,6 +37,33 @@ function groupColor(name, site) {
   let h = 0; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return GRP_PALETTE[h % GRP_PALETTE.length];
 }
+/* 急迫度與一行摘要：Debian changelog 的 urgency 與最新一筆的第一條（changelogs.ubuntu.com）。
+   null＝還在背景抓；ok=false＝這個來源沒有 changelog（第三方倉庫多半如此）→「—」，不猜。 */
+function clMetaHtml(it) {
+  const m = state.meta ? state.meta[it.name] : undefined;
+  if (m === undefined) return '';
+  if (m === null) return `<div class="sub1 clmeta muted">${t("updates.cl_pending")}</div>`;
+  if (!m.ok) return `<div class="sub1 clmeta muted" title="${esc(m.note || '')}">${t("updates.cl_none")}</div>`;
+  const u = m.urgency, cls = u === 'high' || u === 'critical' || u === 'emergency' ? 'reboot' : u === 'medium' ? 'sec' : '';
+  const tag = u ? `<span class="tag ${cls}" title="${esc(t("updates.urg_hint", {n: m.entries}))}">${t("updates.urg_tag", {u})}</span>` : '';
+  const cves = m.cves ? `<span class="tag sec" title="${esc(t("updates.cl_cves_hint"))}">${t("updates.cl_cves", {n: m.cves})}</span>` : '';
+  const sum = m.summary ? `<span title="${esc(t("updates.cl_summary_hint"))}">${esc(m.summary.length > 110 ? m.summary.slice(0, 110) + '…' : m.summary)}</span>` : (m.entries === 0 ? `<span class="muted">${t("updates.cl_no_new_entry")}</span>` : '');
+  return (tag || cves || sum) ? `<div class="sub1 clmeta">${tag}${cves}${sum}</div>` : '';
+}
+/* 背景抓 changelog 的補齊輪詢：/api/updates 回 pending 非空時每 3 秒問一次，最多 20 次；抓齊就停 */
+function pollMeta() {
+  clearTimeout(state.metaTimer);
+  if (!state.metaPending || !state.metaPending.length) return;
+  let n = 0;
+  const tick = async () => {
+    const j = await api('/api/updates/meta');
+    if (!j.ok) return;
+    state.meta = j.meta; state.metaPending = j.pending;
+    renderList();
+    if (j.pending.length && ++n < 20) state.metaTimer = setTimeout(tick, 3000);
+  };
+  state.metaTimer = setTimeout(tick, 3000);
+}
 /* Ubuntu 分階段放量還沒輪到這台機器的套件：apt upgrade 與 DGX Dashboard 都會跳過它，這裡也不當待辦、不進全選；勾了就是提前安裝 */
 const isHeld = it => !!(it.phased && it.phased.held);
 function renderList() {
@@ -48,7 +75,7 @@ function renderList() {
   const THEAD = `<thead><tr><th style="width:36px"></th><th style="width:32%">${t("updates.package")}</th><th style="width:24%">${t("updates.version")}</th><th class="col-opt">${t("updates.description")}</th><th style="width:80px">${t("updates.size")}</th><th style="width:80px"></th></tr></thead>`;
   const row = it => `<tr class="sub">
         <td><input type="checkbox" data-pkg="${esc(it.name)}" ${it.node_flow ? 'disabled' : (state.selected.has(it.name)?'checked':'')}></td>
-        <td>${esc(it.name)}${state.newAfterRefresh && state.newAfterRefresh.has(it.name) ? `<span class="tag ok" title="${t("updates.new_after_refresh_hint")}">${t("updates.new_after_refresh")}</span>` : ''}${it.node_flow?`<span class="tag" title="${t("updates.node_flow_hint")}">${t("updates.node_flow")}</span>`:''}${it.security?'<span class="tag sec">security</span>':''}${isHeld(it)?`<span class="tag phased" title="${esc(t("updates.phased_tag_hint", {p: it.phased.percent == null ? '—' : it.phased.percent}))}">${t("updates.phased_tag", {p: it.phased.percent == null ? '—' : it.phased.percent})}</span> <a href="#faq/phased" data-faq="phased" class="sub1">${t("updates.phased_why")}</a>`:''}${it.spark_core?`<span class="tag" style="color:#76b900;border-color:#4b6b1e" title="${t("updates.spark_os_nvidia_platform_packages_dashboard")}">${t("updates.spark_os_use_the_stock_dashboard")}</span>`:''}${it.reboot_hint?`<span class="tag reboot" title="${t("updates.based_on_the_package_name_estimated")}">${t("updates.usually_needs_reboot_estimated")}</span>`:''}${it.firmware && it.firmware.passive?`<span class="tag" title="${t("updates.none_of_the_loaded_kernel_modules", {v0: esc(it.firmware.pulled_by ? t("updates.pulled_in_as_a_dependency_of", {v0: it.firmware.pulled_by}) : t("updates.automatically_installed")), v1: it.firmware.files})}">${t("updates.no_local_driver_declares_use")}</span>`:''}</td>
+        <td>${esc(it.name)}${state.newAfterRefresh && state.newAfterRefresh.has(it.name) ? `<span class="tag ok" title="${t("updates.new_after_refresh_hint")}">${t("updates.new_after_refresh")}</span>` : ''}${it.node_flow?`<span class="tag" title="${t("updates.node_flow_hint")}">${t("updates.node_flow")}</span>`:''}${it.security?'<span class="tag sec">security</span>':''}${isHeld(it)?`<span class="tag phased" title="${esc(t("updates.phased_tag_hint", {p: it.phased.percent == null ? '—' : it.phased.percent}))}">${t("updates.phased_tag", {p: it.phased.percent == null ? '—' : it.phased.percent})}</span> <a href="#faq/phased" data-faq="phased" class="sub1">${t("updates.phased_why")}</a>`:''}${it.spark_core?`<span class="tag" style="color:#76b900;border-color:#4b6b1e" title="${t("updates.spark_os_nvidia_platform_packages_dashboard")}">${t("updates.spark_os_use_the_stock_dashboard")}</span>`:''}${it.reboot_hint?`<span class="tag reboot" title="${t("updates.based_on_the_package_name_estimated")}">${t("updates.usually_needs_reboot_estimated")}</span>`:''}${it.firmware && it.firmware.passive?`<span class="tag" title="${t("updates.none_of_the_loaded_kernel_modules", {v0: esc(it.firmware.pulled_by ? t("updates.pulled_in_as_a_dependency_of", {v0: it.firmware.pulled_by}) : t("updates.automatically_installed")), v1: it.firmware.files})}">${t("updates.no_local_driver_declares_use")}</span>`:''}${clMetaHtml(it)}</td>
         <td class="mono">${esc(it.installed)}<br><span class="to">→ ${esc(it.candidate)}</span></td>
         <td class="col-opt sub1">${esc(it.summary)}</td>
         <td class="sub1">${fmtBytes(it.size)}</td>
@@ -419,7 +446,8 @@ async function load() {
   for (const s of [...state.selected]) if (!names.has(s)) state.selected.delete(s);
   if (state.namesBeforeRefresh) { state.newAfterRefresh = new Set([...names].filter(n => !state.namesBeforeRefresh.has(n))); state.namesBeforeRefresh = null; }   // 只在重新整理來源後標，裝完套件不重算
   else if (state.newAfterRefresh) for (const n of [...state.newAfterRefresh]) if (!names.has(n)) state.newAfterRefresh.delete(n);
-  state.items = j.items;
+  state.items = j.items; state.meta = j.meta || {}; state.metaPending = j.pending || [];
+  pollMeta();
   const nPassive = j.items.filter(i => i.firmware && i.firmware.passive).length, nHeld = j.items.filter(i => isHeld(i) && !(i.firmware && i.firmware.passive)).length;
   // 數字的語意：「可升級」是 apt upgrade 真的會裝的；等待放量的另外數，不混進去也不藏起來
   $('#meta').textContent = t("updates.upgradable_apt_index_last_updated", {v0: j.items.length - nPassive - nHeld, v1: (nPassive ? t("updates.another_firmware_packages_this_machine_does", {v0: nPassive}) : '') + (nHeld ? t("updates.phased_waiting_n", {n: nHeld}) : ''), v2: j.last_refresh ? j.last_refresh.replace('T',' ') : '—'});
