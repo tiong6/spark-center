@@ -8,6 +8,7 @@ for f in static/js/*.js; do node --check "$f" || { echo "node --check FAILED: $f
 python3 tools/lint_frontend.py
 python3 tools/test_npm_safe.py 2>&1 | tail -1 | grep -q "^OK" && echo "npm safe-update tests OK" || { python3 tools/test_npm_safe.py; exit 1; }   # 隔離測試，不碰真 npm／systemctl
 python3 tools/test_gpu_hot.py 2>&1 | tail -1 | grep -q "^OK" && echo "GPU overheat tests OK" || { python3 tools/test_gpu_hot.py; exit 1; }
+_ps=$(mktemp); python3 tools/test_print_stack.py > "$_ps" 2>&1 && echo "print stack / snap busy tests OK" || { cat "$_ps"; exit 1; }; rm -f "$_ps"   # 純判斷＋假 /proc，不碰 snapd
 _cl=$(mktemp); python3 tools/test_changelog_meta.py > "$_cl" 2>&1 && echo "changelog meta tests OK" || { cat "$_cl"; exit 1; }; rm -f "$_cl"   # 純解析，不碰網路
 
 python3 tools/test_backend_modules.py

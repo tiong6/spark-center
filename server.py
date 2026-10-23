@@ -3445,33 +3445,36 @@ def _snapd_get(path, timeout=10):
         return None
 
 
-def snap_running_apps(name):
-    """哪些程序正在使用這個 snap。snapd 不會更新有程式在跑的 snap，先查出來才不會白要一次密碼。
-    exe 路徑是主要依據，讀不到（別的使用者的程序）再看 cgroup 標記。"""
+def snap_running_apps(name, proc="/proc"):
+    """哪些程序正在使用這個 snap。snapd 不會更新有「應用程式」在跑的 snap，先查出來才不會白要一次密碼。
+    exe 路徑是主要依據，讀不到（別的使用者的程序）再看 cgroup 標記。
+    snap 自己的 systemd 服務（cgroup 是 snap.<name>.<svc>.service，例：cups 的 cupsd）標成 service=True：
+    snapd 更新時會自己停掉再啟動，不算阻擋；曾把 cups snap 的 cupsd 當成使用者程式而擋掉更新（2026-10-23）。"""
     hits = []
-    for pid in os.listdir("/proc"):
+    for pid in os.listdir(proc):
         if not pid.isdigit():
             continue
         exe = ""
         try:
-            exe = os.readlink(f"/proc/{pid}/exe")
+            exe = os.readlink(f"{proc}/{pid}/exe")
         except OSError:
             pass
-        hit = exe.startswith(f"/snap/{name}/")
-        if not hit:
-            try:
-                with open(f"/proc/{pid}/cgroup") as f:
-                    hit = f"snap.{name}." in f.read()
-            except OSError:
-                hit = False
+        cg = ""
+        try:
+            with open(f"{proc}/{pid}/cgroup") as f:
+                cg = f.read()
+        except OSError:
+            pass
+        hit = exe.startswith(f"/snap/{name}/") or f"snap.{name}." in cg
         if hit:
             cmd = ""
             try:
-                with open(f"/proc/{pid}/cmdline", "rb") as f:
+                with open(f"{proc}/{pid}/cmdline", "rb") as f:
                     cmd = f.read().replace(b"\0", b" ").decode(errors="replace").strip()
             except OSError:
                 pass
             hits.append({"pid": int(pid), "exe": exe, "cmd": cmd[:140],
+                         "service": bool(re.search(rf"/snap\.{re.escape(name)}\.[^/\s]+\.service", cg)),
                          "app": os.path.basename(exe or (cmd.split(" ")[0] if cmd else "?"))})
     return hits
 
@@ -4287,7 +4290,7 @@ class Handler(BaseHTTPRequestHandler):
             if source not in ("flatpak", "snap") or not ids:
                 return self._json({"ok": False, "error": msg('source_ids_invalid', LANG_DEFAULT)}, 400)
             if source == "snap":
-                busy = {n: snap_running_apps(n) for n in ids}
+                busy = {n: [x for x in snap_running_apps(n) if not x["service"]] for n in ids}   # 服務由 snapd 自己停啟，不擋
                 busy = {n: v for n, v in busy.items() if v}
                 if busy:
                     detail = "；".join(

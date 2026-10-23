@@ -360,6 +360,17 @@ function prDevice(d, PR) {
     ((st.markers || []).length ? `<div class="pr-sup">${st.markers.map(m => prMarker(m, (st.reasons || []).some(r => /^(toner|marker-supply)-empty/.test(r)))).join('')}</div>` : '') +
     `<div class="sub1" style="margin-top:10px">${qs.length ? qline : t("hw.pr_not_added", {v0: `<span class="mono">${cmd}</span>`})}</div></div>`;
 }
+function prStack(st) {
+  // apt 版與 snap 版 CUPS 的關係：兩套並存通常是 cups snap 的代理模式（為 snap 程式轉送到系統 CUPS），只有兩個獨立伺服器同時跑才警示
+  if (!st) return '';
+  const clients = (st.snap_clients || []).join(t("common.list_sep"));
+  const text = st.kind === 'proxy' ? (clients ? t("hw.pr_stack_proxy", {v0: clients}) : t("hw.pr_stack_proxy_idle"))
+    : st.kind === 'dual' ? t("hw.pr_stack_dual")
+    : st.kind === 'apt_only' ? t("hw.pr_stack_apt_only", {v0: st.apt_active ? t("hw.running") : t("hw.not_running")})
+    : st.kind === 'snap_only' ? t("hw.pr_stack_snap_only", {v0: st.snap_active ? t("hw.running") : t("hw.not_running")})
+    : t("hw.pr_stack_none");
+  return `<div class="sub1" style="margin-top:6px">${st.warn ? `<span class="tag warn">${t("common.warning")}</span> ` : ''}${t("hw.pr_stack_label")} ${text}${infoBtn("hw.pr_stack_info")}</div>`;
+}
 function renderPrinters() {
   const box = $('#hwPrinters'); if (!box) return;
   const PR = hw.printers;
@@ -367,7 +378,7 @@ function renderPrinters() {
   if (!PR) box.innerHTML = head(t("updates.loading"));
   else if (!PR.ok) box.innerHTML = head('') + `<div class="empty">${t("apps.could_not_load", {v0: esc(PR.error)})}</div>`;
   else { const v = {v0: PR.cups_active ? t("hw.running") : t("hw.not_running"), v1: (PR.generated || '').slice(11)};
-    box.innerHTML = head(t("hw.pr_sub_short", v), infoBtn("hw.pr_sub", v)) +
+    box.innerHTML = head(t("hw.pr_sub_short", v), infoBtn("hw.pr_sub", v)) + prStack(PR.stack) +
     (PR.devices.length ? PR.devices.map(d => prDevice(d, PR)).join('') : `<div class="sub1" style="margin-top:8px" title="${esc(t("hw.pr_none"))}">${t("hw.pr_none_short")}${infoBtn("hw.pr_none")}</div>`) +
     (PR.jobs ? `<div class="sub1" style="margin-top:6px">${t("hw.queued_jobs", {v1: PR.jobs})}</div>` : '') +
     (PR.usb.length ? `<div class="sub1" style="margin-top:6px">${t("hw.usb_printers", {v0: PR.usb.map(u => esc((u.manufacturer ? u.manufacturer + ' ' : '') + u.name)).join(t("common.list_sep"))})}</div>` : `<div class="sub1" style="margin-top:6px">${t("hw.no_usb_printers_connected")}</div>`); }

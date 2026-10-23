@@ -745,9 +745,45 @@ def _ipp_status(uri):
     }
 
 
+def print_stack(apt_installed, apt_active, snap_installed, snap_proxy, snap_active, snap_clients):
+    """apt 版與 snap 版 CUPS 的關係（純判斷，無副作用）。
+    cups snap 偵測到系統 CUPS 時會進「代理模式」：不當獨立伺服器，用 cups-proxyd 把 snap 程式的列印轉給 localhost:631，
+    並且不跑自己的 cups-browsed（/snap/cups/current/scripts/run-cupsd）。所以兩套並存多半是正常的，不是衝突。
+    kind：apt_only／snap_only／proxy（正常並存）／dual（兩個獨立伺服器，異常）／none。"""
+    if apt_installed and snap_installed:
+        kind = "proxy" if snap_proxy or not snap_active else "dual"
+    elif apt_installed:
+        kind = "apt_only"
+    elif snap_installed:
+        kind = "snap_only"
+    else:
+        kind = "none"
+    return {"kind": kind, "apt_installed": apt_installed, "apt_active": apt_active, "snap_installed": snap_installed,
+            "snap_proxy": snap_proxy, "snap_active": snap_active, "snap_clients": snap_clients,
+            "warn": kind == "dual" or (kind == "apt_only" and not apt_active) or (kind == "snap_only" and not snap_active)}
+
+
+def _snap_cups_clients():
+    """哪些 snap 接在 cups snap 的 cups slot 上（它們只能透過 cups snap 列印，拔掉 cups snap 會讓它們印不了）。"""
+    out = _run(["snap", "connections", "cups"], timeout=10) or ""
+    return sorted({m.group(1) for m in re.finditer(r"^cups\s+(\S+):cups\s+cups:cups", out, re.M)})
+
+
+def _print_stack():
+    snap_installed = os.path.isdir("/snap/cups/current")
+    return print_stack(
+        apt_installed=os.path.exists("/usr/sbin/cupsd"),
+        apt_active=(_run(["systemctl", "is-active", "cups"], timeout=5) or "").strip() == "active",
+        snap_installed=snap_installed,
+        snap_proxy=os.path.exists("/var/snap/cups/current/var/run/proxy-mode"),   # run-cupsd 進代理模式時 touch 的標記，root:root 0644
+        snap_active=snap_installed and (_run(["systemctl", "is-active", "snap.cups.cupsd.service"], timeout=5) or "").strip() == "active",
+        snap_clients=_snap_cups_clients() if snap_installed else [])
+
+
 def _printers():
-    res = {"cups_active": (_run(["systemctl", "is-active", "cups"], timeout=5) or "").strip() == "active",
-           "queues": [], "devices": [], "usb": [], "jobs": None}
+    stack = _print_stack()
+    res = {"cups_active": stack["apt_active"] or (stack["kind"] == "snap_only" and stack["snap_active"]),
+           "stack": stack, "queues": [], "devices": [], "usb": [], "jobs": None}
     lp = _run(["lpstat", "-p", "-d"], timeout=10) or ""
     for line in lp.splitlines():
         m = re.match(r"printer (\S+) is (\w+)", line)
