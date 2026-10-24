@@ -198,12 +198,16 @@ _DASH_CACHE = {"ts": 0, "data": None}
 
 
 DASH_ADMIN_UNIT = "dgx-dashboard-admin.service"
+DASH_UI_UNIT = "dgx-dashboard.service"
 
 
-def dashboard_recheck(log=lambda s: None):
+def dashboard_recheck(log=lambda s: None, packages=()):
     """裝完更新後叫 DGX Dashboard 重查。它的「有更新」來自 root 後台的快照，更新完常常還亮著（真機兩次）。
     重啟 dgx-dashboard-admin.service 需要 root：先用 pkcheck 問 polkit 有沒有被放行（不會跳視窗），
-    有（README 那條選用規則）就 systemctl --no-ask-password restart；沒有就只留一句提示，不卡工作、不跳密碼。"""
+    有（README 那條選用規則）就 systemctl --no-ask-password restart；沒有就只留一句提示，不卡工作、不跳密碼。
+    這批裝的套件裡有 dgx-dashboard 本身時，連網頁 UI 的 dgx-dashboard.service 一起重啟：NVIDIA 0.39.3-5 起 postinst 改成
+    `systemctl start`（0.39.3-4 的 restart 會把正在跑 OTA 的 admin 殺掉，2026-10 論壇災情），已在跑的服務就不會被換掉，
+    從這裡升完 Dashboard 套件後 UI 會一直跑舊版到重開機，看起來像 Spark Center 沒裝好。"""
     if READONLY:
         return False
     # 為什麼用 sudo -n 而不是 polkit：systemctl 走 polkit 時 --no-ask-password 只擋終端機提示，桌面的 polkit 視窗照樣跳
@@ -213,15 +217,23 @@ def dashboard_recheck(log=lambda s: None):
                "com.nvidia.dgx.dashboard.admin1", "GetOTAAvailabilitySnapshot"], timeout=10) or ""
     if '"ready"' not in st:
         log(msg("dash_recheck_busy", LANG_DEFAULT, state=st.strip()[:60] or "?")); return False
+    ok = _dash_restart(DASH_ADMIN_UNIT, "dash_recheck_done", "dash_recheck_hint", log)
+    if "dgx-dashboard" in (packages or ()):
+        _dash_restart(DASH_UI_UNIT, "dash_ui_done", "dash_ui_hint", log)
+    return ok
+
+
+def _dash_restart(unit, done_key, hint_key, log):
+    """sudo -n 重啟一個 Dashboard 服務。sudoers 是逐條精確比對，兩個 unit 各要一行放行，所以分開跑、分開提示。"""
     try:
-        r = subprocess.run(["sudo", "-n", "/usr/bin/systemctl", "restart", DASH_ADMIN_UNIT], capture_output=True, text=True, timeout=60, env=_ENV_C)
+        r = subprocess.run(["sudo", "-n", "/usr/bin/systemctl", "restart", unit], capture_output=True, text=True, timeout=60, env=_ENV_C)
     except Exception as e:
         log(msg("dash_recheck_failed", LANG_DEFAULT, err=str(e)[:120])); return False
     if r.returncode == 0:
-        log(msg("dash_recheck_done", LANG_DEFAULT)); return True
+        log(msg(done_key, LANG_DEFAULT)); return True
     err = (r.stderr or r.stdout).strip()
     if "password" in err.lower() or "sudo" in err.lower():
-        log(msg("dash_recheck_hint", LANG_DEFAULT)); return False
+        log(msg(hint_key, LANG_DEFAULT)); return False
     log(msg("dash_recheck_failed", LANG_DEFAULT, err=err[:120])); return False
 
 
@@ -1928,7 +1940,7 @@ class Job:
                 _NPM["ts"] = 0   # nodejs 從這條路裝過，Node 版本會變
                 _NODE_FLOW["ts"] = 0
                 if exit_state == aenums.EXIT_SUCCESS and kind in ("install", "remove"):
-                    threading.Thread(target=dashboard_recheck, args=(self._log,), daemon=True).start()   # 不在 GLib 回呼裡等 systemctl
+                    threading.Thread(target=dashboard_recheck, args=(self._log, list(packages or [])), daemon=True).start()   # 不在 GLib 回呼裡等 systemctl
                 loop.quit()
 
             trans.connect("status-changed", on_status)
@@ -2608,6 +2620,7 @@ SUDOERS_CMDS = {
     "dmidecode": ["/usr/sbin/dmidecode"],
     "nvme": ["/usr/sbin/nvme", "smart-log", "/dev/nvme0n1", "--output-format=json"],
     "dashboard_recheck": ["/usr/bin/systemctl", "restart", "dgx-dashboard-admin.service"],
+    "dashboard_ui": ["/usr/bin/systemctl", "restart", "dgx-dashboard.service"],   # 和上一條同一個設定項、同一個 sudoers 檔
     "disk_selftest": hardware.SELFTEST_CMDS["id_ctrl"],   # 放行偵測看這組裡的第一條；放行時整組一起寫
     "disk_fsck": hardware.FSCK_CMDS["info"],
 }
@@ -2734,9 +2747,10 @@ def setup_status():
         items.append({"id": sid, "enabled": _sudo_allowed(SUDOERS_CMDS[sid]), "sudo": True, "applies": applies,
                       "commands": [f'printf "%s\\n" "{user} ALL=(root) NOPASSWD: {line}" | sudo tee /etc/sudoers.d/{fn}',
                                    f"sudo chmod 440 /etc/sudoers.d/{fn}"]})
-    items.append({"id": "dashboard_recheck", "enabled": _sudo_allowed(SUDOERS_CMDS["dashboard_recheck"]), "sudo": True,
+    # 兩個 unit 都放行才算開啟：只放行 admin 的舊安裝會顯示未開啟，提示使用者補第二行（指令會整檔重寫，不會重複）
+    items.append({"id": "dashboard_recheck", "enabled": _sudo_allowed(SUDOERS_CMDS["dashboard_recheck"]) and _sudo_allowed(SUDOERS_CMDS["dashboard_ui"]), "sudo": True,
                   "applies": os.path.exists("/opt/nvidia/dgx-dashboard"),
-                  "commands": [f'echo "{user} ALL=(root) NOPASSWD: /usr/bin/systemctl restart dgx-dashboard-admin.service" | sudo tee /etc/sudoers.d/spark-center-dashboard',
+                  "commands": [f'printf "%s\\n" "{user} ALL=(root) NOPASSWD: /usr/bin/systemctl restart dgx-dashboard-admin.service" "{user} ALL=(root) NOPASSWD: /usr/bin/systemctl restart dgx-dashboard.service" | sudo tee /etc/sudoers.d/spark-center-dashboard',
                                "sudo chmod 440 /etc/sudoers.d/spark-center-dashboard"]})
     ns = node_status()
     # 只列「Node 是 NodeSource 的 apt 套件」的機器：nvm／snap 裝的 helper 也裝得起來但功能會說不適用，列了只會讓新手困惑

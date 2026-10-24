@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-10-24
+
+### 修正
+
+- 從這裡升級 `dgx-dashboard` 套件本身後，Dashboard 的網頁服務（dgx-dashboard.service）會一直跑舊版到重開機，看起來像 Spark Center 沒裝好。原因在 NVIDIA 那邊：0.39.3-4 的安裝腳本在 postinst 用 `systemctl restart`，當 Dashboard 自己當 OTA 控制器又裝到自己時，會把控制器殺掉（2026-10-21～23 論壇「FW upgrade fail」災情：進度條卡住、不自動重開、重開後又要求更新）；0.39.3-5 的修法是改成 `systemctl start`，對已在跑的服務是 no-op，副作用就是誰來裝都不會換掉正在跑的服務。本機實測：10/24 10:08 裝入 0.39.3-5，兩個服務到手動重啟前仍是 10/22、10/23 啟動的舊程序。
+- 現在裝完的批次裡有 `dgx-dashboard` 時，「叫 Dashboard 重查」會連網頁服務一起重啟；仍只在 Dashboard 後台回 ready 時動手。sudoers 設定項改成兩行（admin 與網頁服務各一），只放行其中一行的舊安裝會在設定分頁顯示未開啟，重跑該指令即可；沒放行時工作記錄會提示手動指令。
+- 和 NVIDIA 那個 bug 的關係：Spark Center 的 apt 工作不是由 dashboard-admin 跑的，0.39.3-4 的 restart 殺到的只是閒置服務，更新本身不受影響；要分辨是誰發的更新，看 apt 歷史裡的 aptdaemon 角色（Dashboard 是 role-upgrade-system）。
+
+---
+
 ## 2026-10-11 — optional model protection and upgrade compatibility
 
 - **所有新增保護均選用。** 沒有 Strata、guard 或 memory-policy.json 的既有安裝，更新後仍可載入／量測 Ollama。guard 不可用會顯示醒目橫幅並記錄事件，使用原 11434；已送出的拒絕／失敗不會換入口重送。

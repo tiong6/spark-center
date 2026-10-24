@@ -26,14 +26,14 @@ One major-upgrade backup (maximum 150 MiB) is kept under root-owned `/var/lib/sp
 
 ### Optional: let the DGX Dashboard re-check after updates
 
-The stock Dashboard's "update available" badge comes from a snapshot kept by its root service, so it often stays lit for an hour or more after you have installed everything. Spark Center can make it re-check right after each install by restarting that one service, which needs root. Like the two rules above, this is a sudoers line that allows exactly one command and nothing else:
+The stock Dashboard's "update available" badge comes from a snapshot kept by its root service, so it often stays lit for an hour or more after you have installed everything. Spark Center can make it re-check right after each install by restarting that one service, which needs root. Like the two rules above, these are sudoers lines that allow exactly these commands and nothing else. The second line is used only when the batch included the `dgx-dashboard` package itself: since 0.39.3-5 NVIDIA's install script no longer restarts a running Dashboard (0.39.3-4's restart killed its own update controller mid-OTA, see the October 2026 forum reports), so without it the Dashboard web service keeps running the old version until a reboot and looks as if Spark Center had not installed the update:
 
 ```sh
-echo "$USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart dgx-dashboard-admin.service" | sudo tee /etc/sudoers.d/spark-center-dashboard
+printf "%s\n" "$USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart dgx-dashboard-admin.service" "$USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart dgx-dashboard.service" | sudo tee /etc/sudoers.d/spark-center-dashboard
 sudo chmod 440 /etc/sudoers.d/spark-center-dashboard
 ```
 
-It only runs when the Dashboard back end reports itself idle ("ready"), never while an NVIDIA OTA is in progress. Without the line nothing breaks and nothing prompts: `sudo -n` fails silently and the job log reminds you of the manual command. (A polkit rule was tried first and rejected: `systemctl` still pops the desktop password dialog when the rule does not match.)
+It only runs when the Dashboard back end reports itself idle ("ready"), never while an NVIDIA OTA is in progress. Without the lines nothing breaks and nothing prompts: `sudo -n` fails silently and the job log reminds you of the manual command. (A polkit rule was tried first and rejected: `systemctl` still pops the desktop password dialog when the rule does not match.)
 
 ### Optional: install the Node upgrade helper
 
