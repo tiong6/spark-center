@@ -507,11 +507,14 @@ function renderReleasePrompt(rp) {
     + `<div style="margin-top:6px">${t("release.notice_body")}</div>`
     + (ver ? `<div class="sub1" style="margin-top:6px" title="${esc(off.source)}">${t("release.notice_offered", {as_of: esc((off.as_of || '—').replace('T', ' ')), version: esc(ver)})}</div>` : '')
     + `<div style="margin-top:10px;display:flex;gap:14px;align-items:center;flex-wrap:wrap"><button type="button" class="small primary" data-release="never"${lock}>${t("release.turn_off")}</button><span class="sub1"><a href="#faq/release_upgrade" data-faq="release_upgrade">${t("release.faq_link")}</a></span></div>`;
-  const opts = ['never', 'lts'].map(m => `<button type="button" class="${m === rp.mode ? 'on' : ''}" data-release="${m}" role="radio" aria-checked="${m === rp.mode}"${lock}>${t("release.mode_" + m)}</button>`).join('');
+  // 只顯示狀態、只能關：打開提示不是 Spark Center 該給的動作（DGX OS 沒有支援的就地升級）
+  const stateTag = rp.mode == null ? '<span class="fv">—</span>'
+    : `<span class="fv ${rp.mode === 'never' ? 'ok' : 'warn'}">${esc(t("release.state_" + rp.mode))}</span>`;
+  const offBtn = rp.mode != null && rp.mode !== 'never' ? `<button type="button" class="small primary" data-release="never"${lock}>${t("release.turn_off")}</button>` : '';
   const hint = rp.mode == null ? t("release.hint_unknown", {error: esc(rp.error || '—')})
     : rp.mode === 'malformed' ? t("release.hint_malformed", {error: esc(rp.error || '—')}) : t("release.hint_" + rp.mode);
   const note = rp.mode == null || rp.mode === 'malformed' ? '' : releaseNote(rp);
-  row.innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap"><b>${t("release.label")}</b><span class="seg" role="radiogroup" aria-label="${esc(t("release.label"))}">${opts}</span><a href="#faq/release_upgrade" data-faq="release_upgrade">${t("release.why")}</a></span>`
+  row.innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap"><b>${t("release.label")}</b>${stateTag}${offBtn}<a href="#faq/release_upgrade" data-faq="release_upgrade">${t("release.why")}</a></span>`
     + `<div class="sub1" style="margin-top:4px">${hint}${note ? ' · ' + note : ''}</div>`
     + (rp.mode === 'never' ? `<div class="sub1">${t("release.recur")}</div>` : '')
     + `<div class="sub1">${releaseSource(rp)}</div>`;

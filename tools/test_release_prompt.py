@@ -418,7 +418,7 @@ class SetTests(unittest.TestCase):
         with mock.patch.object(server, "READONLY", True):
             r = server.release_prompt_set("never", "en")
         self.assertEqual((r["ok"], r["error"]), (False, msg("readonly_mode", "en")))
-        for bad in ("normal", "", None, "NEVER"):
+        for bad in ("lts", "normal", "", None, "NEVER"):   # 只能關：lts 也要擋
             r = server.release_prompt_set(bad, "en")
             self.assertEqual((r["ok"], r["error"]), (False, msg("release_bad_mode", "en")))
         self.assertEqual(self.calls, [])
@@ -457,10 +457,14 @@ class SetTests(unittest.TestCase):
         self.assertEqual((r["ok"], r["status"]["mode"]), (True, "never"))
         self.assertEqual(Path(self.conf).read_text(), "[DEFAULT]\nPrompt=never\n")
 
-    def test_lts_round_trip(self):
-        Path(self.conf).write_text(SHIPPED.replace("Prompt=lts\n", "Prompt=never\n"))
-        self.assertTrue(server.release_prompt_set("lts")["ok"])
-        self.assertEqual(Path(self.conf).read_text(), SHIPPED)
+    def test_cannot_turn_prompt_back_on(self):
+        """只能關不能開：從 never 要求 lts 要被拒，檔案一個位元組都不動、也不跳密碼。"""
+        off = SHIPPED.replace("Prompt=lts\n", "Prompt=never\n")
+        Path(self.conf).write_text(off)
+        r = server.release_prompt_set("lts", "en")
+        self.assertEqual((r["ok"], r["error"], r["status"]["mode"]), (False, msg("release_bad_mode", "en"), "never"))
+        self.assertEqual(Path(self.conf).read_text(), off)
+        self.assertEqual(self.calls, [])
 
 
 if __name__ == "__main__":

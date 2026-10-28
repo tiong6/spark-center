@@ -309,12 +309,13 @@ def phased_policy_set(mode):
 
 
 def release_prompt_set(mode, lang=LANG_DEFAULT):
-    """把 /etc/update-manager/release-upgrades 的 Prompt 改成 never／lts（pkexec 跳一次密碼）。
+    """把 /etc/update-manager/release-upgrades 的 Prompt 改成 never（pkexec 跳一次密碼）。
+    只能關、不能開：DGX OS 沒有支援的就地升級，打開提示不是 Spark Center 該提供的動作。
     內容由 release_prompt.compose 產生：只動 Prompt、其餘逐字保留，並先驗證 Ubuntu 會讀成 mode；寫完重讀，以重讀的生效值為準。
     lang：compose／重讀失敗的訊息帶檔名與值，回應層的翻譯對不上帶參數的句子，所以直接用請求的語言產生。"""
     if READONLY:
         return {"ok": False, "error": msg("readonly_mode", lang), "status": release_prompt.status()}
-    if mode not in ("never", "lts"):
+    if mode != "never":
         return {"ok": False, "error": msg("release_bad_mode", lang), "status": release_prompt.status()}
     st = release_prompt.status()
     if st["mode"] == mode:
