@@ -4,6 +4,24 @@
 
 ---
 
+## 2026-10-28
+
+*Ubuntu's release-upgrade prompt is now visible everywhere while it is on: a red badge in every tab's top bar, a warning on the Updates tab, and a switch to turn it off. DGX OS has no supported in-place upgrade to Ubuntu 26.04, and the setting can be switched back on without notice. The FAQ entry was rewritten; it had wrongly said the flag file means a new release was detected.*
+
+### 修正
+
+- 常見問題的本機框說旗標檔 `/var/lib/ubuntu-release-upgrader/release-upgrade-available`「存在（Ubuntu 已偵測到新版本）」是錯的：update-notifier-motd.timer 大約每週改寫它一次，有沒有新版都一樣（這台一直是 0 bytes）。這一列拿掉。
+- `Prompt=` 的判讀只認行首的 `Prompt=`，和 Ubuntu 讀到的不一樣：`Prompt = never`（等號旁有空白）讀不到；`Prompt=no` 顯示成「會提示」，Ubuntu 其實當 never；寫在別的段落、或檔案沒有段落標題時顯示成「不會提示」，但 Ubuntu 前者看不到（用預設值，會提示）、後者整個檔讀不了（不跳視窗，但 do-release-upgrade 會卡住）。改成和 Ubuntu 用同一個 configparser、同一套規則（`backend/release_prompt.py`，照 UpdateManager/Core/MetaRelease.py）；測試直接拿本機裝的 MetaReleaseCore 用同樣的檔案交叉比對。常見問題本機框與更新分頁共用這一份判斷。
+
+### 新增
+
+- 版本升級提示開著（lts 或 normal）時，每個分頁的頂欄亮紅標（開啟 Spark Center 時、切回視窗時與每 5 分鐘各查一次；重查走只讀設定檔的輕量 GET `/api/setup/release-prompt`，不跑 apt），有 Ubuntu 上次下載的清單就帶上會提示的版本（例如 26.04.1 LTS）；更新分頁頂端有警示框和「關掉提示」，清單上方有開關（關閉／新 LTS 出來時提示），並寫出目前的生效值、依據與檔案修改時間。為什麼：DGX OS 沒有官方的就地升級（NVIDIA DGX OS 8 文件：不支援從 24.04 升到 26.04，要換版本只能重灌），而 nv-update-disable 只在它被安裝或升級的那一刻寫一次 never；「軟體與更新」的選單一改（lts 或 normal）就又會提示，沒有任何警告。這台 2026-07-04 就被改成 lts（最可能是那個選單，認證紀錄已輪替，無法證實），10/21、10/27 各跳了一次升級視窗；只寫在常見問題裡沒人看得到。
+- 切換只動 `/etc/update-manager/release-upgrades` 的 Prompt（換掉那一行；沒有就補上，重複的刪掉），其他行逐字保留（含換行字元）；寫入前先驗證 Ubuntu 會讀成選的值、其他設定沒變，驗證不過就不寫。用 `pkexec install` 寫入（跳一次密碼），寫完重讀，以重讀的值為準；已經是選的值就不跳密碼。唯讀模式下按鈕停用。
+- 常見問題「要升嗎」改寫：視窗從哪來（每週的 timer 改寫旗標檔，桌面的 update-notifier-release 單元看到就啟動檢查）、Prompt 各值的意義、NVIDIA 做了什麼與為什麼還會跳、「稍後再問我」在 DGX OS 上沒有效果。連結補上 DGX OS 8 的升級頁與 8.0.0／8.1.0 版本說明、論壇 379046 求救帖（升上去後只能用復原隨身碟重灌）；舊的「在 Spark 上試 26.04」討論串被這篇取代，拿掉。
+- `tools/test_release_prompt.py`：Prompt 判讀（含與 Ubuntu 交叉比對）、改寫、清單解析、`release_prompt_set`（假 pkexec），掛進 check.sh。
+
+---
+
 ## 2026-10-24
 
 ### 修正

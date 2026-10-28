@@ -453,6 +453,7 @@ async function load() {
   $('#meta').textContent = t("updates.upgradable_apt_index_last_updated", {v0: j.items.length - nPassive - nHeld, v1: (nPassive ? t("updates.another_firmware_packages_this_machine_does", {v0: nPassive}) : '') + (nHeld ? t("updates.phased_waiting_n", {n: nHeld}) : ''), v2: j.last_refresh ? j.last_refresh.replace('T',' ') : '—'});
   renderDashCompare(j.dashboard);
   renderPhasedPolicy(j.phased_policy);
+  renderReleasePrompt(j.release_prompt);
   renderReboot(j.reboot); renderList();
 }
 
@@ -487,6 +488,59 @@ function renderPhasedPolicy(pp) {
     load();   // 以伺服器讀回的生效值重畫；清單與 Dashboard 對照也會跟著變
   });
 }
+
+/* Ubuntu 版本升級提示（/etc/update-manager/release-upgrades 的 Prompt=）：頂欄紅標、更新分頁頂端警示框、清單上方的開關。
+   只在 FAQ 裡講沒人看得到，而它會被「軟體與更新」的選單無聲改回去，所以開著的時候每個分頁的頂欄都要看得到。
+   生效值與「Ubuntu 上次查到哪一版」由後端照 Ubuntu 的讀法算（backend/release_prompt.py），這裡只畫；
+   切換後以伺服器重讀的狀態重畫，不信任本地點擊。rp 拿不到就三處都藏起來，不猜。releaseNote／releaseSource 在 core.js（常見問題也用）。 */
+function renderReleasePrompt(rp) {
+  const badge = $('#releaseBadge'), notice = $('#releaseNotice'), row = $('#releasePrompt');
+  if (!badge || !notice || !row) return;
+  state.release = rp;   // 唯讀旗標（/api/machine）可能比這裡晚到：main.js 收到時用這份重畫，按鈕才會跟著停用
+  if (!rp) { [badge, notice, row].forEach(e => e.classList.add('hide')); return; }
+  const off = rp.offered, ver = off && off.version;
+  badge.classList.toggle('hide', !rp.popup); notice.classList.toggle('hide', !rp.popup); row.classList.remove('hide');
+  badge.innerHTML = `<span class="long">${esc(ver ? t("release.badge_offered", {version: ver}) : t("release.badge"))}</span><span class="short">${esc(t("release.badge_short"))}</span>`;   // 窄視窗由 CSS 換成短字
+  badge.title = t("release.badge_hint");
+  const lock = document.body.classList.contains('ro') || state.releaseBusy ? ' disabled' : '';
+  notice.innerHTML = !rp.popup ? '' : `<b>${ver ? t("release.notice_title_offered", {version: esc(ver)}) : t("release.notice_title")}</b>`
+    + `<div style="margin-top:6px">${t("release.notice_body")}</div>`
+    + (ver ? `<div class="sub1" style="margin-top:6px" title="${esc(off.source)}">${t("release.notice_offered", {as_of: esc((off.as_of || '—').replace('T', ' ')), version: esc(ver)})}</div>` : '')
+    + `<div style="margin-top:10px;display:flex;gap:14px;align-items:center;flex-wrap:wrap"><button type="button" class="small primary" data-release="never"${lock}>${t("release.turn_off")}</button><span class="sub1"><a href="#faq/release_upgrade" data-faq="release_upgrade">${t("release.faq_link")}</a></span></div>`;
+  const opts = ['never', 'lts'].map(m => `<button type="button" class="${m === rp.mode ? 'on' : ''}" data-release="${m}" role="radio" aria-checked="${m === rp.mode}"${lock}>${t("release.mode_" + m)}</button>`).join('');
+  const hint = rp.mode == null ? t("release.hint_unknown", {error: esc(rp.error || '—')})
+    : rp.mode === 'malformed' ? t("release.hint_malformed", {error: esc(rp.error || '—')}) : t("release.hint_" + rp.mode);
+  const note = rp.mode == null || rp.mode === 'malformed' ? '' : releaseNote(rp);
+  row.innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap"><b>${t("release.label")}</b><span class="seg" role="radiogroup" aria-label="${esc(t("release.label"))}">${opts}</span><a href="#faq/release_upgrade" data-faq="release_upgrade">${t("release.why")}</a></span>`
+    + `<div class="sub1" style="margin-top:4px">${hint}${note ? ' · ' + note : ''}</div>`
+    + (rp.mode === 'never' ? `<div class="sub1">${t("release.recur")}</div>` : '')
+    + `<div class="sub1">${releaseSource(rp)}</div>`;
+  [notice, row].forEach(el => el.querySelectorAll('button[data-release]').forEach(b => b.onclick = () => setReleasePrompt(b.dataset.release, rp.mode)));
+}
+async function setReleasePrompt(want, mode) {
+  if (want === mode || state.releaseBusy || document.body.classList.contains('ro')) return;
+  state.releaseBusy = true; state.releaseSeq = (state.releaseSeq || 0) + 1;   // 讓切換前就發出的重查結果作廢
+  document.querySelectorAll('button[data-release]').forEach(b => b.disabled = true);
+  let r;
+  try { r = await api('/api/setup/release-prompt', {mode: want}); }   // 跳一次 pkexec 密碼視窗
+  catch (e) { r = {ok: false, error: String((e && e.message) || e)}; }   // fetch 本身失敗（服務重啟、連線斷）api() 不接：不接住的話忙碌旗標永遠不放，按鈕一直停用
+  finally { state.releaseBusy = false; }
+  if (!r.ok) alert(r.error);
+  renderReleasePrompt(r.status || state.release);   // 以伺服器的狀態重畫；回應沒帶（連線失敗、403、非 JSON）先用上一次的讓按鈕恢復，再整頁重讀，不沿用本地的選擇
+  if (!r.status) load();
+}
+/* 紅標只在 load() 畫的話，Spark Center 開著時被「軟體與更新」改回去要等到重新整理才看得到：
+   回到視窗（hidden→visible）與每 5 分鐘打輕量的 GET（只讀設定檔，不跑 apt）重畫這三處。切換中的不打；切換前發出的結果丟掉 */
+async function recheckReleasePrompt() {
+  if (state.releaseBusy) return;
+  const seq = state.releaseSeq;
+  let r;
+  try { r = await api('/api/setup/release-prompt'); } catch (e) { return; }   // 連不上就維持現狀，下次再查
+  if (state.releaseBusy || state.releaseSeq !== seq || !r || !r.ok) return;
+  renderReleasePrompt(r.status);
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') recheckReleasePrompt(); });
+setInterval(recheckReleasePrompt, 5 * 60 * 1000);
 
 $('#btnGo').onclick = async () => {
   const names = [...state.selected];

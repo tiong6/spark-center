@@ -14,7 +14,7 @@
 <div class="topbar">
   <span class="mark"></span>
   <span class="brand">Spark Center <small id="machineName"></small></span>
-  <span class="right"><a class="ro-badge hide" id="selfBadge" href="#updates" data-i18n="self.badge" data-i18n-title="self.badge_hint" style="text-decoration:none">Spark Center 有新版</a><span class="ro-badge hide" id="roBadge" data-i18n="common.readonly" data-i18n-title="common.readonly_hint">唯讀模式</span><a class="dash hide" id="dashLink" target="_blank" rel="noopener" data-i18n-title="common.open_dgx_dashboard"><img src="/dashboard-icon" alt="" onerror="this.remove()"><span data-i18n="common.dgx_dashboard">DGX Dashboard</span></a><a class="dash" href="#setup" id="setupLink" data-i18n-title="setup.gear_hint" title="設定：選用功能與安裝說明" style="padding:2px 8px">⚙</a><span class="switch" id="langSwitch"><span data-lang="zh-TW">中</span><span data-lang="en">EN</span></span></span>
+  <span class="right"><a class="ro-badge danger hide" id="releaseBadge" href="#updates" style="text-decoration:none"></a><a class="ro-badge hide" id="selfBadge" href="#updates" data-i18n="self.badge" data-i18n-title="self.badge_hint" style="text-decoration:none">Spark Center 有新版</a><span class="ro-badge hide" id="roBadge" data-i18n="common.readonly" data-i18n-title="common.readonly_hint">唯讀模式</span><a class="dash hide" id="dashLink" target="_blank" rel="noopener" data-i18n-title="common.open_dgx_dashboard"><img src="/dashboard-icon" alt="" onerror="this.remove()"><span data-i18n="common.dgx_dashboard">DGX Dashboard</span></a><a class="dash" href="#setup" id="setupLink" data-i18n-title="setup.gear_hint" title="設定：選用功能與安裝說明" style="padding:2px 8px">⚙</a><span class="switch" id="langSwitch"><span data-lang="zh-TW">中</span><span data-lang="en">EN</span></span></span>
 </div>
 <main>
   <div class="titlerow">
@@ -44,6 +44,7 @@
 
   <section id="tab-updates" class="hide">
     <div id="reboot" class="panel notice warn hide"></div>
+    <div id="releaseNotice" class="panel notice danger hide"></div>
     <div class="panel">
       <div class="panel-h">
         <h2 data-i18n="common.available_updates">可用更新</h2>
@@ -58,6 +59,7 @@
       <div class="steps flow" style="margin-top:12px"><span class="done" data-i18n="updates.flow_simulate">模擬相依</span><span class="done" data-i18n="updates.flow_keep">留舊版</span><span class="done" data-i18n="updates.flow_install">安裝</span><span class="no" data-i18n="updates.flow_noreboot">不會重開機</span></div>
       <div id="dashCompare" class="cmp"></div>
       <div id="phasedPolicy" class="sub1 hide" style="margin-top:8px"></div>
+      <div id="releasePrompt" class="sub1 hide" style="margin-top:8px"></div>
       <div id="list"></div>
     </div>
     <div class="panel hide" id="selfPanel"><div class="panel-h"><h2 data-i18n="self.title">Spark Center 本身</h2><span class="sub" id="selfMeta"></span><div class="actions"><button id="btnSelfCheck" class="small" data-i18n="self.check">查新版</button><button id="btnSelfUpdate" class="small primary hide" data-i18n="self.update">更新並重啟</button></div></div><div id="self"></div></div>

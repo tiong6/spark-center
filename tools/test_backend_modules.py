@@ -16,7 +16,8 @@ from backend import hardware, disk, system
 
 class ModuleTests(unittest.TestCase):
     def test_standalone_import_has_no_server_or_apt_dependency(self):
-        code = "from backend import hardware, disk; import sys; assert 'server' not in sys.modules; assert 'apt' not in sys.modules"
+        code = ("from backend import hardware, disk, release_prompt; import sys; "
+                "assert 'server' not in sys.modules; assert 'apt' not in sys.modules; assert 'apt_pkg' not in sys.modules")
         subprocess.run([sys.executable, '-c', code], cwd=ROOT, check=True)
 
     def test_server_uses_public_feature_interfaces(self):
@@ -24,7 +25,7 @@ class ModuleTests(unittest.TestCase):
         private_accesses = [f'{node.value.id}.{node.attr}' for node in ast.walk(tree)
                             if isinstance(node, ast.Attribute)
                             and isinstance(node.value, ast.Name)
-                            and node.value.id in {'hardware', 'disk'}
+                            and node.value.id in {'hardware', 'disk', 'release_prompt'}
                             and node.attr.startswith('_')]
         self.assertEqual(private_accesses, [])
 

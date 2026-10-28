@@ -34,8 +34,11 @@ const FAQ = [
   { id: 'release_upgrade', cat: 'software', own: true, local: 'release', cmds: [
     ['faq.cmd.release_never', "sudo sed -i 's/^Prompt=.*/Prompt=never/' /etc/update-manager/release-upgrades"],
     ['faq.cmd.release_check', 'grep ^Prompt /etc/update-manager/release-upgrades']], links: [
+    ['faq.link.dgxos8_upgrade', 'https://docs.nvidia.com/dgx/dgx-os-8-user-guide/latest/upgrading-the-os.html'],
+    ['faq.link.dgxos8_810', 'https://docs.nvidia.com/dgx/dgx-os-8-user-guide/8.1.0/release-notes.html'],
+    ['faq.link.dgxos8_800', 'https://docs.nvidia.com/dgx/dgx-os-8-user-guide/8.0.0/release-notes.html'],
+    ['faq.link.forum_2604_recovery', 'https://forums.developer.nvidia.com/t/need-help-system-recovery-of-dgx-os-after-ubuntu-26-04-lts-upgrade-corrupted-spark/379046'],
     ['faq.link.forum_2510', 'https://forums.developer.nvidia.com/t/dgx-spark-ubuntu-upgrade-to-25-10/356468'],
-    ['faq.link.forum_2604', 'https://forums.developer.nvidia.com/t/ubuntu-26-04-lts-kernel-6-17-0-arm64-on-dgx-spark-anyone/350517'],
     ['faq.link.dgxos7', 'https://docs.nvidia.com/dgx/dgx-os-7-user-guide/additional_software.html']] },
   { id: 'phased', cat: 'software', own: true, local: 'phased', cmds: [
     ['faq.cmd.phased_policy', 'apt-cache policy snapd'],
@@ -132,11 +135,12 @@ function faqLocalRows(kind) {
       + row(t('faq.l.dashboard'), dash);
   }
   if (kind === 'release') {
-    const r = L.release;
-    if (!r || !r.prompt) return na('faq.l.release_prompt');
-    const never = r.prompt.toLowerCase() === 'never';
-    return row(t('faq.l.release_prompt'), `<code>Prompt=${esc(r.prompt)}</code> · <span class="fv ${never ? 'ok' : 'warn'}">${esc(t(never ? 'faq.l.release_quiet' : 'faq.l.release_nags'))}</span>`)
-      + row(t('faq.l.release_flag'), esc(t(r.flag ? 'faq.l.release_flag_yes' : 'faq.l.release_flag_no')));
+    const r = L.release;   // 和更新分頁的開關同一份（server.py release_prompt.status，照 Ubuntu 的讀法）
+    if (!r || r.mode == null) return na('faq.l.release_prompt');
+    const note = r.mode === 'malformed' ? esc(r.error || '') : releaseNote(r);
+    return row(t('faq.l.release_prompt'), `<span class="fv ${r.mode === 'never' ? 'ok' : 'warn'}">${esc(t('faq.l.release_' + r.mode))}</span>`
+        + (note ? ` · ${note}` : '') + ` · <a href="#updates" data-goto="updates">${t('faq.goto_updates')}</a>`)
+      + row(t('faq.l.release_file'), releaseSource(r));
   }
   if (kind === 'phased') {
     const p = L.phased;

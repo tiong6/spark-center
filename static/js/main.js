@@ -1,6 +1,6 @@
 /* 登入時自動開啟：開關搬到設定分頁（static/js/setup.js），狀態仍以 ~/.config/autostart 裡有沒有檔案為準 */
 api('/api/self').then(r => { if (r.ok && r.git && r.behind > 0) $('#selfBadge').classList.remove('hide'); });   // 頂欄「Spark Center 有新版」，每 6 小時 fetch 一次
-api('/api/machine').then(r => { if (!r.ok) return; if (r.readonly) { document.body.classList.add('ro'); $('#roBadge').classList.remove('hide'); } const name = [r.vendor, r.product].filter(Boolean).join(' ') || r.family; $('#machineName').textContent = name; if (name) document.title = `Spark Center · ${name}`; });   // 機型讀 DMI，讀不到就留空
+api('/api/machine').then(r => { if (!r.ok) return; if (r.readonly) { document.body.classList.add('ro'); $('#roBadge').classList.remove('hide'); if (state.release) renderReleasePrompt(state.release); } const name = [r.vendor, r.product].filter(Boolean).join(' ') || r.family; $('#machineName').textContent = name; if (name) document.title = `Spark Center · ${name}`; });   // 機型讀 DMI，讀不到就留空
 api('/api/dashboard').then(r => { const a = $('#dashLink'); if (r.ok && r.installed) { a.href = r.url; a.classList.remove('hide'); } });   // 沒裝 dgx-dashboard 就不顯示
 (async () => {
   await load();

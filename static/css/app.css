@@ -135,6 +135,14 @@
   ::-webkit-scrollbar-thumb:hover { background: #4a504c; }
   /* 唯讀模式：後端已把所有 POST 擋成 403，這裡只是把動作按鈕藏起來，讓人一眼看出「這個模式什麼都不會動」 */
   .ro-badge { border: 1px solid var(--warn); color: var(--warn); border-radius: 999px; padding: 2px 10px; font-size: 12px; margin-right: 10px; }
+  /* Ubuntu 版本升級提示開著：DGX OS 不支援的升級，比警告色更重。窄視窗截斷不折行（折行會把頂欄撐成兩三行）；
+     寬度上限扣掉其他頂欄元件約 500px，WCO 模式再扣掉 Chrome 視窗鈕（同上面 padding-right 的 env 算法） */
+  .ro-badge.danger { border-color: var(--danger); color: var(--danger); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                     max-width: max(6em, calc(env(titlebar-area-x, 0px) + env(titlebar-area-width, 100vw) - 500px)); }
+  @media (max-width: 1000px) { .topbar:has(#releaseBadge:not(.hide)) .brand small { display: none; } }   /* 紅標亮著時先讓出機型名稱 */
+  .ro-badge.danger .short { display: none; }
+  /* 再窄就換短字：長句截成「Ubunt…」看不出是什麼；完整說明在 title 與更新分頁的警示框。外距也收掉，頂欄已有 gap */
+  @media (max-width: 700px) { .ro-badge.danger { max-width: none; margin-right: 0; flex-shrink: 0; } .ro-badge.danger .long { display: none; } .ro-badge.danger .short { display: inline; } }
   .ro #btnRefresh, .ro #btnAll, .ro #btnNone, .ro #btnGo, .ro #btnFwRefresh, .ro #btnFwUpdate, .ro #btnNpmRefresh, .ro #btnNpmUpdate,
   .ro #llmSwitchStrata, .ro #llmPullBtn, .ro #llmBenchBtn, .ro #btnCalib, .ro #btnCalibReset, .ro #mOk,
   .ro [data-upd], .ro [data-unload], .ro [data-rm], .ro [data-olrm], .ro [data-load], .ro [data-act], .ro [data-npm], .ro [data-rb-job], .ro [data-node], .ro [data-restart],

@@ -37,7 +37,7 @@ import aptdaemon.client
 import aptdaemon.enums as aenums
 from gi.repository import GLib
 
-from backend import hardware, disk, stability
+from backend import hardware, disk, stability, release_prompt
 from tools import model_capabilities
 from backend.messages import LANG_DEFAULT, MSG, msg
 from backend.system import HERE, READONLY, NO_SWEEP, _ENV_C, _run, _http_json, process_label
@@ -306,6 +306,47 @@ def phased_policy_set(mode):
         _DASH_CACHE["ts"] = 0
     st = phased_policy_status()
     return {"ok": ok, "error": err, "policy": st}
+
+
+def release_prompt_set(mode, lang=LANG_DEFAULT):
+    """把 /etc/update-manager/release-upgrades 的 Prompt 改成 never／lts（pkexec 跳一次密碼）。
+    內容由 release_prompt.compose 產生：只動 Prompt、其餘逐字保留，並先驗證 Ubuntu 會讀成 mode；寫完重讀，以重讀的生效值為準。
+    lang：compose／重讀失敗的訊息帶檔名與值，回應層的翻譯對不上帶參數的句子，所以直接用請求的語言產生。"""
+    if READONLY:
+        return {"ok": False, "error": msg("readonly_mode", lang), "status": release_prompt.status()}
+    if mode not in ("never", "lts"):
+        return {"ok": False, "error": msg("release_bad_mode", lang), "status": release_prompt.status()}
+    st = release_prompt.status()
+    if st["mode"] == mode:
+        return {"ok": True, "error": None, "status": st}   # 已經是了：不跳密碼
+    if st["exists"] and not st["readable"]:
+        return {"ok": False, "error": msg("release_unreadable", lang, file=release_prompt.CONF), "status": st}
+    text, err = release_prompt.read_conf()
+    try:
+        if err:
+            raise ValueError(err)
+        new = release_prompt.compose(text, mode)
+    except ValueError:
+        return {"ok": False, "error": msg("release_cannot_compose", lang, file=release_prompt.CONF, mode=mode), "status": st}
+    d = None
+    try:
+        d = tempfile.mkdtemp(prefix="spark-center-release-")
+        src = os.path.join(d, os.path.basename(release_prompt.CONF))
+        with open(src, "wb") as f:
+            f.write(new.encode("utf-8"))   # 二進位寫：\r\n 之類的換行字元照原樣
+        os.chmod(src, 0o644)
+        ok, err = _pkexec(["/usr/bin/install", "-o", "root", "-g", "root", "-m", "0644", src, release_prompt.CONF])
+        if err == msg("setup_no_display_toggle", LANG_DEFAULT):
+            err = msg("release_no_display", lang)   # 共用訊息指向設定分頁的「自己動手也可以」，這裡沒有：改指到常見問題的指令
+    except OSError as e:
+        ok, err = False, str(e)
+    finally:
+        if d:
+            shutil.rmtree(d, ignore_errors=True)
+    st = release_prompt.status()
+    if ok and st["mode"] != mode:
+        return {"ok": False, "error": msg("release_readback", lang, got=st["mode"] or "—", want=mode), "status": st}
+    return {"ok": ok, "error": err, "status": st}
 
 
 def dashboard_equivalent():
@@ -3590,11 +3631,8 @@ def faq_local():
         except (OSError, ValueError, subprocess.TimeoutExpired):
             pass
         wifi = {"name": iface, "state": hardware.read_text_file(f"/sys/class/net/{iface}/operstate"), "ipv4": ips}
-    # Ubuntu 的版本升級提示：Prompt=lts/normal 會在新 LTS 出來時跳「軟體更新」視窗要你升到 26.04；DGX OS 沒有官方升級路徑
-    release = {"prompt": None, "flag": os.path.exists("/var/lib/ubuntu-release-upgrader/release-upgrade-available")}
-    for line in (hardware.read_text_file("/etc/update-manager/release-upgrades") or "").splitlines():
-        if line.strip().lower().startswith("prompt="):
-            release["prompt"] = line.split("=", 1)[1].strip()
+    # Ubuntu 的版本升級提示：和更新分頁的開關同一份判斷（照 Ubuntu 的讀法）。旗標檔不列：它每週都被改寫，有沒有新版都一樣
+    release = release_prompt.status()
     phased = {"policy": phased_policy_status(), "held": None}
     try:
         phased["held"] = [{"name": p.name, "candidate": p.candidate.version if p.candidate else None, "percent": (phased_info(p) or {}).get("percent")}
@@ -3776,12 +3814,16 @@ class Handler(BaseHTTPRequestHandler):
                     **updates_meta(items),
                     "dashboard": dashboard_equivalent(),
                     "phased_policy": phased_policy_status(),
+                    "release_prompt": release_prompt.status(),   # 開頁時的頂欄紅標從這裡畫；之後的重查走輕量的 /api/setup/release-prompt
                     "reboot": reboot_status(),
                     "last_refresh": last_refresh(),
                     "job_running": JOB.snapshot()["status"] == "running",
                 })
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/setup/release-prompt":
+            # 只讀設定檔與清單快取、不碰 apt：前端回到視窗時與每 5 分鐘重查，被「軟體與更新」改回去時紅標才亮得起來
+            self._json({"ok": True, "status": release_prompt.status()})
         elif path == "/api/job":
             self._json(JOB.snapshot())
         elif path == "/api/history":
@@ -4066,6 +4108,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(r, 200 if r.get("ok") else 400)
         if path == "/api/setup/phased":
             r = phased_policy_set(data.get("mode"))
+            return self._json(r, 200 if r.get("ok") else 400)
+        if path == "/api/setup/release-prompt":
+            r = release_prompt_set(data.get("mode"), self.lang)
             return self._json(r, 200 if r.get("ok") else 400)
         if path == "/api/setup/pwa-install":
             r = pwa_install_launch()

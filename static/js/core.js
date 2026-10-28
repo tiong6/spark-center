@@ -97,6 +97,16 @@ document.addEventListener('mouseout', e => {
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && infopop.el) { infoClose(); } });
 window.addEventListener('resize', infoClose);
 
+/* Ubuntu 版本升級提示（release_prompt.status()）的共用片段：更新分頁的開關與常見問題的本機框都用，放這裡兩邊才不會各寫一份 */
+function releaseNote(rp) {   // 生效值的依據：檔案不存在／讀不到／沒有 Prompt 行／寫的值和生效值不同
+  if (!rp.exists) return t("release.note_missing");
+  if (!rp.readable) return t("release.note_unreadable", {error: esc(rp.error || '—')});
+  if (rp.default_used) return t("release.note_default");
+  if (rp.raw != null && rp.raw !== rp.mode) return t("release.note_raw", {line: `<code>Prompt=${esc(rp.raw)}</code>`});
+  return '';
+}
+const releaseSource = rp => t("release.source", {file: esc(rp.file), mtime: esc(rp.mtime ? rp.mtime.replace('T', ' ') : '—')});
+
 function showTab(t) {
   infoClose();
   document.querySelectorAll('nav.tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === t));

@@ -10,6 +10,7 @@ python3 tools/test_npm_safe.py 2>&1 | tail -1 | grep -q "^OK" && echo "npm safe-
 python3 tools/test_gpu_hot.py 2>&1 | tail -1 | grep -q "^OK" && echo "GPU overheat tests OK" || { python3 tools/test_gpu_hot.py; exit 1; }
 _ps=$(mktemp); python3 tools/test_print_stack.py > "$_ps" 2>&1 && echo "print stack / snap busy tests OK" || { cat "$_ps"; exit 1; }; rm -f "$_ps"   # 純判斷＋假 /proc，不碰 snapd
 _cl=$(mktemp); python3 tools/test_changelog_meta.py > "$_cl" 2>&1 && echo "changelog meta tests OK" || { cat "$_cl"; exit 1; }; rm -f "$_cl"   # 純解析，不碰網路
+_rp=$(mktemp); python3 tools/test_release_prompt.py > "$_rp" 2>&1 && echo "release prompt tests OK" || { cat "$_rp"; exit 1; }; rm -f "$_rp"   # 暫存檔＋假 pkexec，不碰 /etc；有 update-manager-core 就和 Ubuntu 的 MetaRelease 交叉比對
 
 python3 tools/test_backend_modules.py
 _dc=$(mktemp); python3 tools/test_disk_check.py > "$_dc" 2>&1 && echo "disk check tests OK" || { cat "$_dc"; exit 1; }; rm -f "$_dc"   # 隔離：mock sudo／tune2fs。看結束碼不看最後一行：ResourceWarning 在 GC 時才印、會隨機排在 OK 之後
