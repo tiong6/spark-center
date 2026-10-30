@@ -37,7 +37,7 @@ import aptdaemon.client
 import aptdaemon.enums as aenums
 from gi.repository import GLib
 
-from backend import hardware, disk, stability, release_prompt
+from backend import hardware, disk, stability, release_prompt, update_risk
 from tools import model_capabilities
 from backend.messages import LANG_DEFAULT, MSG, msg
 from backend.system import HERE, READONLY, NO_SWEEP, _ENV_C, _run, _http_json, process_label
@@ -1234,6 +1234,7 @@ def list_updates():
             "firmware": _firmware_usage(pkg, cache),
             "node_flow": node_flow if pkg.name == "nodejs" and node_flow else None,
             "phased": phased_info(pkg),
+            "uri": cand.uri,   # 風險資訊用它查上線日；list_updates 本來就建了 apt.Cache，免得 worker 再建一個
         })
     items.sort(key=lambda x: (x["group"], x["name"]))
     return items
@@ -2385,8 +2386,18 @@ def _clmeta_save():
         os.replace(tmp, CHANGELOG_META_FILE)
 
 
-def changelog_meta_fetch(name, installed, candidate):
-    """同步抓一個套件並寫快取。回快取項：{"ok", "urgency", "summary", "entries", "cves", "ts"}；ok=False 時帶 note。"""
+def changelog_meta_fetch(name, installed, candidate, uri=None, keep_changelog=None):
+    """同步抓一個套件並寫快取。回快取項：{"ok", "urgency", "summary", "entries", "cves", "ts", "risk"}；ok=False 時帶 note。
+    keep_changelog：已有的 changelog 部分（不重抓，只補 risk）。"""
+    key = f"{name} {candidate}"
+    prev = _clmeta_load().get(key) or {}
+    if keep_changelog is not None:
+        item = {k: v for k, v in keep_changelog.items() if k != "risk"}
+        item["risk"] = update_risk.fetch_risk(name, candidate, uri, prev.get("risk"))
+        with _CLMETA["lock"]:
+            _clmeta_load()[key] = item
+        _clmeta_save()
+        return item
     r = changelog_apt(name, installed)
     if r.get("ok") and r.get("text"):
         meta = parse_changelog_meta(r["text"], installed)
@@ -2395,20 +2406,22 @@ def changelog_meta_fetch(name, installed, candidate):
         item = {"ok": True, "ts": time.time(), "urgency": None, "summary": "", "entries": 0, "cves": 0}
     else:
         item = {"ok": False, "ts": time.time(), "note": r.get("note", "")}
+    item["risk"] = update_risk.fetch_risk(name, candidate, uri, prev.get("risk"))
     cache = _clmeta_load()
     with _CLMETA["lock"]:
-        cache[f"{name} {candidate}"] = item
+        cache[key] = item
     _clmeta_save()
     return item
 
 
-def _clmeta_worker(name, installed, candidate):
+def _clmeta_worker(name, installed, candidate, uri=None, keep_changelog=None):
     try:
-        changelog_meta_fetch(name, installed, candidate)
+        changelog_meta_fetch(name, installed, candidate, uri, keep_changelog)
     except Exception as e:
         cache = _clmeta_load()
         with _CLMETA["lock"]:
-            cache[f"{name} {candidate}"] = {"ok": False, "ts": time.time(), "note": str(e)[:120]}
+            old = cache.get(f"{name} {candidate}") or {}
+            cache[f"{name} {candidate}"] = {"ok": False, "ts": time.time(), "note": str(e)[:120], **({"risk": old["risk"]} if old.get("risk") else {})}
     finally:
         with _CLMETA["lock"]:
             _CLMETA["pending"].discard(f"{name} {candidate}")
@@ -2424,16 +2437,29 @@ def updates_meta(items):
         key = f"{it['name']} {it['candidate']}"
         with _CLMETA["lock"]:
             hit = cache.get(key)
-            stale = hit is not None and not hit.get("ok") and now - hit.get("ts", 0) > CHANGELOG_META_FAIL_TTL
-            if hit is not None and not stale:
+            cl_stale = hit is not None and not hit.get("ok") and now - hit.get("ts", 0) > CHANGELOG_META_FAIL_TTL
+            risk_stale = hit is not None and update_risk.risk_is_stale(hit.get("risk"), it["name"], it["candidate"], now)
+            if hit is not None and not cl_stale and not risk_stale:
                 out[it["name"]] = hit; continue
+            # 只有風險資訊過期時：舊的 changelog 項照樣回給畫面，背景只補 risk，不重抓 changelog
+            keep = hit if hit is not None and not cl_stale else None
+            if keep is not None:
+                out[it["name"]] = hit
+                pending.append(it["name"])     # 讓前端再問一次，補上剛抓到的 risk
+                if key in _CLMETA["pending"]:
+                    continue
+                _CLMETA["pending"].add(key)
+                if _CLMETA["pool"] is None:
+                    _CLMETA["pool"] = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="clmeta")
+                _CLMETA["pool"].submit(_clmeta_worker, it["name"], it["installed"], it["candidate"], it.get("uri"), dict(keep))
+                continue
             out[it["name"]] = None
             if key in _CLMETA["pending"]:
                 pending.append(it["name"]); continue
             _CLMETA["pending"].add(key); pending.append(it["name"])
             if _CLMETA["pool"] is None:
                 _CLMETA["pool"] = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="clmeta")
-            _CLMETA["pool"].submit(_clmeta_worker, it["name"], it["installed"], it["candidate"])
+            _CLMETA["pool"].submit(_clmeta_worker, it["name"], it["installed"], it["candidate"], it.get("uri"))
     return {"meta": out, "pending": pending}
 
 

@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-10-31
+
+*Each package on the Updates tab now shows how many days its candidate version has been published and whether the NVIDIA DGX Spark forum has discussed that version since. Both are facts read from the source, shown as "—" with the reason when they cannot be read, never guessed.*
+
+### 新增
+
+- 更新清單每個套件的名稱下多兩個標籤。「上線 N 天」：對候選版本的 .deb 下載網址送 HEAD，取 `Last-Modified`（pool 檔案的時間，當作上線時間；不到 7 天標警示色，因為使用者回報通常還沒累積；`esm.ubuntu.com` 回 401 這類拿不到的顯示「上線 —」，游標停上去看原因）。「論壇 N 篇」：只對 Spark 專屬套件（核心與 NVIDIA 模組、NVIDIA 驅動、`dgx-*`）搜尋 NVIDIA 開發者論壇，搜尋詞是版本本身（核心 `7.0.0-1024`、驅動 `580.178.04`、DGX 套件 `dgx-dashboard 0.39.3`），只算上線日前一天之後建立的主題，有就標紅並連到搜尋結果，沒有顯示「論壇 0 篇」，查不到顯示「論壇 —」。一般 Ubuntu 套件不查論壇，什麼都不顯示。為什麼：10/30 核心 7.0.0-1024-nvidia 透過 Dashboard 推出後當天就有三篇死當回報（387397／387401／387456），上線才一週內、論壇已經有人中標，這兩個事實放在按下「更新」之前看得到，就有機會等一等。
+- 確認視窗：選到的變更裡有論壇討論時，在「Ubuntu 還沒放量」那塊之後多一塊警示，逐項連到論壇搜尋結果；不多打任何後端請求。
+- 資料存在既有的 changelog 背景快取（`data/changelog-meta.json`）的 `risk` 欄位：上線日取到後不再重抓，論壇 6 小時重抓一次，失敗的 1 小時後重試；舊快取項沒有 `risk` 會補抓一次，不會重抓 changelog。純邏輯在 `backend/update_risk.py`，`tools/test_update_risk.py`（假抓取器，不碰網路）與 `tools/test_updates_ui.js` 掛進 check.sh。
+
+---
+
 ## 2026-10-28
 
 *Ubuntu's release-upgrade prompt is now visible everywhere while it is on: a red badge in every tab's top bar, a warning on the Updates tab, and a button to turn it off. Spark Center only turns the prompt off; it never turns it on. DGX OS has no supported in-place upgrade to Ubuntu 26.04, and the setting can be switched back on without notice. The FAQ entry was rewritten; it had wrongly said the flag file means a new release was detected.*

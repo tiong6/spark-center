@@ -43,12 +43,34 @@ function clMetaHtml(it) {
   const m = state.meta ? state.meta[it.name] : undefined;
   if (m === undefined) return '';
   if (m === null) return `<div class="sub1 clmeta muted">${t("updates.cl_pending")}</div>`;
-  if (!m.ok) return `<div class="sub1 clmeta muted" title="${esc(m.note || '')}">${t("updates.cl_none")}</div>`;
+  const risk = riskHtml(m.risk);
+  if (!m.ok) return `<div class="sub1 clmeta muted" title="${esc(m.note || '')}">${t("updates.cl_none")}${risk}</div>`;
   const u = m.urgency, cls = u === 'high' || u === 'critical' || u === 'emergency' ? 'reboot' : u === 'medium' ? 'sec' : '';
   const tag = u ? `<span class="tag ${cls}" title="${esc(t("updates.urg_hint", {n: m.entries}))}">${t("updates.urg_tag", {u})}</span>` : '';
   const cves = m.cves ? `<span class="tag sec" title="${esc(t("updates.cl_cves_hint"))}">${t("updates.cl_cves", {n: m.cves})}</span>` : '';
   const sum = m.summary ? `<span title="${esc(t("updates.cl_summary_hint"))}">${esc(m.summary.length > 110 ? m.summary.slice(0, 110) + '…' : m.summary)}</span>` : (m.entries === 0 ? `<span class="muted">${t("updates.cl_no_new_entry")}</span>` : '');
-  return (tag || cves || sum) ? `<div class="sub1 clmeta">${tag}${cves}${sum}</div>` : '';
+  return (tag || cves || sum || risk) ? `<div class="sub1 clmeta">${risk}${tag}${cves}${sum}</div>` : '';
+}
+/* 上線天數與 NVIDIA 論壇討論：risk 由後端從 pool 檔案的 Last-Modified 與論壇搜尋得來；拿不到就「—」並附原因。
+   forum=null＝這個套件不是 Spark 專屬，什麼都不顯示。 */
+const riskMD = iso => iso.slice(5, 10);
+function riskHtml(r) {
+  if (!r) return '';
+  let out = '';
+  if (r.published) {
+    const days = Math.max(0, Math.floor((Date.now() - Date.parse(r.published)) / 86400000));
+    const when = r.published.replace('T', ' ').replace('Z', '');
+    const hint = t("updates.risk_age_hint", {when}) + (days < 7 ? '\n' + t("updates.risk_age_fresh") : '');
+    out += `<span class="tag ${days < 7 ? 'sec' : ''}" title="${esc(hint)}">${days === 0 ? t("updates.risk_age_today") : t("updates.risk_age", {n: days})}</span>`;
+  } else out += `<span class="tag muted" title="${esc(r.published_note || '')}">${t("updates.risk_age_none")}</span>`;
+  const f = r.forum;
+  if (!f) return out;
+  if (!f.ok) return out + `<span class="tag muted" title="${esc(f.note || '')}">${t("updates.risk_forum_none")}</span>`;
+  if (f.total > 0) {
+    const tip = f.topics.map(x => `${riskMD(x.created)} ${x.title}${x.category_id === 721 ? '' : ' [' + t("updates.risk_forum_other_cat") + ']'}`).join('\n');
+    return out + `<a class="tag reboot" href="${esc(f.url)}" target="_blank" rel="noopener" title="${esc(tip)}">${t("updates.risk_forum_n", {n: f.total, d: riskMD(f.topics[0].created)})}</a>`;
+  }
+  return out + `<a class="tag muted" href="${esc(f.url)}" target="_blank" rel="noopener" title="${esc(t("updates.risk_forum_zero_hint", {term: f.term}))}">${t("updates.risk_forum_zero")}</a>`;
 }
 /* 背景抓 changelog 的補齊輪詢：/api/updates 回 pending 非空時每 3 秒問一次，最多 20 次；抓齊就停 */
 function pollMeta() {
@@ -559,6 +581,8 @@ $('#btnGo').onclick = async () => {
   if (rm.length) html += `<div class="panel notice danger">${t("updates.this_will")}<b>${t("updates.remove_2")}</b>${t("updates.packages_please_confirm_this_is_what", {v0: rm.length})}</div>`;
   const ph = sim.phased || [];
   if (ph.length) html += `<div class="panel notice danger"><b>${t("updates.phased_confirm_title", {n: ph.length})}</b><div style="margin-top:6px">${t("updates.phased_confirm_body")}</div><div class="mono" style="margin-top:6px">${ph.map(x => `${esc(x.name)} → ${esc(x.to)}${LANG === 'zh-TW' ? '（' : ' ('}${t("updates.phased_tag", {p: x.percent == null ? '—' : x.percent})}${LANG === 'zh-TW' ? '）' : ')'}`).join('<br>')}</div></div>`;
+  const talked = sim.changes.map(c => ({name: c.name, f: state.meta && state.meta[c.name] && state.meta[c.name].risk && state.meta[c.name].risk.forum})).filter(x => x.f && x.f.ok && x.f.total > 0);
+  if (talked.length) html += `<div class="panel notice warn"><b>${t("updates.risk_confirm_title", {n: talked.length})}</b><div class="mono" style="margin-top:6px">${talked.map(x => `<a href="${esc(x.f.url)}" target="_blank" rel="noopener">${esc(x.name)} → ${esc(x.f.term)}${LANG === 'zh-TW' ? '（' : ' ('}${t("updates.risk_confirm_line", {n: x.f.total, d: riskMD(x.f.topics[0].created)})}${LANG === 'zh-TW' ? '）' : ')'}</a>`).join('<br>')}</div></div>`;
   if (extra.length) html += `<div class="panel notice warn">${t("updates.packages_you_did_not_select_will", {v0: extra.length})}</div>`;
   html += `<div class="chg">` + sim.changes.map(c => `<div class="${c.action==='remove'?'rm':(c.requested?'':'extra')}">${c.action.padEnd(9)} ${esc(c.name)} ${esc(c.from)}${c.to?' → '+esc(c.to):''}${c.phased && c.phased.held ? ` <span class="tag phased">${t("updates.phased_early")}</span>` : ''}</div>`).join('') + `</div>`;
   html += `<p class="muted" style="margin-top:12px">${t("updates.after_confirmation_a_polkit_password_dialog")}<b>${t("updates.not")}</b>${t("updates.reboot_automatically")}</p>`;
