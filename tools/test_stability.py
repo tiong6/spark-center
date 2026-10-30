@@ -32,6 +32,14 @@ class Tests(unittest.TestCase):
         stability.POLICY.unlink()
         self.assertEqual(stability.admission(self.sample)['reason'],'memory_unknown')
 
+    def test_mem_total_drift_within_tolerance_is_not_a_capacity_change(self):
+        self.sample['total']=1000+stability.MEM_TOTAL_TOLERANCE_BYTES
+        self.assertTrue(stability.admission(self.sample)['ok'])
+        self.sample['total']=1000-stability.MEM_TOTAL_TOLERANCE_BYTES
+        self.assertTrue(stability.admission(self.sample)['ok'])
+        self.sample['total']=1000+stability.MEM_TOTAL_TOLERANCE_BYTES+1
+        self.assertEqual(stability.admission(self.sample)['reason'],'memory_unknown')
+
     def test_event_dedup_counter_survives_retention(self):
         boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
         now=time.time()

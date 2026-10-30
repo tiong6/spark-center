@@ -95,6 +95,9 @@ def required(name):
     return os.environ.get(name, '').strip().lower() in ('1', 'true', 'yes', 'on')
 
 
+MEM_TOTAL_TOLERANCE_BYTES = 64 * 1024 * 1024
+
+
 def admission(sample=None):
     if not POLICY.exists() and not required('SPARK_REQUIRE_MEMORY_POLICY'):
         return {'ok': True, 'reason': None, 'state': 'not_configured', 'at': time.time()}
@@ -104,7 +107,9 @@ def admission(sample=None):
         if not isinstance(floor, int) or floor <= 0:
             raise ValueError('invalid reserve')
         s = sample if sample is not None else memory_sample()
-        if s['total'] != policy['mem_total_bytes']:
+        # MemTotal drifts by a few hundred KiB across reboots (kernel/firmware reservations); seen 128 KiB on
+        # GB10. Only a change far beyond that drift means different hardware and a stale calibration.
+        if abs(s['total'] - policy['mem_total_bytes']) > MEM_TOTAL_TOLERANCE_BYTES:
             raise ValueError('memory capacity changed; recalibrate')
         low = s['available_bytes'] < floor
         # PSI threshold is an explicit policy value, not a measured hardware limit.
