@@ -32,6 +32,7 @@ class Terms(unittest.TestCase):
         self.assertEqual(ur.forum_term("nvidia-driver-580-open", "580.178.04-0ubuntu1"), "580.178.04")
         self.assertEqual(ur.forum_term("libnvidia-compute-580", "1:580.178.04-0ubuntu1"), "580.178.04")
         self.assertEqual(ur.forum_term("dgx-dashboard", "0.39.3-5"), "dgx-dashboard 0.39.3")
+        self.assertEqual(ur.forum_term("nvidia-spark-initcall-bl", "1.0-2"), "nvidia-spark-initcall-bl 1.0")   # Spark 專屬設定包，1024 的官方 workaround 就是靠它發的
         self.assertIsNone(ur.forum_term("brave-browser", "1.98.63"))
         self.assertIsNone(ur.forum_term("openssh-server", "1:9.6p1-3"))
         self.assertIsNone(ur.forum_term("linux-image-nvidia", "garbage"))

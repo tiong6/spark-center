@@ -42,7 +42,7 @@ def _dgx_term(name, version):
 FORUM_TERMS = [
     (re.compile(r"^(linux-image-nvidia|linux-nvidia|linux-headers-nvidia|linux-image-\d[\d.]*-nvidia)"), _kernel_term),
     (re.compile(r"^linux-(modules|tools|headers|image)-.*nvidia"), _kernel_term),
-    (re.compile(r"^(dgx-|nvidia-dgx)"), _dgx_term),
+    (re.compile(r"^(dgx-|nvidia-dgx|nvidia-spark-)"), _dgx_term),   # nvidia-spark-*：initcall-bl／grub-pci／fstab-config 這類 Spark 專屬設定包
     (re.compile(r"^(nvidia-driver|nvidia-kernel|nvidia-dkms|nvidia-utils|libnvidia-|nvidia-.*-open|"
                 r"xserver-xorg-video-nvidia|nvidia-firmware|nvidia-compute|nvidia-settings)"), _upstream_term),
 ]
