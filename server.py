@@ -2394,8 +2394,9 @@ def changelog_meta_fetch(name, installed, candidate, uri=None, keep_changelog=No
     if keep_changelog is not None:
         item = {k: v for k, v in keep_changelog.items() if k != "risk"}
         item["risk"] = update_risk.fetch_risk(name, candidate, uri, prev.get("risk"))
+        cache = _clmeta_load()      # 一定在取鎖之前：_clmeta_load 自己會取同一把（非可重入）鎖，鎖內呼叫就死鎖
         with _CLMETA["lock"]:
-            _clmeta_load()[key] = item
+            cache[key] = item
         _clmeta_save()
         return item
     r = changelog_apt(name, installed)

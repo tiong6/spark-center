@@ -152,6 +152,28 @@ class ServerQueue(unittest.TestCase):
             server._CLMETA["cache"], server._CLMETA["pool"] = saved[0], saved[1]
             server._CLMETA["pending"].clear(); server._CLMETA["pending"].update(saved[2])
 
+    def test_risk_only_refresh_runs_in_a_worker_without_deadlock(self):
+        """真的跑 worker 的 keep_changelog 路徑：曾在持鎖時呼叫 _clmeta_load（同一把非可重入鎖）→ 背景執行緒永久卡住、
+        之後每個 /api/updates 都在等鎖。用執行緒＋逾時抓這個回歸。"""
+        import tempfile, threading
+        key = "pkgz 3.0"
+        old = {"ok": False, "ts": 1.0, "note": "no changelog"}
+        fake_risk = {"ts": 2.0, "published": PUB, "published_note": None, "forum": None}
+        saved = (server._CLMETA["cache"], server.CHANGELOG_META_FILE, server.update_risk.fetch_risk)
+        tmp = tempfile.mkdtemp()
+        try:
+            server._CLMETA["cache"] = {key: dict(old)}
+            server.CHANGELOG_META_FILE = os.path.join(tmp, "m.json")
+            server.update_risk.fetch_risk = lambda *a, **k: dict(fake_risk)
+            th = threading.Thread(target=server._clmeta_worker, args=("pkgz", "1.0", "3.0", "http://u", dict(old)), daemon=True)
+            th.start(); th.join(5)
+            self.assertFalse(th.is_alive(), "worker 沒在 5 秒內結束：鎖內重入死鎖")
+            self.assertTrue(server._CLMETA["lock"].acquire(timeout=1), "worker 結束後鎖仍被持有"); server._CLMETA["lock"].release()
+            self.assertEqual(server._CLMETA["cache"][key], {**old, "risk": fake_risk})
+            self.assertTrue(os.path.exists(server.CHANGELOG_META_FILE))
+        finally:
+            server._CLMETA["cache"], server.CHANGELOG_META_FILE, server.update_risk.fetch_risk = saved
+
     def test_fresh_risk_is_a_cache_hit(self):
         risk = {"ts": __import__("time").time(), "published": PUB, "published_note": None, "forum": None}
         hit = {"ok": True, "ts": 1.0, "urgency": None, "summary": "", "entries": 0, "cves": 0, "risk": risk}
