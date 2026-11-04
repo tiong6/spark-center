@@ -41,6 +41,7 @@ from backend import hardware, disk, stability, release_prompt, update_risk
 from tools import model_capabilities
 from backend.messages import LANG_DEFAULT, MSG, msg
 from backend.system import HERE, READONLY, NO_SWEEP, _ENV_C, _run, _http_json, process_label
+from backend import auto_refresh
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("SPARK_UPDATER_PORT", "11001"))
@@ -1341,21 +1342,66 @@ def reboot_status():
     return {"required": True, "packages": pkgs}
 
 
-def last_refresh():
-    """apt 索引最後更新時間。優先讀 apt 自己寫的 update-success-stamp（每次 apt update 成功都會碰），
-    沒有就退回 lists 目錄最新檔案的 mtime（內容沒變時 apt 不會碰檔，可能偏舊）。拿不到回 None。"""
+def last_refresh_ts():
+    """apt 索引最後更新時間（epoch）。優先讀 apt 自己寫的 update-success-stamp（每次 apt update 成功都會碰），
+    沒有就退回 lists 目錄最新檔案的 mtime（內容沒變時 apt 不會碰檔，可能偏舊）。拿不到回 None。
+    更新分頁的「索引最後更新」與背景自動檢查的計時都認這一個值。"""
     stamp = "/var/lib/apt/periodic/update-success-stamp"
     if os.path.exists(stamp):
-        return datetime.fromtimestamp(os.path.getmtime(stamp)).isoformat(timespec="seconds")
+        return os.path.getmtime(stamp)
     try:
-        mt = max(
+        return max(
             os.path.getmtime(os.path.join(APT_LISTS, f))
             for f in os.listdir(APT_LISTS)
             if not f.startswith(("lock", "partial", "auxfiles"))
         )
-        return datetime.fromtimestamp(mt).isoformat(timespec="seconds")
     except (OSError, ValueError):
         return None
+
+
+def last_refresh():
+    ts = last_refresh_ts()
+    return None if ts is None else datetime.fromtimestamp(ts).isoformat(timespec="seconds")
+
+
+# ---------- 背景自動重新整理 apt 索引 ----------
+# 判斷在 backend/auto_refresh.py；這裡只是每分鐘問一次、到期就起和「重新整理來源」同一種 refresh 工作。
+SETTINGS_FILE = os.path.join(HERE, "data", "settings.json")
+_AUTO = {"lock": threading.Lock(), "last_tick": None, "last_verdict": None, "last_started": None}
+
+
+def auto_refresh_status():
+    with _AUTO["lock"]:
+        st = {k: v for k, v in _AUTO.items() if k != "lock"}
+    return {"hours": auto_refresh.load(SETTINGS_FILE), "choices": list(auto_refresh.CHOICES), **st}
+
+
+def _auto_refresh_tick(now=None):
+    now = time.time() if now is None else now
+    hours = auto_refresh.load(SETTINGS_FILE)
+    active = None
+    if hours and not READONLY:
+        active = auto_refresh.session_active(_run(["loginctl", "list-sessions", "--no-legend"], timeout=10), os.getuid())
+    v = auto_refresh.verdict(hours, last_refresh_ts(), now, JOB.snapshot()["status"] == "running", bool(active), READONLY)
+    if v == "due":
+        if not JOB.start("refresh"):
+            v = "job_running"
+    with _AUTO["lock"]:
+        _AUTO["last_tick"] = now
+        _AUTO["last_verdict"] = v
+        if v == "due":
+            _AUTO["last_started"] = now
+    return v
+
+
+def _auto_refresh_watch():
+    time.sleep(90)   # 服務剛起來先讓硬體快照、snap 接回等做完，別和它們搶 apt 鎖
+    while True:
+        try:
+            _auto_refresh_tick()
+        except Exception as e:
+            print("auto refresh tick failed:", e, flush=True)
+        time.sleep(auto_refresh.TICK_SECONDS)
 
 
 def apt_history(limit=8):
@@ -3845,6 +3891,7 @@ class Handler(BaseHTTPRequestHandler):
                     "release_prompt": release_prompt.status(),   # 開頁時的頂欄紅標從這裡畫；之後的重查走輕量的 /api/setup/release-prompt
                     "reboot": reboot_status(),
                     "last_refresh": last_refresh(),
+                    "auto_refresh": auto_refresh_status(),
                     "job_running": JOB.snapshot()["status"] == "running",
                 })
             except Exception as e:
@@ -4392,6 +4439,14 @@ class Handler(BaseHTTPRequestHandler):
             if not JOB.start("refresh"):
                 return self._json({"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 409)
             return self._json({"ok": True})
+        if path == "/api/settings/auto-refresh":
+            try:
+                auto_refresh.save(SETTINGS_FILE, data.get("hours"))
+            except ValueError as e:
+                return self._json({"ok": False, "error": str(e)}, 400)
+            except OSError as e:
+                return self._json({"ok": False, "error": str(e)}, 500)
+            return self._json({"ok": True, "auto_refresh": auto_refresh_status()})
         return self._json({"ok": False, "error": "not found"}, 404)
 
 
@@ -4413,6 +4468,7 @@ def main():
     except Exception as e:
         print("snap attach skipped:", e, flush=True)
     threading.Thread(target=_disk_watch, daemon=True).start()
+    threading.Thread(target=_auto_refresh_watch, daemon=True).start()
     threading.Thread(target=_gpu_watch, daemon=True).start()
     threading.Thread(target=_gpu_clock_reapply, daemon=True).start()
     threading.Thread(target=lambda: rollback_prune(ROLLBACK_MAX_AGE_DAYS), daemon=True).start()   # 過期的降回紀錄開機就清

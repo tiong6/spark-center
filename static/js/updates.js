@@ -473,6 +473,7 @@ async function load() {
   const nPassive = j.items.filter(i => i.firmware && i.firmware.passive).length, nHeld = j.items.filter(i => isHeld(i) && !(i.firmware && i.firmware.passive)).length;
   // 數字的語意：「可升級」是 apt upgrade 真的會裝的；等待放量的另外數，不混進去也不藏起來
   $('#meta').textContent = t("updates.upgradable_apt_index_last_updated", {v0: j.items.length - nPassive - nHeld, v1: (nPassive ? t("updates.another_firmware_packages_this_machine_does", {v0: nPassive}) : '') + (nHeld ? t("updates.phased_waiting_n", {n: nHeld}) : ''), v2: j.last_refresh ? j.last_refresh.replace('T',' ') : '—'});
+  renderAutoRefresh(j.auto_refresh);
   renderDashCompare(j.dashboard);
   renderPhasedPolicy(j.phased_policy);
   renderReleasePrompt(j.release_prompt);
@@ -597,6 +598,38 @@ $('#btnGo').onclick = async () => {
   };
   openModal(t("updates.confirm_changes"));
 };
+/* 背景自動重新整理：間隔選項與預設都來自後端（backend/auto_refresh.py 的 CHOICES），這裡只畫，不另抄一份。
+   「關閉」= 0 小時，只剩手動按鈕。上一輪的判斷結果放在 title，略過時看得到原因（沒有登入中的桌面工作階段等）。 */
+function autoLabel(h) { return h === 0 ? t('updates.auto_off') : h === 1 ? t('updates.auto_hourly') : h === 24 ? t('updates.auto_daily') : t('updates.auto_every_n', {n: h}); }
+function renderAutoRefresh(a) {
+  const wrap = $('#autoRefreshWrap'), sel = $('#autoRefresh');
+  if (!a || !Array.isArray(a.choices)) { wrap.classList.add('hide'); return; }
+  wrap.classList.remove('hide');
+  sel.innerHTML = a.choices.map(h => `<option value="${h}"${h === a.hours ? ' selected' : ''}>${esc(autoLabel(h))}</option>`).join('');
+  sel.disabled = document.body.classList.contains('ro');
+  const at = ts => new Date(ts * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+  const parts = [t('updates.auto_refresh_hint')];
+  if (a.last_tick) parts.push(t('updates.auto_last_tick', {at: at(a.last_tick), why: t('updates.auto_skip_' + a.last_verdict)}));
+  if (a.last_started) parts.push(t('updates.auto_last_started', {at: at(a.last_started)}));
+  wrap.title = parts.join('\n');
+}
+$('#autoRefresh').onchange = async e => {
+  const r = await api('/api/settings/auto-refresh', {hours: Number(e.target.value)});
+  if (!r.ok) { alert(r.error); load(); return; }   // 失敗就以伺服器的生效值重畫，不留本地的選擇
+  renderAutoRefresh(r.auto_refresh);
+};
+/* 背景自動重新整理起的工作，頁面沒在輪詢就接上：進度卡與「重新整理後新出現」標籤才看得到。
+   同一個工作（以 started 認）只接一次；pollJob 看過的也記下，手動流程結束後不會再被接成一張新的完成卡。 */
+async function attachBackgroundJob() {
+  if (state.polling || document.visibilityState !== 'visible') return;
+  let j; try { j = await api('/api/job'); } catch (e) { return; }
+  if (!j.started || j.started === state.attachedJob || j.status === 'idle') return;
+  state.attachedJob = j.started;
+  if (j.kind === 'refresh') state.namesBeforeRefresh = new Set(state.items.map(i => i.name));
+  startPolling(jobTitle(j));
+}
+setInterval(attachBackgroundJob, 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') attachBackgroundJob(); });
 $('#btnRefresh').onclick = async () => { state.namesBeforeRefresh = new Set(state.items.map(i => i.name)); const r = await api('/api/refresh', {}); if (!r.ok) { alert(t("updates.could_not_start_with_value", {value: r.error})); return; } startPolling(t("job.refresh_apt_sources")); };
 // 全選只選主清單；折疊區的 firmware 子套件要升級就展開用它自己的群組勾選框
 $('#btnAll').onclick = () => { state.items.filter(i => !(i.firmware && i.firmware.passive) && !i.node_flow && !isHeld(i)).forEach(i => state.selected.add(i.name)); renderList(); };
@@ -622,6 +655,7 @@ function startPolling(title) {
 }
 async function pollJob() {
   const j = await api('/api/job'); state.job = j; updateGo();
+  if (j.started) state.attachedJob = j.started;
   if (j.status === 'idle' && state.polling) {
     // 工作狀態只存在服務的記憶體：服務重啟後這裡會一直等一個不存在的工作，看起來像「停住」。要明講，並重讀清單看實際結果。
     clearInterval(state.polling); state.polling = null;

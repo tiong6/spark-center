@@ -11,6 +11,7 @@ python3 tools/test_gpu_hot.py 2>&1 | tail -1 | grep -q "^OK" && echo "GPU overhe
 _ps=$(mktemp); python3 tools/test_print_stack.py > "$_ps" 2>&1 && echo "print stack / snap busy tests OK" || { cat "$_ps"; exit 1; }; rm -f "$_ps"   # 純判斷＋假 /proc，不碰 snapd
 _cl=$(mktemp); python3 tools/test_changelog_meta.py > "$_cl" 2>&1 && echo "changelog meta tests OK" || { cat "$_cl"; exit 1; }; rm -f "$_cl"   # 純解析，不碰網路
 _ur=$(mktemp); python3 tools/test_update_risk.py > "$_ur" 2>&1 && echo "update risk tests OK" || { cat "$_ur"; exit 1; }; rm -f "$_ur"   # 假抓取器，不碰網路
+_ar=$(mktemp); python3 tools/test_auto_refresh.py > "$_ar" 2>&1 && echo "auto refresh tests OK" || { cat "$_ar"; exit 1; }; rm -f "$_ar"   # 純判斷＋暫存設定檔，不碰 apt／loginctl
 _rp=$(mktemp); python3 tools/test_release_prompt.py > "$_rp" 2>&1 && echo "release prompt tests OK" || { cat "$_rp"; exit 1; }; rm -f "$_rp"   # 暫存檔＋假 pkexec，不碰 /etc；有 update-manager-core 就和 Ubuntu 的 MetaRelease 交叉比對
 
 python3 tools/test_backend_modules.py
