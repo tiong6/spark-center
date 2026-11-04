@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-11-04
+
+*The Updates tab can now refresh the apt index in the background at an interval you choose (off, hourly, every 6 or 12 hours, daily; default 6 hours). It only updates the list: nothing is installed, no notification is shown. The timer follows apt's own update stamp, so a manual refresh or the system's daily run resets it.*
+
+### 新增
+
+- 更新分頁標題列多一個「自動檢查」下拉選單：關閉（只手動）／每小時／每 6 小時／每 12 小時／每天，預設每 6 小時。到期就在背景跑和「重新整理來源」同一條 aptdaemon 路，只更新清單；不自動安裝、不跳通知、不自動勾選。計時認 apt 的 `update-success-stamp`，手動按過、系統的 apt-daily 跑過都會重新計時，不會重複抓。沒有登入中的桌面工作階段（polkit 對 `update-cache` 只有 active session 免密碼）、有其他工作在跑、唯讀模式都略過；上一輪的判斷與略過原因放在選單的提示文字。頁面開著時每分鐘與回到視窗時接上背景起的工作，進度卡和「重新整理後新出現」標籤照常顯示。為什麼：Ubuntu 的 `apt-daily.timer` 一天只更新索引一次（06:00／18:00 加最多 12 小時隨機延遲），清單最晚落後一天，之前只能手動按。設定存 `data/settings.json`；純邏輯在 `backend/auto_refresh.py`，`tools/test_auto_refresh.py` 掛進 check.sh。
+
+---
+
 ## 2026-10-31
 
 *Each package on the Updates tab now shows how many days its candidate version has been published and whether the NVIDIA DGX Spark forum has discussed that version since. Both are facts read from the source, shown as "—" with the reason when they cannot be read, never guessed.*
