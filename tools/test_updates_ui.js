@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const strings = {
   'updates.cl_none': 'changelog —', 'updates.cl_pending': 'pending', 'updates.risk_age': 'age {n}',
   'updates.risk_age_today': 'today', 'updates.risk_age_none': 'age —', 'updates.risk_forum_none': '論壇 —',
-  'updates.risk_forum_n': '論壇 {n} 篇（最新 {d}）', 'updates.risk_forum_zero': '論壇 0 篇',
+  'updates.risk_forum_n': '論壇 {n} 篇（最新 {d}）', 'updates.risk_forum_zero': '論壇 0 篇', 'updates.risk_forum_announcement': '論壇 0 篇 · 公告', 'updates.risk_forum_announcement_hint': 'ann {title} {n}',
 };
 const t = (k, p = {}) => (strings[k] || k).replace(/\{(\w+)\}/g, (_, n) => p[n]);
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -29,6 +29,8 @@ assert.match(h, /論壇 3 篇（最新 10-30）/); assert.match(h, /Freeze &lt;b
 h = render({...cl, risk: {published: iso(20), forum: forum(0)}});
 assert.doesNotMatch(h, /tag sec/); assert.match(h, /age 20/); assert.match(h, /tag muted" href/); assert.match(h, /論壇 0 篇/);
 
+h = render({...cl, risk: {published: iso(3), forum: {...forum(0), announcement: {id: 388030, title: '620 release feedback & discussion', posts: 2, created: iso(1), url: 'https://f.example/t/388030'}}}});
+assert.match(h, /tag muted" href="https:\/\/f\.example\/t\/388030"/); assert.match(h, /論壇 0 篇 · 公告/); assert.doesNotMatch(h, /tag reboot/);
 h = render({...cl, risk: {published: iso(0), forum: null}});
 assert.match(h, /today/); assert.doesNotMatch(h, /論壇/);
 

@@ -16,6 +16,7 @@ FORUM_BASE = "https://forums.developer.nvidia.com"
 FORUM_TOPIC_LIMIT = 5
 FORUM_REFRESH = 6 * 3600       # 論壇結果 6 小時內不重抓
 RETRY_AFTER = 3600             # 上線日或論壇抓失敗，1 小時後再試
+ANNOUNCEMENT_RE = re.compile(r"^\d{3}(\.\d+)* release feedback & discussion$", re.I)   # NVIDIA 員工開的官方發布串（置頂），不是使用者回報
 CUTOFF_SLACK = timedelta(days=1)   # 廠商 pool 檔案的時間戳可能比使用者第一次看到討論晚，往前多算一天
 USER_AGENT = "spark-center"
 
@@ -93,19 +94,27 @@ def days_since(published_iso, now=None):
 
 
 def filter_topics(topics, published_iso):
-    """留下上線日前一天以後建立的主題，新到舊。published 未知 → 全留。"""
+    """留下上線日前一天以後建立的主題，新到舊。published 未知 → 全留。
+    回 (討論, 公告)：標題是「620 release feedback & discussion」這種官方發布串的歸公告，不算成「有人在討論這版」；
+    搜尋詞是版本字串，公告一定命中，不分開就每一版驅動都會亮紅。"""
     cut = _parse_iso(published_iso)
     cut = cut - CUTOFF_SLACK if cut else None
-    out = []
+    out, ann = [], []
     for t in topics:
         created = _parse_iso(t.get("created_at"))
         if created is None:
             continue
         if cut is None or created >= cut:
-            out.append({"id": t.get("id"), "title": t.get("title", ""), "created": _iso(created),
-                        "posts": t.get("posts_count", 0), "category_id": t.get("category_id")})
+            row = {"id": t.get("id"), "title": t.get("title", ""), "created": _iso(created),
+                   "posts": t.get("posts_count", 0), "category_id": t.get("category_id")}
+            (ann if ANNOUNCEMENT_RE.match(row["title"].strip()) else out).append(row)
     out.sort(key=lambda x: x["created"], reverse=True)
-    return out
+    ann.sort(key=lambda x: x["created"], reverse=True)
+    return out, ann
+
+
+def topic_url(topic_id):
+    return f"{FORUM_BASE}/t/{int(topic_id)}"
 
 
 def http_head(url):
@@ -150,10 +159,11 @@ def _fetch_forum(term, published, get_json, now):
         data = get_json(f"{FORUM_BASE}/search.json?q={urllib.parse.quote(term, safe='')}")
         if not isinstance(data, dict):
             raise ValueError("unexpected response")
-        topics = filter_topics(data.get("topics") or [], published)
+        topics, ann = filter_topics(data.get("topics") or [], published)
     except Exception as e:
-        return {**out, "ok": False, "note": _err_note(e), "total": 0, "topics": []}
-    return {**out, "ok": True, "note": None, "total": len(topics), "topics": topics[:FORUM_TOPIC_LIMIT]}
+        return {**out, "ok": False, "note": _err_note(e), "total": 0, "topics": [], "announcement": None}
+    announcement = {**ann[0], "url": topic_url(ann[0]["id"])} if ann and ann[0].get("id") is not None else None
+    return {**out, "ok": True, "note": None, "total": len(topics), "topics": topics[:FORUM_TOPIC_LIMIT], "announcement": announcement}
 
 
 def risk_is_stale(prev, name, candidate, now=None):

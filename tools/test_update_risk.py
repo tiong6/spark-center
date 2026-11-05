@@ -19,6 +19,7 @@ def topic(i, created, cat=721):
 
 FORUM = {"topics": [topic(387182, "2026-10-28T01:00:00.000Z"), topic(387456, "2026-10-30T09:00:00.000Z"),
                     topic(1, "2026-10-01T00:00:00.000Z"), topic(387397, "2026-10-30T02:00:00.000Z", cat=5)]}
+ANN = {**topic(388030, "2026-11-04T22:35:20.543Z", cat=148), "title": "620 release feedback & discussion", "posts_count": 2}
 
 
 def head_ok(url): return 200, LM
@@ -53,11 +54,26 @@ class Pure(unittest.TestCase):
         self.assertIsNone(ur.parse_last_modified("not a date"))
 
     def test_filter_topics_cutoff_minus_one_day(self):
-        got = ur.filter_topics(FORUM["topics"], PUB)
+        got, _ = ur.filter_topics(FORUM["topics"], PUB)
         self.assertEqual([t["id"] for t in got], [387456, 387397, 387182])      # 新到舊，10/01 那篇被擋
-        edge = ur.filter_topics([topic(9, "2026-10-22T23:17:27Z"), topic(8, "2026-10-22T23:17:26Z")], PUB)
+        edge, _ = ur.filter_topics([topic(9, "2026-10-22T23:17:27Z"), topic(8, "2026-10-22T23:17:26Z")], PUB)
         self.assertEqual([t["id"] for t in edge], [9])
-        self.assertEqual(len(ur.filter_topics(FORUM["topics"], None)), 4)
+        self.assertEqual(len(ur.filter_topics(FORUM["topics"], None)[0]), 4)
+
+    def test_official_release_thread_is_announcement_not_discussion(self):
+        # 2026-11-04 nvidia-settings 620.70.06：唯一命中的是 NVIDIA 員工開的「620 release feedback & discussion」，被標成紅色「論壇 1 篇」
+        got, ann = ur.filter_topics([ANN, topic(5, "2026-11-05T00:00:00Z")], "2026-11-01T05:46:06Z")
+        self.assertEqual([t["id"] for t in got], [5]); self.assertEqual([t["id"] for t in ann], [388030])
+        for title in ("615 release feedback & discussion", "580.65.06 Release Feedback & Discussion"):
+            self.assertTrue(ur.ANNOUNCEMENT_RE.match(title), title)
+        for title in ("Spark freezes after 620 update", "release feedback & discussion about 620", "620 release feedback & discussion - part 2"):
+            self.assertFalse(ur.ANNOUNCEMENT_RE.match(title), title)
+        f = ur._fetch_forum("620.70.06", "2026-11-01T05:46:06Z", lambda u: {"topics": [ANN]}, NOW)
+        self.assertEqual((f["total"], f["topics"]), (0, []))
+        self.assertEqual(f["announcement"]["url"], "https://forums.developer.nvidia.com/t/388030")
+        f = ur._fetch_forum("620.70.06", "2026-11-01T05:46:06Z", lambda u: {"topics": [ANN, topic(5, "2026-11-05T00:00:00Z")]}, NOW)
+        self.assertEqual((f["total"], f["topics"][0]["id"], f["announcement"]["id"]), (1, 5, 388030))
+        self.assertIsNone(ur._fetch_forum("7.0.0-1024", PUB, json_ok, NOW)["announcement"])   # 沒有公告串就是 None，不是缺欄
 
     def test_days_since(self):
         now = datetime(2026, 10, 31, 0, 0, tzinfo=timezone.utc)

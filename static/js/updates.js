@@ -70,6 +70,8 @@ function riskHtml(r) {
     const tip = f.topics.map(x => `${riskMD(x.created)} ${x.title}${x.category_id === 721 ? '' : ' [' + t("updates.risk_forum_other_cat") + ']'}`).join('\n');
     return out + `<a class="tag reboot" href="${esc(f.url)}" target="_blank" rel="noopener" title="${esc(tip)}">${t("updates.risk_forum_n", {n: f.total, d: riskMD(f.topics[0].created)})}</a>`;
   }
+  if (f.announcement)   // 只命中 NVIDIA 官方發布串：不是回報，給中性色並直接連到那一串
+    return out + `<a class="tag muted" href="${esc(f.announcement.url)}" target="_blank" rel="noopener" title="${esc(t("updates.risk_forum_announcement_hint", {title: f.announcement.title, n: f.announcement.posts}))}">${t("updates.risk_forum_announcement")}</a>`;
   return out + `<a class="tag muted" href="${esc(f.url)}" target="_blank" rel="noopener" title="${esc(t("updates.risk_forum_zero_hint", {term: f.term}))}">${t("updates.risk_forum_zero")}</a>`;
 }
 /* 背景抓 changelog 的補齊輪詢：/api/updates 回 pending 非空時每 3 秒問一次，最多 20 次；抓齊就停 */
