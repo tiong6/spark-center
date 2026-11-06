@@ -10,6 +10,7 @@ import os
 CHOICES = (0, 1, 6, 12, 24)   # 小時；0 = 關閉。順序就是下拉選單的順序
 DEFAULT_HOURS = 6             # 與 Spark Center 自身版本檢查、論壇風險重查同一個節拍
 TICK_SECONDS = 60
+RETRY_AFTER = 30 * 60   # 背景起的那一輪失敗（stamp 沒更新）時，隔這麼久才再試；否則來源掛掉會每分鐘打一次
 KEY = "auto_refresh_hours"
 
 
@@ -42,7 +43,7 @@ def save(path, hours):
     os.replace(tmp, path)
 
 
-def verdict(hours, last_refresh_ts, now, job_running, session_active, readonly):
+def verdict(hours, last_refresh_ts, now, job_running, session_active, readonly, last_started=None):
     """回 "due" 或略過原因。原因字串原樣送到前端當 i18n key 的尾巴，改名要連 updates.auto_skip_* 一起改。
     last_refresh_ts 為 None（讀不到 stamp）視為從未更新 → 到期；不假裝知道。"""
     if readonly:
@@ -53,6 +54,8 @@ def verdict(hours, last_refresh_ts, now, job_running, session_active, readonly):
         return "job_running"
     if last_refresh_ts is not None and now - last_refresh_ts < hours * 3600:
         return "fresh"
+    if last_started is not None and now - last_started < RETRY_AFTER:
+        return "retry_later"   # 上一輪背景重新整理沒讓 stamp 更新（抓不到來源），先別連打
     if not session_active:
         return "no_active_session"   # polkit 的 update-cache 只對本機 active session 免密碼；沒有就會跳密碼框或直接失敗
     return "due"

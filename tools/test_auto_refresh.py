@@ -38,6 +38,12 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(self.v(session_active=False), "no_active_session")
         self.assertEqual(self.v(session_active=False, now=1000 + H), "fresh")
 
+    def test_failed_background_run_backs_off(self):
+        # 背景起的那輪抓不到來源 → stamp 沒更新 → 沒有這條會每分鐘再打一次
+        self.assertEqual(self.v(last_started=1000 + 7 * H - 60), "retry_later")
+        self.assertEqual(self.v(last_started=1000 + 7 * H - ar.RETRY_AFTER), "due")
+        self.assertEqual(self.v(last_started=1000 + 7 * H - 60, now=1000 + H), "fresh")   # 成功過（stamp 更新）就照常計時
+
     def test_unknown_last_refresh_counts_as_due(self):
         self.assertEqual(self.v(last_refresh_ts=None, now=0), "due")
 

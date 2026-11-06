@@ -1382,7 +1382,9 @@ def _auto_refresh_tick(now=None):
     active = None
     if hours and not READONLY:
         active = auto_refresh.session_active(_run(["loginctl", "list-sessions", "--no-legend"], timeout=10), os.getuid())
-    v = auto_refresh.verdict(hours, last_refresh_ts(), now, JOB.snapshot()["status"] == "running", bool(active), READONLY)
+    with _AUTO["lock"]:
+        last_started = _AUTO["last_started"]
+    v = auto_refresh.verdict(hours, last_refresh_ts(), now, JOB.snapshot()["status"] == "running", bool(active), READONLY, last_started)
     if v == "due":
         if not JOB.start("refresh"):
             v = "job_running"
@@ -1435,6 +1437,21 @@ def apt_history(limit=8):
             "actions": pk,
         })
     return out
+
+
+def apt_fetch_failures(started_iso):
+    """aptdaemon worker 在 journal 留下的 W:Failed to fetch 行（從這個工作開始的時間起）。拿不到回 []。"""
+    try:
+        since = (datetime.fromisoformat(started_iso) - timedelta(seconds=2)).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return []
+    out = _run(["journalctl", "-t", "org.debian.apt", "--since", since, "-o", "cat", "--no-pager"], timeout=10) or ""
+    seen, failed = set(), []
+    for m in re.finditer(r"W:Failed to fetch (\S+)\s+([^,\n]*)", out):
+        line = f"{m.group(1)}  {m.group(2).strip()}"
+        if line not in seen:
+            seen.add(line); failed.append(line)
+    return failed
 
 
 # ---------- aptdaemon 工作 ----------
@@ -2042,6 +2059,14 @@ class Job:
             self._log(msg('job_start', LANG_DEFAULT, p0=kind, p1=' '.join(packages) if packages else ''))
             trans.run()
             loop.run()
+            if kind == "refresh" and self.state["status"] == "error":
+                # aptdaemon 的錯誤只有「下載軟體庫資訊失敗:」後面空的；哪個來源、幾號錯誤只在 worker 的 journal 裡
+                failed = apt_fetch_failures(self.state["started"])
+                if failed:
+                    with self.lock:
+                        self.state["error"] = msg('refresh_failed_sources', LANG_DEFAULT, n=len(failed), list="\n".join(failed))
+                    for f in failed:
+                        self._log("  " + f)
         except Exception as e:  # D-Bus 拒絕、polkit 取消等
             with self.lock:
                 self.state["status"] = "error"
