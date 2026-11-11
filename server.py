@@ -1454,6 +1454,37 @@ def apt_fetch_failures(started_iso):
     return failed
 
 
+def apt_sources():
+    """這台設定的 apt 來源，(uri, dist) 一筆一個 InRelease。讀不到回 None。"""
+    try:
+        sl = apt_pkg.SourceList()
+        sl.read_main_list()
+        return [(m.uri, m.dist) for m in sl.list]
+    except (SystemError, OSError):
+        return None
+
+
+def refresh_fetch_outcome(failed, sources):
+    """apt update 有來源抓不到時的結局 (status, error, warning)。
+    apt 對抓不到的來源本來就沿用舊索引、照樣更新其他來源；只有全部都抓不到才算失敗。"""
+    if sources is None:
+        return "error", msg('refresh_failed_sources', LANG_DEFAULT, p0=len(failed), p1="\n".join(failed)), None
+    down = set()
+    for line in failed:
+        url = line.split()[0]
+        for uri, dist in sources:
+            base = uri + dist.lstrip("/") if dist.endswith("/") else f"{uri}dists/{dist}/"   # 平鋪來源（dist 是 "/"）沒有 dists/
+            if url.startswith(base):
+                down.add((uri, dist))
+                break
+        else:
+            down.add(url)   # 對不到設定的來源：單獨算一個，不讓「已更新」的數字灌水
+    ok = len(set(sources) - down)
+    if ok == 0:
+        return "error", msg('refresh_all_failed', LANG_DEFAULT, p0=len(sources), p1="\n".join(failed)), None
+    return "done", None, msg('refresh_partial', LANG_DEFAULT, p0=ok, p1=len(sources), p2=len(down), p3="\n".join(failed))
+
+
 # ---------- aptdaemon 工作 ----------
 
 class Job:
@@ -1476,6 +1507,7 @@ class Job:
             "step": None,          # 目前階段的 [已完成, 總數]；拿不到就 None（前端顯示不定進度條，不假裝百分比）
             "exit": None,
             "error": None,
+            "warning": None,       # 完成但有部分沒做到（例：幾個來源抓不到、其他已更新）；前端畫黃卡、不自動收
             "log": [],
             "started": None,
             "finished": None,
@@ -2031,11 +2063,21 @@ class Job:
                 t.resolve_config_file_conflict(old, "keep")
 
             def on_finished(t, exit_state):
+                status, outcome = ("done" if exit_state == aenums.EXIT_SUCCESS else "error"), None
+                if kind == "refresh" and status == "error":
+                    # 先判讀完再翻狀態：前端看到 done/error 就停止輪詢，晚一步才寫進來的原因它看不到。
+                    # aptdaemon 的錯誤只有「下載軟體庫資訊失敗:」後面空的；哪個來源、幾號錯誤只在 worker 的 journal 裡
+                    failed = apt_fetch_failures(self.state["started"])
+                    if failed:
+                        outcome = refresh_fetch_outcome(failed, apt_sources())
+                        status = outcome[0]
+                        for f in failed:
+                            self._log("  " + f)
                 with self.lock:
                     self.state["exit"] = exit_state
-                    self.state["status"] = (
-                        "done" if exit_state == aenums.EXIT_SUCCESS else "error"
-                    )
+                    self.state["status"] = status
+                    if outcome:
+                        self.state["error"], self.state["warning"] = outcome[1], outcome[2]
                     if self.state["status"] == "error" and not self.state["error"]:
                         self.state["error"] = msg('transaction_exit', LANG_DEFAULT, p0=exit_state)
                     self.state["finished"] = datetime.now().isoformat(timespec="seconds")
@@ -2059,14 +2101,6 @@ class Job:
             self._log(msg('job_start', LANG_DEFAULT, p0=kind, p1=' '.join(packages) if packages else ''))
             trans.run()
             loop.run()
-            if kind == "refresh" and self.state["status"] == "error":
-                # aptdaemon 的錯誤只有「下載軟體庫資訊失敗:」後面空的；哪個來源、幾號錯誤只在 worker 的 journal 裡
-                failed = apt_fetch_failures(self.state["started"])
-                if failed:
-                    with self.lock:
-                        self.state["error"] = msg('refresh_failed_sources', LANG_DEFAULT, n=len(failed), list="\n".join(failed))
-                    for f in failed:
-                        self._log("  " + f)
         except Exception as e:  # D-Bus 拒絕、polkit 取消等
             with self.lock:
                 self.state["status"] = "error"

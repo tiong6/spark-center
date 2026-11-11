@@ -687,14 +687,15 @@ async function pollJob() {
   $('#joblog').textContent = (j.log || []).join('\n');
   if (j.status === 'done' || j.status === 'error') {
     clearInterval(state.polling); state.polling = null;
-    $('#jobcard').className = 'panel notice ' + (j.status === 'done' ? 'ok' : 'danger'); $('#jobphase').classList.add('hide');
-    $('#jobstatus').textContent = j.status === 'done' ? t("job.completed", {v0: j.finished}) : t("job.failed", {v0: j.error || t("job.unknown_error")});
+    const partial = j.status === 'done' && j.warning;   // 例：幾個來源抓不到、其他已更新——不是失敗，但要讓人看到哪幾個
+    $('#jobcard').className = 'panel notice ' + (partial ? 'warn' : j.status === 'done' ? 'ok' : 'danger'); $('#jobphase').classList.add('hide');
+    $('#jobstatus').textContent = partial ? t("job.completed_partial", {v0: j.finished, v1: j.warning}) : j.status === 'done' ? t("job.completed", {v0: j.finished}) : t("job.failed", {v0: j.error || t("job.unknown_error")});
     $('#jobactions').innerHTML = `<button id="jobClose">${t("job.close")}</button>`;
     if (j.status === 'error' && j.reason) renderNpmFailure(j);   // 人話原因 + 可以按的修法
     clearInterval(state.autoClose); state.autoClose = null;
     const closeCard = () => { clearInterval(state.autoClose); state.autoClose = null; $('#jobcard').classList.add('hide'); };
     $('#jobClose').onclick = closeCard;
-    let holdOpen = false;
+    let holdOpen = !!partial;
     if (j.status === 'done' && j.kind === 'shell' && (j.packages || [])[0] === 'fwupd_update') holdOpen = true, offerFwReboot();   // fwupd 的「Successfully installed」只是排入，沒重開不算裝好
     if (j.status === 'done' && j.kind === 'npm') holdOpen = true, offerNpmRestart(j.packages || []);   // 有程序在跑舊版：給重啟鈕，卡片不自動收
     if (j.status === 'done' && !holdOpen) {   // 成功的 15 秒後自動收起；失敗的留著，要讓人看到
