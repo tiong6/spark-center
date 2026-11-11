@@ -37,7 +37,7 @@ import aptdaemon.client
 import aptdaemon.enums as aenums
 from gi.repository import GLib
 
-from backend import hardware, disk, stability, release_prompt, update_risk
+from backend import hardware, disk, stability, release_prompt, update_risk, flatpak_progress
 from tools import model_capabilities
 from backend.messages import LANG_DEFAULT, MSG, msg
 from backend.system import HERE, READONLY, NO_SWEEP, _ENV_C, _run, _http_json, process_label
@@ -1536,9 +1536,10 @@ class Job:
         threading.Thread(target=self._run, args=(kind, packages or []), daemon=True).start()
         return True
 
-    def _run_subprocess(self, cmd, packages):
+    def _run_subprocess(self, cmd, packages, tracker=None):
         """flatpak / snap 更新：直接跑 CLI，逐行把輸出寫進 log。授權由 polkit 處理
-        （flatpak app-update 對 active session 免密碼；snap refresh 會跳密碼視窗）。"""
+        （flatpak app-update 對 active session 免密碼；snap refresh 會跳密碼視窗）。
+        tracker（flatpak_progress.Tracker）讀得懂輸出時，卡片顯示總下載量、第幾項與加權進度。"""
         self._log("$ " + " ".join(cmd))
         try:
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=_ENV_C, bufsize=1)
@@ -1547,10 +1548,20 @@ class Job:
                 self.state["status_text"] = msg('running', LANG_DEFAULT)
             for line in proc.stdout:
                 line = line.rstrip("\r\n")
-                if line.strip():
+                seen = tracker.feed(line) if tracker else None
+                snap = tracker.snapshot() if tracker else None
+                if seen == "item" and snap and snap["ref"]:
+                    self._log(f"{line} {snap['ref']}")
+                elif seen != "progress" and line.strip():   # 百分比行一項會有好幾十行，不進記錄
                     self._log(line)
-                    with self.lock:
+                with self.lock:
+                    if snap and snap["index"]:
+                        self.state["progress"] = snap["progress"]
+                        self.state["details"] = f"{snap['index']}/{snap['count']} {snap['ref']}" + (f" · ≤ {snap['size']}" if snap["size"] else "")
+                    elif line.strip():
                         self.state["details"] = line.strip()[:120]
+                    if snap and snap["total"]:
+                        self.state["status_text"] = msg('flatpak_total', LANG_DEFAULT, p0=snap["count"], p1=snap["total"])
             rc = proc.wait(timeout=1800)
             with self.lock:
                 self.state["exit"] = f"rc={rc}"
@@ -1923,7 +1934,8 @@ class Job:
                 return
             return self._run_subprocess(cmd, packages)
         if kind == "flatpak":
-            return self._run_subprocess(["flatpak", "update", "-y", "--noninteractive"] + packages, packages)
+            # 不加 --noninteractive：那個模式只印「Installing <ref>」，沒有操作表（下載大小）也沒有百分比。-y 照樣回答所有提問
+            return self._run_subprocess(["flatpak", "update", "-y"] + packages, packages, tracker=flatpak_progress.Tracker())
         if kind == "snap":
             return self._run_snap(packages)
         if kind == "install":   # 升級前先把舊版留下來；失敗不影響升級
