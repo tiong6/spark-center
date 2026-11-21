@@ -98,5 +98,25 @@ class ModelsTests(unittest.TestCase):
         self.assertEqual(aw.recent_models(data, NOW + 400 * 86400), [])   # 超過 90 天就不列
 
 
+class HostileInputTests(unittest.TestCase):
+    """2026-11-21 資安互審（Codex 重現）：沒關的 <li> 與「名稱＋大量空白」曾是平方時間。"""
+
+    def test_unclosed_li_is_linear(self):
+        import time
+        atom = '<feed xmlns="http://www.w3.org/2005/Atom"><entry><link href="https://g/tag/rust-v1.0.0"/><content type="html">' + "&lt;li&gt;x" * 50000 + "</content></entry></feed>"
+        t = time.time(); rel = aw.parse_codex_atom(atom)
+        self.assertLess(time.time() - t, 2.0)
+        self.assertEqual(len(rel[0][1]), 50000)
+
+    def test_variant_trim(self):
+        self.assertEqual(aw._variant_trim("Claude Fable 5.2 (batch)"), "Claude Fable 5.2")
+        self.assertEqual(aw._variant_trim("A" + " " * 100000 + "x"), "A" + " " * 100000 + "x")
+
+    def test_li_entities_and_tags(self):
+        atom = ('<feed xmlns="http://www.w3.org/2005/Atom"><entry><link href="https://g/tag/rust-v1.0.0"/><content type="html">'
+                '&lt;ul&gt;&lt;li&gt;Added &lt;code&gt;GPT-6.2&lt;/code&gt; &amp;amp; more&lt;/li&gt;&lt;li&gt;#123 dup&lt;/li&gt;&lt;/ul&gt;</content></entry></feed>')
+        self.assertEqual(aw.parse_codex_atom(atom)[0][1], ["Added GPT-6.2 & more"])
+
+
 if __name__ == "__main__":
     unittest.main()

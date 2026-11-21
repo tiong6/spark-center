@@ -8,6 +8,17 @@
 
 *A new AI Watch tab lists recently released models from the major providers and shows how far the AI tools on this machine are behind, with the release-note lines that add models. Urgent updates now raise a desktop notification and a top-bar badge without opening the Updates tab. Keeping old versions for rollback can be skipped mid-update, Spark Center can be quit from the top bar, and every POST request now logs which local process sent it.*
 
+### 修正（push 前 Claude×Codex 資安互審，Codex 五輪：四次 REVISE、一次被 OpenAI 內容過濾擋下無結論、終審 PASS）
+
+- 所有 POST 只收「和服務同一個帳號」開的連線：用完整四元組在 `/proc/net/tcp`／`tcp6` 找到客戶端 socket 的 uid 欄比對，查不到或有歧義就 403。原本 Origin／Host 只擋得住瀏覽器，同機其他帳號可以直接打 `/api/install` 等所有修改型端點（本週以前就存在；本週新增的結束、略過保留舊版、VS Code 更新又擴大了範圍）。只比埠號會被 127.0.0.2 同埠號錯認（Codex 重現），所以比完整四元組。限制：這是事後讀 /proc 的快照，不是 Unix socket 的核心對端憑證；同帳號的程序替別人轉送的請求會被當成自己。另一帳號的真實連線因需要 sudo 密碼未實測，以替身 /proc 資料測。
+- GET 也檢查 Host（DNS rebinding：惡意網域解析到 127.0.0.1 後可讀所有 GET 回應，含工作記錄）。本週以前就存在。
+- 請求來源紀錄不再寫入任意指令列參數（`curl -H 'Authorization: Bearer …'`、`bash -lc '…'` 的內容會外洩到 journal 與工作卡）；UA／Origin／程序名的控制字元（含 C1、U+2028）轉義，防偽造紀錄行；來源查詢移到 Origin／唯讀／UID 檢查之後，被拒的請求不掃 /proc；/proc 掃描有連結數與時間預算。
+- 外部下載（AI 動態的四個來源）：32 MB 上限；計時器到總期限就 shutdown socket（標頭、chunk framing、內文滴流都會中斷，含 `Connection: close`）；提早 EOF 視為失敗；只走 https，POST 不跟轉址（被污染的來源可用 307 把 POST 轉回本服務自己，繞過 UID 檢查）。已知限制：DNS 解析與 TLS 握手不受總期限約束。
+- AI 動態的解析：沒關的 `<li>` 與「名稱＋大量空白」兩條平方時間正則（Codex 重現：輸入加倍耗時四倍）改成 HTMLParser 與固定後綴；每行先截 1000 字。`?force=1` 與失敗後的重抓都至少間隔 60 秒（以「上次嘗試」計）。
+- 結束鈕：檢查「沒有工作」與「不再接新工作」在同一把鎖裡；模型切換（不走 JOB）也算，且和結束共用 `QUIT_LOCK`，不會在切換途中退出。
+- VS Code 擴充更新只收 `publisher.name` 格式的字串 id。
+- 回歸測試 `tools/test_ai_security.py`：本機滴流 HTTP 伺服器（內文、chunk 長度行、標頭、Connection: close）、截斷回應、POST 轉址、http 拒絕、失敗刷新節流、真的 `_switch_start` 與 `_quit_busy` 時序、四元組 UID（含 127.0.0.2 同埠、歧義、tcp6）、/proc 掃描預算。
+
 ### 新增
 
 - 新分頁「AI 動態」（硬體與歷史之間）。三塊：

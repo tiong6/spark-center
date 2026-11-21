@@ -1170,6 +1170,33 @@ def _unit_active(unit):
         return "unknown"
 
 
+SHUTTING_DOWN = threading.Event()   # 按了「結束」：JOB.start 與模型切換一律拒絕，避免檢查完到真正退出的 0.5 秒間又起了工作
+QUIT_LOCK = threading.Lock()        # 「結束」的檢查＋設旗標，與模型切換的「看旗標＋start」互斥（JOB 另由 JOB.lock 涵蓋）。順序：QUIT_LOCK → JOB.lock
+
+
+def _quit_busy():
+    """有工作或模型切換在跑就回它的名字（拒絕結束）；沒有就設 SHUTTING_DOWN 並回 None。"""
+    with QUIT_LOCK, JOB.lock:
+        if JOB.state["status"] == "running":
+            return JOB.state.get("kind") or "?"
+        if llm_switch.SWITCH.snapshot().get("status") == "running":
+            return "llm_switch"
+        SHUTTING_DOWN.set()
+    return None
+
+
+def _switch_start(target, model, keep_alive):
+    """模型切換的唯一入口：和「結束」互斥，看旗標與 start 之間不能讓結束插進來。"""
+    with QUIT_LOCK:
+        if SHUTTING_DOWN.is_set():
+            raise llm_switch.SwitchError('busy')
+        llm_switch.SWITCH.start(target, model, keep_alive)
+
+
+def _quit_now():
+    os._exit(0)
+
+
 def _notify(title, body):
     """桌面通知：出事時使用者多半不在看這個視窗。沒有桌面就算了。回 True＝有送出（呼叫端可據此決定要不要記成「已通知」）。"""
     try:
@@ -1476,9 +1503,16 @@ def _urgent_watch():
 # ---------- AI 動態：新模型表＋這台機器上的 AI 工具落後幾版（解析在 backend/ai_watch.py）----------
 # 每個來源各自 try：一個掛掉只讓那一塊顯示「—」與原因。結果快取 6 小時（GitHub 未驗證每小時只給 60 次）。
 AI_BOARD_TTL = 6 * 3600
+AI_FORCE_MIN = 60      # 「重新抓取」（?force=1）也不能比這更密：GET 不需要授權，任何網頁都能用 <img> 一直打
 AI_MODELS_TTL = 3600   # 模型清單一次不到 1 秒：每小時重抓，「今天有新模型」的亮點才不會晚到 6 小時；工具版本那幾個來源重，維持 6 小時
 VSCODE_EXT_DIR = os.path.expanduser("~/.vscode/extensions")
+VSCODE_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,99}\.[a-z0-9][a-z0-9._-]{0,99}")
 _AIB = {"lock": threading.Lock(), "data": None, "ts": 0}
+
+
+AI_FETCH_MAX_BYTES = 32 << 20   # 目前最大的是 Claude 的 CHANGELOG.md（約 1 MB）；被污染的來源不能用無限大的回應吃光記憶體
+AI_FETCH_DEADLINE = 120         # 整次下載的總期限；urlopen 的 timeout 只管單次讀取，慢速滴流可以拖很久
+AI_FETCH_ALLOW_HTTP = False     # 只走 https；測試用本機 http 伺服器時才打開
 
 
 def _http_get(url, body=None, headers=None, timeout=60):
@@ -1486,8 +1520,71 @@ def _http_get(url, body=None, headers=None, timeout=60):
     data = None
     if body is not None:
         data = json.dumps(body).encode(); h["Content-Type"] = "application/json"
-    with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=h), timeout=timeout) as r:
-        return r.read()
+    # 總期限是硬截止：計時器到點就把 socket shutdown，卡在哪一步（標頭、chunk 長度行、trailer、內文）的 recv 都會立刻返回。
+    # 只在讀取迴圈裡看時間擋不住：chunked 回應一次 read 內部會讀好幾次 framing，對方逐字滴就能撐過（Codex 第三輪重現）。
+    # 已知限制：連線（TCP＋TLS 握手）階段 socket 還沒交出來，那段只受 connect 的 timeout 管；DNS 解析（getaddrinfo）
+    # 不受任何 socket timeout 約束。所以整次呼叫的時間是「盡力」有界，不是嚴格保證。
+    from urllib.parse import urlsplit, urljoin
+    end = time.monotonic() + AI_FETCH_DEADLINE
+    for _ in range(4):   # 最多跟 3 次轉址
+        u = urlsplit(url)
+        # 只走 https（含轉址後）：被污染的來源若能把我們轉到 http://127.0.0.1:11001/api/quit，這個請求是服務自己發的、
+        # UID 檢查會放行（SSRF）。本服務只有純 http，https 連過去 TLS 就失敗。
+        if u.scheme != "https" and not (AI_FETCH_ALLOW_HTTP and u.scheme == "http"):
+            raise ValueError(f"refusing {u.scheme or 'no'} scheme: {peer.clean(url, 80)}")
+        cls = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
+        conn = cls(u.hostname, u.port, timeout=max(1.0, min(timeout, end - time.monotonic())))
+        killed = threading.Event()
+        held = [None]   # 讀取期間的 socket：回應帶 Connection: close 時 getresponse 會把 conn.sock 設成 None，只能自己抓著
+
+        def _kill():
+            killed.set()
+            s = held[0]   # 只讀一次：和 conn.close() 交錯時不會讀到 None（Codex 終審重現）
+            if s is not None:
+                try:
+                    s.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+        timer = threading.Timer(max(0.0, end - time.monotonic()), _kill)
+        timer.daemon = True
+        timer.start()
+        try:
+            try:
+                conn.request("POST" if data is not None else "GET", (u.path or "/") + (f"?{u.query}" if u.query else ""), body=data, headers=h)
+                held[0] = conn.sock
+                if killed.is_set():   # 計時器在連線／送出途中就到點了，那時還沒有 socket 可關
+                    raise TimeoutError(f"download took longer than {AI_FETCH_DEADLINE} s")
+                r = conn.getresponse()
+                if r.status in (301, 302, 303, 307, 308) and r.getheader("Location"):
+                    if data is not None:   # POST 不跟轉址：307／308 會把同一份內容帶去別的地方
+                        raise ValueError(f"refusing to follow a redirect for a POST ({r.status})")
+                    url = urljoin(url, r.getheader("Location"))
+                    continue
+                if r.status >= 400:
+                    raise urllib.error.HTTPError(url, r.status, r.reason, r.headers, None)
+                buf = bytearray()
+                while True:
+                    chunk = r.read1(256 << 10)
+                    if killed.is_set():   # Linux 的 SHUT_RD 只叫醒當下卡住的 recv，之後到的資料照樣讀得到：每塊都要看旗標
+                        raise TimeoutError(f"download took longer than {AI_FETCH_DEADLINE} s")
+                    if not chunk:
+                        if r.length:   # read1 遇到提早 EOF 不會自己報錯：宣告的長度沒收滿就是截斷，不能當成完整的版本紀錄
+                            raise http.client.IncompleteRead(bytes(buf), r.length)
+                        break
+                    buf += chunk
+                    if len(buf) > AI_FETCH_MAX_BYTES:
+                        raise ValueError(f"response larger than {AI_FETCH_MAX_BYTES >> 20} MB")
+            except (OSError, http.client.HTTPException):
+                if killed.is_set():
+                    raise TimeoutError(f"download took longer than {AI_FETCH_DEADLINE} s")
+                raise
+            if killed.is_set():   # shutdown 之後 read 可能只是回空，看起來像正常結束
+                raise TimeoutError(f"download took longer than {AI_FETCH_DEADLINE} s")
+            return bytes(buf)
+        finally:
+            timer.cancel()
+            conn.close()
+    raise ValueError("too many redirects")
 
 
 def _src(fn):
@@ -1507,11 +1604,16 @@ def ai_board_status(force=False):
     """不等網路：回目前快取（可能是 None）＋是否正在背景重抓；過期或 force 就起一條背景執行緒。前端看 refreshing 決定要不要再問。"""
     with _AIB["lock"]:
         now = time.time()
-        full = force or not _AIB["data"] or now - _AIB["ts"] >= AI_BOARD_TTL
-        models_only = not full and now - _AIB.get("models_ts", 0) >= AI_MODELS_TTL
+        # 節流看「上次嘗試」而不是「上次成功」：抓失敗不會更新成功時間，否則失敗就能被無限立即重試
+        if now - _AIB.get("attempt", 0) < AI_FORCE_MIN:
+            full = models_only = False
+        else:
+            full = force or not _AIB["data"] or now - _AIB["ts"] >= AI_BOARD_TTL
+            models_only = not full and now - _AIB.get("models_ts", 0) >= AI_MODELS_TTL
         start = (full or models_only) and not _AIB.get("refreshing")
         if start:
             _AIB["refreshing"] = True
+            _AIB["attempt"] = now
         data, refreshing = _AIB["data"], _AIB.get("refreshing", False)
 
     def _bg():
@@ -1725,7 +1827,7 @@ class Job:
 
     def start(self, kind, packages=None):
         with self.lock:
-            if self.state["status"] == "running":
+            if self.state["status"] == "running" or SHUTTING_DOWN.is_set():
                 return False
             self.reset()
             self.state.update({
@@ -2142,7 +2244,7 @@ class Job:
         if kind == "vscode":
             # code CLI 直接把擴充裝進 ~/.vscode/extensions；開著的 VS Code 要「重新載入視窗」才換新版
             # code 一次可接多個 --install-extension（「全部更新」走這條，一個工作、一次 CLI 啟動）
-            r = self._run_subprocess(["code", *[a for eid in packages for a in ("--install-extension", eid)], "--force"], packages)
+            r = self._run_subprocess(["code", *[a for eid in packages if VSCODE_ID_RE.fullmatch(eid) for a in ("--install-extension", eid)], "--force"], packages)
             with _AIB["lock"]:
                 _AIB["ts"] = 0   # AI 動態下次重讀
             return r
@@ -4073,6 +4175,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.lang = self._request_lang()
         path = self.path.split("?", 1)[0]
+        # DNS rebinding：惡意網站把自己的網域解析到 127.0.0.1，瀏覽器就當同源、讀得到這裡所有 GET 的回應（工作記錄、硬體序號…）。
+        # 它送的 Host 是自己的網域，不是本機名稱；擋這個就夠（和 POST 的第一道關同一套判斷）。
+        host = (self.headers.get("Host") or "").strip().lower()
+        if not self._local(host):
+            self.send_response(403); self.send_header("Content-Length", "0"); self.end_headers(); return
         if path.startswith("/static/"):
             # 前端拆成 index.html＋static/（CSS 一檔、JS 依分頁），仍由這支服務直接提供，沒有建置步驟。
             # 只允許 static/ 底下的檔案；no-store 是因為本機服務更新後不該看到舊版。
@@ -4388,50 +4495,65 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._json({"ok": False, "error": "not found"}, 404)
 
+    @staticmethod
+    def _local(hostport):
+        h = hostport.rsplit(":", 1)[0] if re.search(r":\d+$", hostport) else hostport
+        return h in ("127.0.0.1", "localhost", "[::1]")
+
     def _origin_problem(self):
         """修改型請求的來源驗證。只綁 127.0.0.1 擋不住瀏覽器裡任何網頁對本機發的跨站 POST（text/plain 的
         簡單請求不會 preflight，直接送到）。三道關：Host 必須是本機＋本埠；有 Origin 就必須是自己；
         Content-Type 必須是 application/json（強迫瀏覽器 preflight，而本服務不回應 OPTIONS，跨站就死在瀏覽器裡）。"""
         # 只認本機位址，埠號不限：SSH 轉埠（ssh -L、NVIDIA Sync 的 Custom）在遠端那台常用別的本機埠號，
         # 瀏覽器送來的 Host 就是那個埠。DNS rebinding 靠的是非本機的主機名，放寬埠號不影響這道防線。
-        def _local(hostport):
-            h = hostport.rsplit(":", 1)[0] if re.search(r":\d+$", hostport) else hostport
-            return h in ("127.0.0.1", "localhost", "[::1]")
         host = (self.headers.get("Host") or "").strip().lower()
-        if not _local(host):
+        if not self._local(host):
             return f"Host={host or '(none)'}"
         origin = (self.headers.get("Origin") or "").strip().lower()
-        if origin and not (origin.startswith("http://") and _local(origin[len("http://"):])):
+        if origin and not (origin.startswith("http://") and self._local(origin[len("http://"):])):
             return f"Origin={origin}"
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         if ctype != "application/json":
             return f"Content-Type={ctype or '(none)'}"
         return None
 
+    def _hdrs(self):
+        return f"UA={peer.clean(self.headers.get('User-Agent') or '-', 80)} · Origin={peer.clean(self.headers.get('Origin') or '-', 80)}"
+
     def _source(self):
-        """這個請求是哪個程序發的（backend/peer.py），加上 UA／Origin。POST 都會改東西，所以每一筆都記進 journal。"""
+        """這個請求是哪個程序發的（backend/peer.py），加上 UA／Origin。只對通過來源檢查的 POST 做：
+        掃 /proc 有成本，放在檢查之前，任何網頁都能用一堆會被擋的 POST 放大它。"""
         try:
-            who = peer.describe(peer.chain(self.client_address[1], PORT)) or "?（查不到持有連線的程序）"
+            who = peer.describe(peer.chain(self.client_address[:2], self.connection.getsockname()[:2])) or "?（查不到持有連線的程序）"
         except Exception as e:
-            who = f"?（{e}）"
-        return f"{who} · UA={(self.headers.get('User-Agent') or '-')[:80]} · Origin={self.headers.get('Origin') or '-'}"
+            who = f"?（{peer.clean(e, 80)}）"
+        return f"{who} · {self._hdrs()}"
 
     def do_POST(self):
         self.lang = self._request_lang()
         path = self.path.split("?", 1)[0]
+        why = msg("readonly_mode", self.lang) if READONLY else None
+        bad = None if why else self._origin_problem()
+        if why or bad:
+            print(f"POST {peer.clean(path, 80)} rejected ({peer.clean(bad or 'readonly', 80)}) · {self._hdrs()}", flush=True)
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            return self._json({"ok": False, "error": why or msg("bad_origin", self.lang, why=bad)}, 403)
+        # 同一台機器的其他帳號也連得到 127.0.0.1：Origin／Host 擋得住瀏覽器、擋不住別的帳號直接送請求。
+        # 連線的擁有者 UID 在 /proc/net/tcp 裡誰都看得到，只收和這個服務同一個帳號開的連線；查不到就拒絕。
+        uid = peer.socket_uid(self.client_address[:2], self.connection.getsockname()[:2])
+        if uid != os.getuid():
+            print(f"POST {peer.clean(path, 80)} rejected (uid={uid}) · {self._hdrs()}", flush=True)
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            return self._json({"ok": False, "error": msg("bad_origin", self.lang, why=f"uid={uid}")}, 403)
         self.source = self._source()
-        print(f"POST {path} from {self.source}", flush=True)
-        if READONLY:
-            self.rfile.read(int(self.headers.get("Content-Length") or 0))
-            return self._json({"ok": False, "error": msg("readonly_mode", self.lang)}, 403)
-        why = self._origin_problem()
-        if why:
-            self.rfile.read(int(self.headers.get("Content-Length") or 0))
-            return self._json({"ok": False, "error": msg("bad_origin", self.lang, why=why)}, 403)
+        print(f"POST {peer.clean(path, 120)} from {self.source}", flush=True)
         data = self._body()
         if path == "/api/vscode/update":
             raw = data.get("ids") if isinstance(data.get("ids"), list) else [data.get("id")]
-            ids = list(dict.fromkeys(str(i or "").lower() for i in raw))
+            # 只收「publisher.name」格式的字串：就算 extensions.json 被動過手腳，也不讓 --help 這種東西變成 code 的參數
+            if len(raw) > 200 or not all(isinstance(i, str) and VSCODE_ID_RE.fullmatch(i.lower()) for i in raw):
+                return self._json({"ok": False, "error": msg("vscode_unknown_ext", self.lang, p0=peer.clean(", ".join(map(str, raw[:5])), 120) or "—")}, 400)
+            ids = list(dict.fromkeys(i.lower() for i in raw))
             known = {e["id"] for e in ai_watch.vscode_installed(os.path.join(VSCODE_EXT_DIR, "extensions.json")) or []}
             bad = [i for i in ids if i not in known]
             if not ids or bad:   # 只更新已經裝著的擴充，不接受任意 id
@@ -4454,11 +4576,12 @@ class Handler(BaseHTTPRequestHandler):
             # 「結束」：整個服務退出（背景通知也停），下次從 App 圖示開時啟動器會把服務叫起來。
             # 用結束碼 0 退出：unit 是 Restart=on-failure，乾淨退出 systemd 不會重啟；手動跑的測試埠也一樣適用。
             # 有工作在跑就拒絕：工作狀態只在記憶體，退出會讓 apt／npm 交易沒人收尾。
-            snap = JOB.snapshot()
-            if snap["status"] == "running":
-                return self._json({"ok": False, "error": msg("quit_job_running", self.lang, p0=snap.get("kind") or "?")}, 409)
+            # 模型切換（llm_switch.SWITCH）不走 JOB，也要算；檢查與「不再接新工作」在同一把鎖裡設定，之後的 JOB.start 一律拒絕
+            busy = _quit_busy()
+            if busy:
+                return self._json({"ok": False, "error": msg("quit_job_running", self.lang, p0=busy)}, 409)
             print("quit requested from UI", flush=True)
-            threading.Timer(0.5, lambda: os._exit(0)).start()   # 先讓回應送出去
+            threading.Timer(0.5, _quit_now).start()   # 先讓回應送出去
             return self._json({"ok": True})
         if path == "/api/open":
             # 外部連結交給系統預設瀏覽器。PWA 視窗裡 target=_blank 會在 Spark Center 自己的 Chrome profile 開一個
@@ -4673,7 +4796,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if not model_capabilities.snapshot(force=True)['switch_control']['available']:
                     raise llm_switch.SwitchError('service_unconfigured')
-                llm_switch.SWITCH.start(data.get('target'), data.get('model'), data.get('keep_alive', '5m'))
+                _switch_start(data.get('target'), data.get('model'), data.get('keep_alive', '5m'))
                 return self._json({"ok": True, "switch": llm_switch.SWITCH.snapshot()}, 202)
             except llm_switch.SwitchError as exc:
                 return self._json({"ok": False, "error": msg('llm_switch_' + exc.code, self.lang)}, 409)

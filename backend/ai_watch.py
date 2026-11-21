@@ -11,11 +11,11 @@
 - Codex releases（openai/codex 的 releases.atom：約 350 KB；REST API 一次 4 MB、慢連線會 IncompleteRead，且每小時只給 60 次）
 - OpenRouter /api/v1/models（第三方彙整、無金鑰；created 是 OpenRouter 上架時間，不一定等於官方發布日）
 """
-import html
 import json
 import os
 import re
 import xml.etree.ElementTree as ET
+from html.parser import HTMLParser
 
 MARKETPLACE_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
 CLAUDE_CHANGELOG_URL = "https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md"
@@ -152,6 +152,35 @@ def parse_claude_changelog(md):
 
 
 _ATOM = "{http://www.w3.org/2005/Atom}"
+LINE_MAX = 1000   # 版本說明一行最多看這麼長再跑正則：被污染的來源不能用超長的行換 CPU
+
+
+class _LiText(HTMLParser):
+    """收 <li> 裡的純文字。用線性的 HTML 解析器，不用 <li>(.*?)</li>：大量沒關的 <li> 會讓非貪婪搜尋從每個起點重掃（實測輸入加倍、耗時四倍）。"""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.items, self._cur, self._len = [], None, 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "li":
+            if self._cur is not None:          # 沒關的 <li> 遇到下一個 <li>：前一個就此結束
+                self.items.append("".join(self._cur))
+            self._cur, self._len = [], 0
+
+    def handle_endtag(self, tag):
+        if tag == "li" and self._cur is not None:
+            self.items.append("".join(self._cur)); self._cur = None
+
+    def handle_data(self, data):
+        if self._cur is not None and self._len < LINE_MAX:
+            piece = data[:LINE_MAX - self._len]
+            self._cur.append(piece); self._len += len(piece)
+
+    def close(self):
+        super().close()
+        if self._cur is not None:
+            self.items.append("".join(self._cur)); self._cur = None
 
 
 def parse_codex_atom(text):
@@ -163,10 +192,12 @@ def parse_codex_atom(text):
         m = re.search(r"/tag/(?:rust-v)?(\d+\.\d+\.\d+\S*)$", link.get("href", "") if link is not None else "")
         if not m:
             continue
-        body = (e.findtext(f"{_ATOM}content") or "")
+        p = _LiText()
+        p.feed(e.findtext(f"{_ATOM}content") or "")
+        p.close()
         bullets = []
-        for li in re.findall(r"<li>(.*?)</li>", body, re.S):
-            s = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", li))).strip()
+        for li in p.items:
+            s = " ".join(li.split())[:LINE_MAX]
             if s and not re.match(r"#\d", s):
                 bullets.append(s)
         ver = m.group(1)
@@ -183,6 +214,7 @@ def notes_between(entries, installed, latest):
     models = []
     for e in picked:
         for line in e[1]:
+            line = line[:LINE_MAX]
             ms = model_mentions(line)
             if ms and is_model_news(line, ms):
                 models.append({"version": e[0], "mentions": ms, "line": line[:300]})
@@ -204,6 +236,15 @@ def _per_mtok(v):
     return round(f * 1e6, 4) if f >= 0 else None   # OpenRouter 用 -1 表示「依路由而定」
 
 
+def _variant_trim(name):
+    """「Claude Fable 5.2 (batch)」→「Claude Fable 5.2」。用固定後綴比對，不用 \\s*…$：大量空白接一個不符的字元會讓它反覆回溯。"""
+    name = name.rstrip()
+    for suf in ("(batch)", "(free)"):
+        if name.endswith(suf):
+            return name[:-len(suf)].rstrip()
+    return name
+
+
 def recent_models(data, now, days=MODEL_DAYS):
     """OpenRouter /models → 近 days 天上架的模型，新的在前。:batch／:free 這類同一模型的變體只留一筆。
     open_weights：OpenRouter 有填 Hugging Face 權重 id（可以下載到本機跑；能不能在這台跑還要看大小）。"""
@@ -216,7 +257,7 @@ def recent_models(data, now, days=MODEL_DAYS):
             continue
         seen.add(mid)
         pr = m.get("pricing") or {}
-        out.append({"id": mid, "name": re.sub(r"\s*\((?:batch|free)\)$", "", m.get("name") or mid), "provider": prov,
+        out.append({"id": mid[:200], "name": _variant_trim((m.get("name") or mid)[:200]), "provider": prov[:60],
                     "major": prov in MAJOR_PROVIDERS, "created": created, "context": m.get("context_length"),
                     "price_in": _per_mtok(pr.get("prompt")), "price_out": _per_mtok(pr.get("completion")),
                     "hf": m.get("hugging_face_id") or None, "desc": (m.get("description") or "")[:400]})
