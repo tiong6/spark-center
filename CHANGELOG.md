@@ -8,6 +8,18 @@
 
 *A new AI Watch tab lists recently released models from the major providers and shows how far the AI tools on this machine are behind, with the release-note lines that add models. Urgent updates now raise a desktop notification and a top-bar badge without opening the Updates tab. Keeping old versions for rollback can be skipped mid-update, Spark Center can be quit from the top bar, and every POST request now logs which local process sent it.*
 
+### 變更（速度：先量再改，Claude 量測＋Codex 靜態審查互相對照）
+
+量到的事實（修前→修後，都是對正在跑的服務用 curl 量的）：`/api/updates` 熱 0.57 s→0.007 s；補 changelog 的輪詢 `/api/updates/meta` 0.7 s→0.001 s；`/api/setup` 1.7 s→0.001 s；`/api/faq` 0.55 s→0.1 s；`/api/node` 0.5 s→0.001 s；`/api/apps` 冷 3.0 s→0.85 s；`/api/hardware/live` p95 61 ms→6 ms（p50 5 ms 不變）。服務 CPU 閒置 0.3%、監控輪詢中 0.5%（一顆核心），記憶體 200 MB，都不是瓶頸；監控分頁每 2 秒整組重畫實測只要 1.6 ms，Codex 猜的「前端重畫成本」被數字否決，沒改。
+
+- 共用一份唯讀 `apt.Cache()`（`apt_read()`），只在 apt 狀態檔（dpkg status、pkgcache、lists、apt.conf.d、preferences.d、sources）的 mtime 變了才重開；`list_updates()` 的結果跟著同一把鑰匙記住。為什麼：開一次 0.33 s＋掃 96,177 個套件 0.25 s，而每個請求各建一份——`/api/updates` 2 份、`/api/setup` 3 份、常見問題 1 份、補 changelog 的輪詢每 3 秒 1 份。會改標記的 `simulate`／`rollback_prepare` 仍自己開。
+- 打開 App 先顯示分頁，再去載更新清單。以前 `await load()` 擋在 `showTab` 前面，冷的 `/api/updates` 要 3–4 秒，打開就先黑 4 秒。
+- 應用程式：本機盤點（0.4 s）先回，snap／flatpak 問商店有沒有新版（1.6＋0.85 s）丟背景，查完換掉；查詢中的項目標「查詢中…」，前端每 2 秒再問到查完為止、離開分頁就停。
+- `/api/hardware/live` 每 5 秒一次 100 ms 尖峰的真正來源：hwmon 溫度快取 5 秒到期在請求裡重讀，NVMe 兩個溫度各 39 ms、Wi-Fi 晶片 18 ms（註解原本寫「ACPI 48 ms」，實測 ACPI 0.1 ms）。改成到期回舊值、背景重讀。Codex 原本推測是 GPU 監看鎖裡的 `nvidia-smi`，對照實驗（關掉所有背景執行緒尖峰照樣在）證明不是；那段順手改成鎖外、10 分鐘讀一次（註解說有 60 秒快取但從來沒有）。
+- `/api/setup` 與 `/api/node` 的狀態 30 秒快取，任何 POST 後失效（它們一次跑 ss／systemctl／hostname／ip／tailscale 加 node helper 約 1.5 s，開頁亮點就打一次）。
+- 硬體分頁的磁碟自我檢測快速輪詢（`dcFast`）離開分頁沒清掉，補上。
+- Codex 審這輪實作，抓出 8 個快取失效時機／世代的缺陷（都有重現）：apt 指紋只看設定目錄的 mtime、原地改 pin 檔不觸發；`apt_upgradable_held` 把 Package 帶出鎖外會和別的執行緒交錯讀到別的套件的紀錄；`list_updates` 記憶化漏掉已載入核心模組；應用程式盤點用秒當世代、盤點中的失效被蓋掉、商店查詢失敗後永遠「查詢中」；狀態快取在 POST 前清、動作中的查詢把舊狀態寫回；應用程式輪詢離開分頁還在跑。全部改成世代計數：失效世代 +1，進行中的計算看到世代變了就丟棄結果。`tools/test_perf_caches.py` 逐一重現。
+
 ### 修正（push 前 Claude×Codex 資安互審，Codex 五輪：四次 REVISE、一次被 OpenAI 內容過濾擋下無結論、終審 PASS）
 
 - 所有 POST 只收「和服務同一個帳號」開的連線：用完整四元組在 `/proc/net/tcp`／`tcp6` 找到客戶端 socket 的 uid 欄比對，查不到或有歧義就 403。原本 Origin／Host 只擋得住瀏覽器，同機其他帳號可以直接打 `/api/install` 等所有修改型端點（本週以前就存在；本週新增的結束、略過保留舊版、VS Code 更新又擴大了範圍）。只比埠號會被 127.0.0.2 同埠號錯認（Codex 重現），所以比完整四元組。限制：這是事後讀 /proc 的快照，不是 Unix socket 的核心對端憑證；同帳號的程序替別人轉送的請求會被當成自己。另一帳號的真實連線因需要 sudo 密碼未實測，以替身 /proc 資料測。

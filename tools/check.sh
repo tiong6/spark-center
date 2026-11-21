@@ -19,6 +19,7 @@ _rs=$(mktemp); python3 tools/test_rollback_skip.py > "$_rs" 2>&1 && echo "rollba
 _pe=$(mktemp); python3 tools/test_peer.py > "$_pe" 2>&1 && echo "peer lookup tests OK" || { cat "$_pe"; exit 1; }; rm -f "$_pe"   # 真的本機 socket，查自己
 _aw=$(mktemp); python3 tools/test_ai_watch.py > "$_aw" 2>&1 && echo "ai board tests OK" || { cat "$_aw"; exit 1; }; rm -f "$_aw"   # 真實資料剪的 fixtures，不碰網路
 _as=$(mktemp); timeout 120 python3 tools/test_ai_security.py > "$_as" 2>&1 && echo "security regression tests OK" || { cat "$_as"; exit 1; }; rm -f "$_as"   # 本機滴流伺服器、失敗刷新、結束與切換時序、UID
+_pc=$(mktemp); timeout 120 python3 tools/test_perf_caches.py > "$_pc" 2>&1 && echo "perf cache tests OK" || { cat "$_pc"; exit 1; }; rm -f "$_pc"   # 假盤點函式，重現快取失效／世代的 8 個案例
 _rp=$(mktemp); python3 tools/test_release_prompt.py > "$_rp" 2>&1 && echo "release prompt tests OK" || { cat "$_rp"; exit 1; }; rm -f "$_rp"   # 暫存檔＋假 pkexec，不碰 /etc；有 update-manager-core 就和 Ubuntu 的 MetaRelease 交叉比對
 
 python3 tools/test_backend_modules.py

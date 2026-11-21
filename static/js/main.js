@@ -3,18 +3,19 @@ api('/api/self').then(r => { if (r.ok && r.git && r.behind > 0) $('#selfBadge').
 api('/api/machine').then(r => { if (!r.ok) return; if (r.readonly) { document.body.classList.add('ro'); $('#roBadge').classList.remove('hide'); if (state.release) renderReleasePrompt(state.release); } const name = [r.vendor, r.product].filter(Boolean).join(' ') || r.family; $('#machineName').textContent = name; if (name) document.title = `Spark Center · ${name}`; });   // 機型讀 DMI，讀不到就留空
 api('/api/dashboard').then(r => { const a = $('#dashLink'); if (r.ok && r.installed) { a.href = r.url; a.classList.remove('hide'); } });   // 沒裝 dgx-dashboard 就不顯示
 (async () => {
-  await load();
-  const j = await api('/api/job');
-  if (j.status === 'running') startPolling(jobTitle(j));
+  // 先把分頁顯示出來，再去載更新清單：/api/updates 冷的要 3–4 秒，以前 await 在它前面，App 打開先黑 4 秒才看得到任何東西
   const [t, sub] = location.hash.replace('#','').split('/');
   let last = null; try { last = localStorage.getItem('spark-center.lastTab'); } catch (e) {}
   showTab(TITLES[t] ? t : (TITLES[last] ? last : DEFAULT_TAB));   // 網址有指定就照網址，否則回到上次分頁，都沒有就監控
   if (t === 'faq' && sub) openFaq(decodeURIComponent(sub));   // #faq/<題目 id> 直接開到那一題
+  await load();
+  const j = await api('/api/job');
+  if (j.status === 'running') startPolling(jobTitle(j));
   api('/api/hardware/live').then(r => { if (r.ok) renderGpuAlert(r.gpu_alert); if (r.ok && r.disk_root) $('#dotDisk').classList.toggle('hide', (1 - r.disk_root.free / r.disk_root.total) < 0.9); });
   api('/api/faq/source').then(renderFaqDot);
   aiDotCheck();   // AI 動態：上次看過之後有新模型就亮點（只算主要供應商）
   api('/api/setup').then(j => { if (j.ok) $('#dotSetup').classList.toggle('hide', !j.items.some(i => i.recommended && !i.enabled)); });   // 設定分頁：有「建議裝但沒裝」的才亮點   // NVIDIA 改版原文時常見問題分頁亮點；伺服器一天只真的問論壇一次
-  api('/api/apps').then(r => { if (r.ok) { state.apps = r; $('#dotApps').classList.toggle('hide', !r.items.some(a => a.candidate)); if (!$('#tab-apps').classList.contains('hide')) renderApps(); } });
+  api('/api/apps').then(r => { if (r.ok) { state.apps = r; $('#dotApps').classList.toggle('hide', !r.items.some(a => a.candidate)); if (!$('#tab-apps').classList.contains('hide')) { renderApps(); pollAppsChecking(); } } });   // 商店查詢在背景；分頁開著才輪詢，綠點在下次載入時補
 })();
 // 手動改網址列的 #分頁 或 #faq/<id> 也要跟著走（showTab 用 replaceState，不會觸發這裡）
 $('#setupLink').onclick = e => { e.preventDefault(); showTab('setup'); };

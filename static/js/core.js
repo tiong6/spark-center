@@ -114,7 +114,7 @@ function showTab(t) {
   $('#pageTitle').textContent = TITLES[t];
   history.replaceState(null, '', '#' + t);
   try { localStorage.setItem('spark-center.lastTab', t); } catch (e) {}
-  if (t === 'apps' && !state.apps) loadApps();
+  if (t === 'apps') { if (!state.apps) loadApps(); else pollAppsChecking(); } else stopAppsPolling();
   if (t === 'history') loadHistory();
   if (t === 'faq') loadFaq();
   if (t === 'ai') loadAi();

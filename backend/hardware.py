@@ -285,16 +285,33 @@ def _network():
     return res
 
 
-_SENS_CACHE = {"ts": 0, "data": []}
+_SENS_CACHE = {"ts": 0, "data": None, "lock": threading.Lock(), "refreshing": False}
+SENS_TTL = 5
 
 
 def _sensors():
-    """hwmon 溫度。ACPI 溫度區每次讀約 48 ms，快取 5 秒；其他項目全部加起來不到 1 ms。"""
-    if time.time() - _SENS_CACHE["ts"] < 5:
-        return _SENS_CACHE["data"]
-    res = _sensors_read()
-    _SENS_CACHE.update(ts=time.time(), data=res)
-    return res
+    """hwmon 溫度。NVMe 的兩個溫度各約 39 ms、Wi-Fi 晶片 18 ms（實測；ACPI 只要 0.1 ms），加起來近 100 ms。
+    以前快取 5 秒、到期在請求裡重讀，/api/hardware/live 每 5 秒就有一次 100 ms 的尖峰（2026-11-21 量到 p50 5 ms、p95 98 ms）。
+    現在到期回舊值、背景重讀；只有服務剛起來還沒有讀數時才同步讀一次。"""
+    with _SENS_CACHE["lock"]:
+        data, stale, busy = _SENS_CACHE["data"], time.time() - _SENS_CACHE["ts"] >= SENS_TTL, _SENS_CACHE["refreshing"]
+        if data is None:
+            data = _SENS_CACHE["data"] = _sensors_read(); _SENS_CACHE["ts"] = time.time()
+            return data
+        if stale and not busy:
+            _SENS_CACHE["refreshing"] = True
+            threading.Thread(target=_sensors_refresh, daemon=True).start()
+    return data
+
+
+def _sensors_refresh():
+    try:
+        res = _sensors_read()
+        with _SENS_CACHE["lock"]:
+            _SENS_CACHE.update(ts=time.time(), data=res)
+    finally:
+        with _SENS_CACHE["lock"]:
+            _SENS_CACHE["refreshing"] = False
 
 
 def _sensors_read():

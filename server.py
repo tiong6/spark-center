@@ -9,6 +9,8 @@
   只有使用者按「重新開機」鈕（/api/reboot）才執行，且沒有東西等重開就拒絕。
 """
 import concurrent.futures
+import contextlib
+import copy
 import glob
 import hashlib
 import http.client
@@ -306,7 +308,7 @@ def phased_policy_set(mode):
         ok, err = _pkexec(["/usr/bin/install", "-o", "root", "-g", "root", "-m", "0644", src, PHASED_CONF])
         shutil.rmtree(d, ignore_errors=True)
     if ok:
-        apt_pkg.init_config()
+        _apt_reload_config()   # 不是 init_config()：換模式是換另一個鍵，舊鍵要清掉才不會兩個都是 true（既有 bug，效能審查時順手發現）
         _DASH_CACHE["ts"] = 0
     st = phased_policy_status()
     return {"ok": ok, "error": err, "policy": st}
@@ -373,7 +375,7 @@ def dashboard_equivalent():
         pass
     held = []
     try:
-        held = sorted(p.name for p in apt.Cache() if p.is_upgradable and getattr(p, "phasing_applied", False))
+        held = sorted(p["name"] for p in apt_upgradable_held())
     except Exception:
         held = None   # 讀不到就 None，前端顯示「—」
     data = {"upgrade": len(ups), "install": len(news), "remove": len(remv), "firmware": fw,
@@ -558,61 +560,76 @@ def rollback_prepare(names, log=lambda s: None, status=lambda s: None, step=lamb
     step(i, n, name)：正在處理第 i 個（從 0 起）／共 n 個，給進度卡用；134 個套件逐一去 Launchpad 抓，沒步數會像當掉。
     progress(text)：下載中的一行人話（「snapd · Launchpad 12.3 / 32.7 MB」），給工作卡的「目前」欄；每半秒最多一次。
     skipped()：回 True 就不再保留（Launchpad 慢到幾十 KB/s 時一個 45 MB 的檔會拖住整個更新）；剩下的套件記成「使用者略過」。"""
-    cache = apt.Cache()
     job_id = datetime.now().strftime("%Y%m%dT%H%M%S")
     job_dir = os.path.join(ROLLBACK_DIR, job_id)
     os.makedirs(job_dir, exist_ok=True)
     rec = {"id": job_id, "started": datetime.now().isoformat(timespec="seconds"), "packages": []}
     max_bytes = ROLLBACK_MAX_MB * 1024 * 1024
-    try:
-        targets = _rollback_changes(cache, names)
-    except Exception as e:
-        log("rollback simulate failed: " + str(e)); targets = [(n, True) for n in names]
-    for idx, (name, selected) in enumerate(targets):
-        step(idx, len(targets), name)
-        pkg = cache.get(name)
+    # apt 的部分（模擬變更、讀版本／雜湊／來源）在 _APT 鎖裡做完、轉成普通 dict；下載、雜湊、複製都在鎖外，不擋別人幾分鐘
+    with _APT["lock"]:
+        cache = apt.Cache()
+        try:
+            targets = _rollback_changes(cache, names)
+        except Exception as e:
+            log("rollback simulate failed: " + str(e)); targets = [(n, True) for n in names]
+        plan = []
+        for name, selected in targets:
+            pkg = cache.get(name)
+            d = {"name": name, "selected": selected, "phased": None, "installed": None}
+            if pkg and getattr(pkg, "phasing_applied", False):
+                d["phased"] = (phased_info(pkg) or {}).get("percent")   # 當時 Ubuntu 的放量百分比；這台機器沒被納入卻裝了＝提前安裝
+            if pkg and pkg.installed:
+                inst = pkg.installed
+                try:
+                    sha = inst.sha256 or None   # 可信雜湊：apt 索引裡這個版本的 sha256（索引由簽章過的 Release 檔背書）。舊版常已從索引消失 → None
+                except Exception:
+                    sha = None
+                try:
+                    uri = inst.uri
+                except Exception:
+                    uri = None
+                d["installed"] = {"version": inst.version, "arch": inst.architecture, "sha256": sha, "uri": uri,
+                                  "new": None if pkg.marked_delete else (pkg.candidate.version if pkg.candidate else None),
+                                  "sites": {(_origin_of(v).get("site") or "") for v in pkg.versions}}
+            plan.append(d)
+    for idx, d in enumerate(plan):
+        name, selected = d["name"], d["selected"]
+        step(idx, len(plan), name)
         entry = {"name": name, "selected": selected, "old": None, "new": None, "arch": None, "deb": None, "source": None, "verified": None, "reason": None}
-        if pkg and getattr(pkg, "phasing_applied", False):
-            entry["phased"] = (phased_info(pkg) or {}).get("percent")   # 當時 Ubuntu 的放量百分比；這台機器沒被納入卻裝了＝提前安裝
+        if d["phased"] is not None:
+            entry["phased"] = d["phased"]
         rec["packages"].append(entry)
         if skipped():
             entry["reason"] = msg("rollback_skipped", LANG_DEFAULT); continue
-        if not pkg or not pkg.installed:
+        inst = d["installed"]
+        if not inst:
             entry["reason"] = msg("rollback_not_installed", LANG_DEFAULT); continue
-        inst = pkg.installed
-        entry.update(old=inst.version, new=None if pkg.marked_delete else (pkg.candidate.version if pkg.candidate else None), arch=inst.architecture)
-        status(msg("rollback_preparing", LANG_DEFAULT, name=name, old=inst.version))
-        fname = f"{name}_{inst.version.replace(':', '%3a')}_{inst.architecture}.deb"
+        entry.update(old=inst["version"], new=inst["new"], arch=inst["arch"])
+        status(msg("rollback_preparing", LANG_DEFAULT, name=name, old=inst["version"]))
+        fname = f"{name}_{inst['version'].replace(':', '%3a')}_{inst['arch']}.deb"
         dest = os.path.join(job_dir, fname)
-        # 可信雜湊：apt 索引裡這個版本的 sha256（索引由簽章過的 Release 檔背書）。舊版常已從索引消失 → None。
-        try:
-            expected = inst.sha256 or None
-        except Exception:
-            expected = None
+        expected = inst["sha256"]
         # 1. 本機 apt 快取：apt 下載時已核對過雜湊（root 才寫得進去）；索引還有的話再對一次。
         cached = os.path.join("/var/cache/apt/archives", fname)
-        if os.path.isfile(cached) and _deb_matches(cached, name, inst.version) and (not expected or _sha256_of(cached) == expected):
+        if os.path.isfile(cached) and _deb_matches(cached, name, inst["version"]) and (not expected or _sha256_of(cached) == expected):
             shutil.copyfile(cached, dest); entry.update(deb=os.path.relpath(dest, ROLLBACK_DIR), source="cache", verified="sha256" if expected else "apt")
-            log(msg("rollback_kept", LANG_DEFAULT, name=name, old=inst.version, source=msg("rollback_src_cache", LANG_DEFAULT))); continue
+            log(msg("rollback_kept", LANG_DEFAULT, name=name, old=inst["version"], source=msg("rollback_src_cache", LANG_DEFAULT))); continue
         # 2. 來源伺服器的 pool（多半是 HTTP，只在索引還有雜湊可核對時採用）；
         # 3. Launchpad（HTTPS；只要這個套件任一版本來自 Ubuntu 官方來源就試——舊版從索引消失後
         #    installed.origins 會是空的，只看舊版的來源會永遠不試，而那正是需要備援的時候）。
         cands = []
-        try:
-            if inst.uri and expected:
-                cands.append(("repo", inst.uri))
-        except Exception:
-            pass
-        sites = {(_origin_of(v).get("site") or "") for v in pkg.versions}
+        if inst["uri"] and expected:
+            cands.append(("repo", inst["uri"]))
+        sites = inst["sites"]
         if any(st.endswith("ubuntu.com") and "esm.ubuntu.com" not in st for st in sites):
-            noepoch = inst.version.split(":", 1)[-1]
-            cands.append(("launchpad", f"https://launchpad.net/ubuntu/+archive/primary/+files/{name}_{noepoch}_{inst.architecture}.deb"))
+            noepoch = inst["version"].split(":", 1)[-1]
+            cands.append(("launchpad", f"https://launchpad.net/ubuntu/+archive/primary/+files/{name}_{noepoch}_{inst["arch"]}.deb"))
         reason = msg("rollback_no_source", LANG_DEFAULT)
         if not cands:
-            log(msg("rollback_no_cache_no_source", LANG_DEFAULT, name=name, old=inst.version))
+            log(msg("rollback_no_cache_no_source", LANG_DEFAULT, name=name, old=inst["version"]))
         for source, url in cands:
             src_name = msg(f"rollback_src_{source}", LANG_DEFAULT)
-            log(msg("rollback_fetching", LANG_DEFAULT, name=name, old=inst.version, source=src_name, url=url))
+            log(msg("rollback_fetching", LANG_DEFAULT, name=name, old=inst["version"], source=src_name, url=url))
             t0 = time.time(); last = [0.0]; got_total = [0, 0]
             def _prog(got, total, _src=src_name):
                 if skipped():
@@ -631,7 +648,7 @@ def rollback_prepare(names, log=lambda s: None, status=lambda s: None, step=lamb
                 log(msg("rollback_fetch_failed_src", LANG_DEFAULT, source=src_name, err=str(e)[:80])); continue
             if not ok:
                 reason = msg("rollback_too_big", LANG_DEFAULT, mb=round(why[1] / 1048576), max=ROLLBACK_MAX_MB); break
-            if not _deb_matches(dest, name, inst.version):
+            if not _deb_matches(dest, name, inst["version"]):
                 reason = msg("rollback_bad_deb", LANG_DEFAULT); continue
             if expected:
                 if _sha256_of(dest) != expected:
@@ -642,14 +659,14 @@ def rollback_prepare(names, log=lambda s: None, status=lambda s: None, step=lamb
             else:
                 reason = msg("rollback_no_trusted_hash", LANG_DEFAULT); continue
             entry.update(deb=os.path.relpath(dest, ROLLBACK_DIR), source=source, verified=verified)
-            log(msg("rollback_kept_dl", LANG_DEFAULT, name=name, old=inst.version, source=src_name, mb=f"{got_total[0] / 1e6:.1f}", sec=f"{time.time() - t0:.0f}")); break
+            log(msg("rollback_kept_dl", LANG_DEFAULT, name=name, old=inst["version"], source=src_name, mb=f"{got_total[0] / 1e6:.1f}", sec=f"{time.time() - t0:.0f}")); break
         if not entry["deb"]:
             try:
                 os.remove(dest)
             except OSError:
                 pass
             entry["reason"] = reason
-            log(msg("rollback_not_kept", LANG_DEFAULT, name=name, old=inst.version, reason=reason))
+            log(msg("rollback_not_kept", LANG_DEFAULT, name=name, old=inst["version"], reason=reason))
     _rollback_index_add(rec)
     return rec
 
@@ -896,6 +913,18 @@ def node_read(*args):
 
 
 def node_status():
+    with _STATUS["lock"]:
+        if _STATUS["node"] and time.time() - _STATUS["node_ts"] < STATUS_TTL:
+            return copy.deepcopy(_STATUS["node"])
+        gen = _STATUS["gen"]
+    j = _node_status()
+    with _STATUS["lock"]:
+        if _STATUS["gen"] == gen:
+            _STATUS.update(node=j, node_ts=time.time())
+    return copy.deepcopy(j)
+
+
+def _node_status():
     j = node_read('status')
     # helper 沒裝時也要知道「有沒有升級可做」：Node 已是現行 LTS 就整塊不顯示，不該為了一個用不到的功能叫人裝 helper
     ver = j['installed'].split('-', 1)[0] if j.get('ok') else (_run(["node", "--version"], timeout=10) or "").strip().lstrip("v")
@@ -1254,9 +1283,105 @@ def _node_flow_pending():
     return ph
 
 
+# ---------- 共用的唯讀 apt.Cache ----------
+# 2026-11-21 效能量測：apt.Cache() 開一次 0.33 秒、掃 96,177 個套件再 0.25 秒，而每個請求都各自建一份
+# （/api/updates 2 份、/api/setup 3 份、常見問題 1 份、補 changelog 的輪詢每 3 秒 1 份）——熱的 /api/updates 也要 0.57 秒。
+# 這裡留一份，只在 apt 的狀態檔有變時重開；list_updates 的結果也跟著同一把鑰匙記住。
+# 只給「讀」用：simulate／rollback_prepare 會 mark_*，仍各自開自己的（它們是使用者按鈕觸發的，不在熱路徑上）。
+_APT_STATE_PATHS = ("/var/lib/dpkg/status", "/var/cache/apt/pkgcache.bin", "/var/cache/apt/srcpkgcache.bin", "/var/lib/apt/lists",
+                    "/var/lib/apt/extended_states")
+# 設定目錄要看裡面每個檔：原地覆寫既有 pin 檔不會動到目錄的 mtime（Codex 審查重現）；單檔設定也一起
+_APT_CONF_DIRS = ("/etc/apt/apt.conf.d", "/etc/apt/preferences.d", "/etc/apt/sources.list.d")
+_APT_CONF_FILES = ("/etc/apt/apt.conf", "/etc/apt/preferences", "/etc/apt/sources.list")
+_APT = {"lock": threading.RLock(), "cache": None, "key": None, "conf_key": None, "mods": None, "updates": None, "updates_key": None}
+
+
+def _apt_reload_config():
+    """重讀 apt 設定。init_config() 只會把檔案裡的鍵讀進既有設定，被刪掉的鍵不會消失（Codex 用真 apt_pkg 重現：
+    拿掉 Never-Include-Phased-Updates 後重讀仍是 true）；所以先清空再讀。本程序沒有自己 set 任何 apt 設定。
+    設定是全程序共用的：清空到讀完之間別的執行緒會看到空白設定，所以整段在 _APT 鎖裡，而且會開 apt.Cache() 的地方
+    （simulate／rollback_prepare 自開的那兩份）建立時也要拿同一把鎖。共用的 cache 一併作廢，下次 apt_read 重建。"""
+    with _APT["lock"]:
+        for k in list(apt_pkg.config.list()):
+            apt_pkg.config.clear(k)
+        apt_pkg.init_config()
+        apt_pkg.init_system()
+        _APT["cache"] = None
+
+
+
+def _stat_ns(p):
+    try:
+        return os.stat(p).st_mtime_ns
+    except OSError:
+        return None
+
+
+def _apt_conf_key():
+    out = [(_stat_ns(p)) for p in _APT_CONF_FILES]
+    for d in _APT_CONF_DIRS:
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            out.append(None); continue
+        out.append(tuple((n, _stat_ns(os.path.join(d, n))) for n in names))
+    return tuple(out)
+
+
+def _apt_key():
+    """apt 狀態的指紋：dpkg 資料庫、索引快取、清單目錄、政策與來源設定（含目錄內每個檔）的 mtime，加上目前載入的核心模組
+    （_firmware_usage 看 modinfo，模組載入了判定就不同）。任一變了就重開／重算。"""
+    return tuple(_stat_ns(p) for p in _APT_STATE_PATHS) + (_apt_conf_key(), _loaded_modules_sig())
+
+
+def _loaded_modules_sig():
+    try:
+        with open("/proc/modules") as f:
+            return hash(tuple(sorted(l.split(" ", 1)[0] for l in f)))
+    except OSError:
+        return None
+
+
+@contextlib.contextmanager
+def apt_read():
+    """with apt_read() as cache: 只讀。鎖住整段（libapt 不是執行緒安全的）；裡面別做慢的事。"""
+    with _APT["lock"]:
+        k = _apt_key()
+        if _APT["cache"] is None or k != _APT["key"]:
+            conf = _apt_conf_key()
+            if _APT["conf_key"] is not None and conf != _APT["conf_key"]:
+                _apt_reload_config()   # apt 的設定是全域、import 時讀一次；重建 Cache 不會重讀 apt.conf／preferences
+            _APT["conf_key"] = conf
+            mods = _loaded_modules_sig()
+            if mods != _APT["mods"]:
+                _MODFW_CACHE["ts"] = 0   # 模組變了：內層 modinfo 快取（600 秒）也要作廢，否則新清單會用舊的 firmware 名單算
+            _APT["mods"] = mods
+            _APT["cache"] = apt.Cache()
+            _APT["key"] = k
+            _APT["updates"] = None
+        yield _APT["cache"]
+
+
+def apt_upgradable_held():
+    """Ubuntu 分階段放量還沒輪到這台的可升級套件（dashboard 對照、常見問題都要）。回普通 dict，在鎖內算完：
+    Package／Version 物件共用同一個 PackageRecords 游標，帶出鎖外讀 candidate.record 會和別的執行緒交錯讀到別的套件（Codex 用真 python-apt 重現）。"""
+    with apt_read() as cache:
+        return [{"name": p.name, "candidate": p.candidate.version if p.candidate else None, "percent": (phased_info(p) or {}).get("percent")}
+                for p in cache if p.is_upgradable and getattr(p, "phasing_applied", False)]
+
+
 def list_updates():
-    cache = apt.Cache()
     node_flow = _node_flow_pending()
+    with apt_read() as cache:
+        key = (_APT["key"], node_flow)
+        if _APT["updates"] is not None and _APT["updates_key"] == key:
+            return copy.deepcopy(_APT["updates"])   # 呼叫端會往項目裡塞東西，不能把快取本體交出去
+        items = _list_updates(cache, node_flow)
+        _APT["updates"], _APT["updates_key"] = items, key
+        return copy.deepcopy(items)
+
+
+def _list_updates(cache, node_flow):
     items = []
     for pkg in cache:
         if not pkg.is_upgradable:
@@ -1286,7 +1411,13 @@ def list_updates():
 
 
 def simulate(names):
-    """在記憶體裡標記升級，回傳實際會被動到的套件。不動系統。"""
+    """在記憶體裡標記升級，回傳實際會被動到的套件。不動系統。整段持 _APT 鎖（約 0.5 秒）：私有 cache 的標記與
+    required_download 仍讀全域 apt 設定，撞上設定重讀會 E:Can't find a source（Codex 用真 python-apt 重現）。"""
+    with _APT["lock"]:
+        return _simulate(names)
+
+
+def _simulate(names):
     cache = apt.Cache()
     unknown = [n for n in names if n not in cache]
     if unknown:
@@ -1323,7 +1454,7 @@ def simulate(names):
         if p.name in held_before and action in ("upgrade", "install"):
             phased.append({"name": p.name, "to": p.candidate.version if p.candidate else "", "percent": held_before[p.name]["percent"]})
     changes.sort(key=lambda c: (not c["requested"], c["action"], c["name"]))
-    upgradable = [p.name for p in apt.Cache() if p.is_upgradable]
+    upgradable = [it["name"] for it in list_updates()]
     return {
         "ok": True,
         "changes": changes,
@@ -1887,7 +2018,8 @@ class Job:
                 self.state["finished"] = datetime.now().isoformat(timespec="seconds")
             self._log("EXCEPTION " + str(e))
         finally:
-            _APPS_CACHE["ts"] = 0  # 讓應用程式清單重新掃描
+            apps_cache_invalidate()  # 讓應用程式清單重新掃描
+            status_cache_clear()
             _FW["ts"] = 0
             _DASH_CACHE["ts"] = 0
             _NPM["ts"] = 0
@@ -2223,7 +2355,8 @@ class Job:
             with self.lock:
                 self.state.update(status="error", error=str(e), finished=datetime.now().isoformat(timespec="seconds"))
         finally:
-            _APPS_CACHE["ts"] = 0
+            apps_cache_invalidate()
+            status_cache_clear()
 
     def _run(self, kind, packages):
         if kind == "ollama_pull":
@@ -2405,7 +2538,8 @@ class Job:
                         self.state["error"] = msg('transaction_exit', LANG_DEFAULT, p0=exit_state)
                     self.state["finished"] = datetime.now().isoformat(timespec="seconds")
                 self._log(f"finished: {exit_state}")
-                _APPS_CACHE["ts"] = 0
+                apps_cache_invalidate()
+                status_cache_clear()
                 _FW["ts"] = 0
                 _DASH_CACHE["ts"] = 0
                 _NPM["ts"] = 0   # nodejs 從這條路裝過，Node 版本會變
@@ -2685,31 +2819,88 @@ def _parse_size(txt):
     return int(float(m.group(1)) * {"B": 1, "kB": 1e3, "MB": 1e6, "GB": 1e9}[m.group(2)])
 
 
-_APPS_CACHE = {"ts": 0, "data": None, "lock": threading.Lock()}
+_APPS_CACHE = {"ts": 0, "data": None, "lock": threading.Lock(), "gen": 0, "building": False}
+
+
+def apps_cache_invalidate():
+    """套件交易結束、使用者按重新掃描：世代 +1。進行中的盤點與背景商店查詢看到世代變了就丟掉結果，不會把舊的寫回來。"""
+    with _APPS_CACHE["lock"]:
+        _APPS_CACHE["ts"] = 0
+        _APPS_CACHE["gen"] += 1
 APPS_TTL = 300
 
 
+def _apps_assemble(apt_apps, snap_apps, fp_apps, checking):
+    items = apt_apps + (snap_apps or []) + (fp_apps or [])
+    items.sort(key=lambda a: (a["name_zh"] or a["name"]).lower())
+    return {
+        "items": items,
+        "sources": {
+            "apt": {"ok": True, "count": len(apt_apps)},
+            "snap": {"ok": snap_apps is not None, "count": len(snap_apps or [])},
+            "flatpak": {"ok": fp_apps is not None, "count": len(fp_apps or [])},
+        },
+        "checking": checking,   # True＝snap／flatpak 的商店查詢還在背景跑，snap／flatpak 項目的 candidate 還不作數
+        "generated": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
 def list_apps(force=False):
+    """本機盤點（apt＋snap list＋flatpak list，約 0.4 秒）先回；snap／flatpak 問商店有沒有新版（1.6＋0.85 秒）丟背景，
+    查完換掉快取裡的那幾項。以前整包串在一起、而且在鎖裡，應用程式分頁第一次開要等 3 秒。"""
     with _APPS_CACHE["lock"]:
-        if not force and _APPS_CACHE["data"] and time.time() - _APPS_CACHE["ts"] < APPS_TTL:
+        if force:
+            _APPS_CACHE["ts"] = 0; _APPS_CACHE["gen"] += 1
+        if _APPS_CACHE["data"] and time.time() - _APPS_CACHE["ts"] < APPS_TTL:
             return _APPS_CACHE["data"]
-        cache = apt.Cache()
-        apt_apps = apps_apt(cache)
-        snap_apps = apps_snap(check_updates=True)
-        fp_apps = apps_flatpak(check_updates=True)
-        items = apt_apps + (snap_apps or []) + (fp_apps or [])
-        items.sort(key=lambda a: (a["name_zh"] or a["name"]).lower())
-        data = {
-            "items": items,
-            "sources": {
-                "apt": {"ok": True, "count": len(apt_apps)},
-                "snap": {"ok": snap_apps is not None, "count": len(snap_apps or [])},
-                "flatpak": {"ok": fp_apps is not None, "count": len(fp_apps or [])},
-            },
-            "generated": datetime.now().isoformat(timespec="seconds"),
-        }
-        _APPS_CACHE.update(ts=time.time(), data=data)
-        return data
+        if _APPS_CACHE["building"]:   # 已有人在重建：先回舊的，標 checking 讓前端再問（否則 force 撞上盤點時前端就停了）
+            return {**_APPS_CACHE["data"], "checking": True} if _APPS_CACHE["data"] else _apps_assemble([], None, None, True)
+        _APPS_CACHE["building"] = True
+        gen = _APPS_CACHE["gen"]   # 這次盤點的世代；期間若有交易結束／force，世代就變了，結果不寫回
+    try:
+        with apt_read() as cache:
+            apt_apps = apps_apt(cache)
+        snap_quick = apps_snap(check_updates=False)
+        fp_quick = apps_flatpak(check_updates=False)
+        for it in (snap_quick or []) + (fp_quick or []):
+            it["checking"] = True
+        data = _apps_assemble(apt_apps, snap_quick, fp_quick, True)
+        with _APPS_CACHE["lock"]:
+            if _APPS_CACHE["gen"] != gen:
+                return {**(_APPS_CACHE["data"] or data), "checking": True}   # 盤點途中失效了：不寫回；標 checking 讓前端再問、下一次請求重做
+            _APPS_CACHE.update(ts=time.time(), data=data)
+    finally:
+        with _APPS_CACHE["lock"]:
+            _APPS_CACHE["building"] = False
+
+    def _stores():
+        snap_apps = fp_apps = None
+        try:
+            snap_apps = apps_snap(check_updates=True)
+            fp_apps = apps_flatpak(check_updates=True)
+        except Exception as e:
+            print("apps store check failed:", e, flush=True)
+        with _APPS_CACHE["lock"]:
+            cur = _APPS_CACHE["data"]
+            if not cur or _APPS_CACHE["gen"] != gen:   # 期間失效過：這份結果已經過期，丟掉
+                return
+
+            def _fallback(source):   # 商店查不到：沿用本機項目，但要把「查詢中」拿掉、如實標「未能查詢」
+                out = []
+                for a in cur["items"]:
+                    if a["source"] == source:
+                        a = {**a, "checking": False, "checked_updates": False}
+                        out.append(a)
+                return out
+            full = _apps_assemble([a for a in cur["items"] if a["source"] == "apt"],
+                                  snap_apps if snap_apps is not None else _fallback("snap"),
+                                  fp_apps if fp_apps is not None else _fallback("flatpak"), False)
+            full["sources"]["snap"]["ok"] = snap_apps is not None
+            full["sources"]["flatpak"]["ok"] = fp_apps is not None
+            full["generated"] = cur["generated"]
+            _APPS_CACHE["data"] = full
+    threading.Thread(target=_stores, daemon=True).start()
+    return data
 
 
 # ---------- 更新說明 ----------
@@ -2736,10 +2927,9 @@ def _apt_vendor_hint(pkg):
     url = VENDOR_RELEASE_NOTES.get(pkg)
     home = site = None
     try:
-        cache = apt.Cache()
-        if pkg in cache and cache[pkg].candidate:
-            v = cache[pkg].candidate
-            home = v.homepage or None
+        with apt_read() as cache:
+            v = cache[pkg].candidate if pkg in cache else None
+            home = (v.homepage or None) if v else None
             site = v.origins[0].site if v.origins else None
     except Exception:
         pass
@@ -3217,7 +3407,38 @@ def _pwa_installed():
     return None
 
 
+# 狀態查詢的短快取：/api/setup 一次跑 ss／systemctl／hostname／ip／tailscale 加 node helper 約 1.5 秒，
+# 開頁就打一次（亮點）、切到設定分頁再打一次。30 秒內同一份；任何 POST（開關、安裝）都讓它失效，狀態改了就重查。
+STATUS_TTL = 30
+_STATUS = {"lock": threading.Lock(), "setup": None, "setup_ts": 0, "node": None, "node_ts": 0, "gen": 0}
+
+
+def setup_status_fresh():
+    """開關、安裝做完要回的狀態：先清再算。動作進行中若有 GET 把舊狀態放進快取，回應會把舊狀態帶給前端（Codex 重現）。"""
+    status_cache_clear()
+    return setup_status()
+
+
+def status_cache_clear():
+    """POST 開始與結束、工作結束時呼叫。世代 +1：清除之前就開始算的查詢，算完不准寫回（否則會把舊狀態復活 30 秒）。"""
+    with _STATUS["lock"]:
+        _STATUS.update(setup=None, setup_ts=0, node=None, node_ts=0)
+        _STATUS["gen"] += 1
+
+
 def setup_status():
+    with _STATUS["lock"]:
+        if _STATUS["setup"] and time.time() - _STATUS["setup_ts"] < STATUS_TTL:
+            return copy.deepcopy(_STATUS["setup"])
+        gen = _STATUS["gen"]
+    data = _setup_status()
+    with _STATUS["lock"]:
+        if _STATUS["gen"] == gen:
+            _STATUS.update(setup=data, setup_ts=time.time())
+    return copy.deepcopy(data)
+
+
+def _setup_status():
     user = os.environ.get("USER") or os.path.basename(os.path.expanduser("~"))
     q = shlex.quote
     items = []
@@ -3252,7 +3473,9 @@ def setup_status():
     ns = node_status()
     # 只列「Node 是 NodeSource 的 apt 套件」的機器：nvm／snap 裝的 helper 也裝得起來但功能會說不適用，列了只會讓新手困惑
     try:
-        nodesource = os.path.realpath(shutil.which("node") or "") == "/usr/bin/node" and "nodesource" in (apt.Cache()["nodejs"].installed.version if apt.Cache().get("nodejs") and apt.Cache()["nodejs"].installed else "")
+        with apt_read() as _c:
+            _nv = _c["nodejs"].installed.version if "nodejs" in _c and _c["nodejs"].installed else ""
+        nodesource = os.path.realpath(shutil.which("node") or "") == "/usr/bin/node" and "nodesource" in _nv
     except Exception:
         nodesource = False
     items.append({"id": "node_helper", "enabled": bool(node_helper_ready() and os.path.isfile("/usr/share/polkit-1/actions/io.github.tiong6.spark-center.node-source.policy")),
@@ -3325,7 +3548,7 @@ def setup_toggle(item, enable):
     if item == "model_guard":
         try:
             model_capabilities.install_guard(enable)
-            return setup_status()
+            return setup_status_fresh()
         except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
             return {"ok": False, "error": str(exc)}
     if item in SETUP_SUDOERS:
@@ -3364,8 +3587,8 @@ def setup_toggle(item, enable):
     _SUDO_L["ts"] = 0; _GPU_CLOCK["ts"] = 0   # 剛裝／刪 sudoers，快取立刻失效
     hardware.disk_check_reset()
     if not ok:
-        return {"ok": False, "error": err, **setup_status()}
-    return setup_status()
+        return {"ok": False, "error": err, **setup_status_fresh()}
+    return setup_status_fresh()
 
 
 def _session_env():
@@ -3760,11 +3983,24 @@ def _play_sound(name, times=1, gap=0.0):
     threading.Thread(target=run, daemon=True).start()
 
 
+_GPU_THRESHOLD = {"value": None, "ts": 0}
+
+
+def _gpu_throttle_threshold():
+    """驅動的降頻溫度點：靜態值，10 分鐘讀一次就夠。gpu_static() 會跑 nvidia-smi（最長 10 秒），以前每 5 秒在 _GPU_WATCH 鎖裡跑，
+    /api/hardware/live 碰到同一把鎖就跟著等——2026-11-21 量到 live p50 5 ms、p95 61 ms、max 98 ms 的尖峰來源。"""
+    if time.time() - _GPU_THRESHOLD["ts"] > 600 or _GPU_THRESHOLD["value"] is None:
+        _GPU_THRESHOLD["value"] = (hardware.gpu_static() or {}).get("throttle_temp_c")
+        _GPU_THRESHOLD["ts"] = time.time()
+    return _GPU_THRESHOLD["value"]
+
+
 def _gpu_watch():
     while True:
         try:
             g = hardware.gpu_live()
             if g:
+                threshold = _gpu_throttle_threshold()   # 鎖外：子程序不能在鎖裡跑
                 with _GPU_WATCH["lock"]:
                     _GPU_WATCH["samples"].append({"t": time.time(), **g})
                     _GPU_WATCH["samples"] = _GPU_WATCH["samples"][-24:]
@@ -3778,7 +4014,6 @@ def _gpu_watch():
                     if notify:
                         _GPU_WATCH["last_notify"] = time.time()
                     # 過熱
-                    threshold = (hardware.gpu_static() or {}).get("throttle_temp_c")
                     hot, peak = gpu_hot_evaluate(_GPU_WATCH["samples"], threshold, _GPU_WATCH["hot"])
                     hot_notify = False
                     if hot:
@@ -4091,8 +4326,7 @@ def faq_local():
     release = release_prompt.status()
     phased = {"policy": phased_policy_status(), "held": None}
     try:
-        phased["held"] = [{"name": p.name, "candidate": p.candidate.version if p.candidate else None, "percent": (phased_info(p) or {}).get("percent")}
-                          for p in apt.Cache() if p.is_upgradable and getattr(p, "phasing_applied", False)]
+        phased["held"] = apt_upgradable_held()
     except Exception:
         pass
     return {"ok": True, "cx7": hardware.cx7_state(), "mem": mem, "wifi": wifi, "release": release, "phased": phased}
@@ -4349,17 +4583,17 @@ class Handler(BaseHTTPRequestHandler):
             # 附上目前安裝的版本：降回之後那筆紀錄還在，前端要靠這個判斷「已經是這版」而不再給按鈕
             jobs = _rollback_index_load()
             try:
-                cache = apt.Cache()
                 npm_cur = None
                 for j in jobs:
                     for p in j.get("packages", []):
                         if p.get("kind") == "npm":
-                            if npm_cur is None:
+                            if npm_cur is None:   # 會跑 npm（幾秒）：放在 apt 鎖外面
                                 npm_cur = {e["name"]: e.get("current") for e in npm_status().get("packages", [])}
                             p["installed"] = npm_cur.get(p.get("name"))
                             continue
-                        pkg = cache.get(p.get("name"))
-                        p["installed"] = pkg.installed.version if pkg and pkg.installed else None
+                        with apt_read() as cache:
+                            pkg = cache.get(p.get("name"))
+                            p["installed"] = pkg.installed.version if pkg and pkg.installed else None
             except Exception:
                 pass
             # 同一個套件後來又被更新過（更新的那筆在索引前面）：舊那筆的 .deb 降回去會跨兩版，不算「還能降回」
@@ -4530,6 +4764,12 @@ class Handler(BaseHTTPRequestHandler):
         return f"{who} · {self._hdrs()}"
 
     def do_POST(self):
+        try:
+            self._do_post()
+        finally:
+            status_cache_clear()   # 動作做完再清一次：做之前清的那次，擋不住動作進行中又被查詢寫回的舊狀態
+
+    def _do_post(self):
         self.lang = self._request_lang()
         path = self.path.split("?", 1)[0]
         why = msg("readonly_mode", self.lang) if READONLY else None
@@ -4547,6 +4787,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": False, "error": msg("bad_origin", self.lang, why=f"uid={uid}")}, 403)
         self.source = self._source()
         print(f"POST {peer.clean(path, 120)} from {self.source}", flush=True)
+        status_cache_clear()   # POST 都在改狀態；下一次 /api/setup、/api/node 重查
         data = self._body()
         if path == "/api/vscode/update":
             raw = data.get("ids") if isinstance(data.get("ids"), list) else [data.get("id")]

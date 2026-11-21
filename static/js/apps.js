@@ -3,7 +3,21 @@ async function loadApps(force) {
   const j = await api('/api/apps' + (force ? '?force=1' : ''));
   if (!j.ok) { $('#apps').innerHTML = `<div class="panel notice danger">${t("apps.could_not_load", {v0: esc(j.error)})}</div>`; return; }
   state.apps = j; renderApps();
+  pollAppsChecking();
 }
+/* 商店查新版在背景跑（/api/apps 回 checking=true）：每 2 秒再問，查完重畫；離開分頁就停 */
+function pollAppsChecking() {
+  clearTimeout(state.appsTimer); state.appsTimer = null;
+  if (!state.apps || !state.apps.checking || $('#tab-apps').classList.contains('hide')) return;   // 只在分頁開著時輪詢；切回來由 showTab 再啟動
+  const epoch = state.appsEpoch = (state.appsEpoch || 0) + 1;
+  state.appsTimer = setTimeout(async () => {
+    const j = await api('/api/apps');
+    if (epoch !== state.appsEpoch) return;   // 等待期間切走又切回來：這份回應作廢，不重排
+    if (j.ok) { state.apps = j; renderApps(); $('#dotApps').classList.toggle('hide', !j.items.some(a => a.candidate)); }
+    pollAppsChecking();
+  }, 2000);
+}
+function stopAppsPolling() { clearTimeout(state.appsTimer); state.appsTimer = null; state.appsEpoch = (state.appsEpoch || 0) + 1; }
 function renderApps() {
   const j = state.apps; const s = j.sources;
   const upd = j.items.filter(a => a.candidate).length;
@@ -12,7 +26,7 @@ function renderApps() {
   const notes = [];
   if (!s.snap.ok) notes.push(t("apps.snap_command_failed_snap_apps_are"));
   if (!s.flatpak.ok) notes.push(t("apps.flatpak_command_failed_flatpak_apps_are"));
-  const uncheck = [...new Set(j.items.filter(a => a.source !== 'apt' && a.checked_updates === false).map(a => a.source))];
+  const uncheck = [...new Set(j.items.filter(a => a.source !== 'apt' && a.checked_updates === false && !a.checking).map(a => a.source))];
   if (uncheck.length) notes.push(t("apps.could_not_query_the_store_for", {v0: uncheck.join('、')}));
   notes.push(t("apps.only_apps_with_desktop_launchers_desktop"));
   $('#appsNote').textContent = notes.join(' ');
@@ -24,6 +38,7 @@ function renderApps() {
   const initial = a => esc((a.name_zh || a.name || '?').trim().charAt(0).toUpperCase());
   for (const a of rows) {
     const status = a.candidate ? `<span class="to mono">→ ${esc(a.candidate)}</span>` :
+      a.checking ? `<span class="tag" title="${esc(t("apps.checking_hint"))}">${t("apps.checking")}</span>` :
       (a.source !== 'apt' && a.checked_updates === false) ? `<span class="tag">${t("apps.could_not_query")}</span>` : `<span class="tag ok">${t("updates.up_to_date")}</span>`;
     const ic = a.icon_url ? `<img class="appic" src="${esc(a.icon_url)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\'appic none\'>${initial(a)}</div>'">` : `<div class="appic none" title="${t("apps.icon_unavailable", {v0: a.icon ? '：' + esc(a.icon) : ''})}">${initial(a)}</div>`;
     html += `<tr>
