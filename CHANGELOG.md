@@ -8,6 +8,13 @@
 
 *A new AI Watch tab lists recently released models from the major providers and shows how far the AI tools on this machine are behind, with the release-note lines that add models. Urgent updates now raise a desktop notification and a top-bar badge without opening the Updates tab. Keeping old versions for rollback can be skipped mid-update, Spark Center can be quit from the top bar, and every POST request now logs which local process sent it.*
 
+### 新增（常見問題：NVIDIA 論壇官方回覆）
+
+- 常見問題分頁最前面多一個分類「NVIDIA 論壇官方回覆」，8 題。起因：使用者說 help 需要更新；查了論壇，置頂 FAQ（topic 347344）仍是第 12 版（2026-09-29），Spark Center 和它同步，但這兩個月 NVIDIA 的重要說明都在各討論串的回覆裡，沒有進 FAQ。逐串讀過 NVIDIA 人員（zneill、aniculescu、MackenzieNVIDIA）的回覆後整理：核心 7.0.0-1024 重開機迴圈的修正（`nvidia-spark-initcall-bl` 1.0-2，要 dist-upgrade；鎖過 1019 的要解除）、ASUS GX10 的 EC 韌體是 ASUS 私有要找 ASUS、USB-C PD 韌體卡 0x00000001（處理中，強制重刷的 GUID 是 FE 的）、風扇與溫度怎麼量、USB 裝置要開機前插好、240 W 功耗組成與 nvidia-smi 只有 GPU、不支援換網卡驅動／自訂韌體／調記憶體速度、求助要附什麼。每題附出處（誰、哪天、哪一串），寫回覆當天的狀態，「調查中」就寫調查中。
+- 三個新的「本機」框：修正套件版本（用 apt 的版本比較判斷 ≥ 1.0-2）、開機參數有沒有 `power_wrap_init`、有沒有鎖住的核心套件與 `zz-timeout.cfg`；ACPI 溫度感測器的排列；GPU 功耗與整機功耗感測器有無。
+- 實測發現：NVIDIA 給的溫度標籤檔 temp.conf 假設「一個 acpitz 晶片、temp1～temp7」，ASUS GX10 是七個晶片各一個 temp1，套上去名稱不變。哪個晶片是 SoC／CPU／GPU NVIDIA 沒說，所以監控頁不改名稱、不猜對應。
+- 已知限制：這個分類是 2026-11-21 的快照，不像置頂 FAQ 有改版偵測。
+
 ### 變更（速度：先量再改，Claude 量測＋Codex 靜態審查互相對照）
 
 量到的事實（修前→修後，都是對正在跑的服務用 curl 量的）：`/api/updates` 熱 0.57 s→0.007 s；補 changelog 的輪詢 `/api/updates/meta` 0.7 s→0.001 s；`/api/setup` 1.7 s→0.001 s；`/api/faq` 0.55 s→0.1 s；`/api/node` 0.5 s→0.001 s；`/api/apps` 冷 3.0 s→0.85 s；`/api/hardware/live` p95 61 ms→6 ms（p50 5 ms 不變）。服務 CPU 閒置 0.3%、監控輪詢中 0.5%（一顆核心），記憶體 200 MB，都不是瓶頸；監控分頁每 2 秒整組重畫實測只要 1.6 ms，Codex 猜的「前端重畫成本」被數字否決，沒改。

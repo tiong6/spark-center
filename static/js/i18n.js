@@ -2612,7 +2612,7 @@ const STR = {
     "setup.autostart.costs": "Puts one shortcut file in ~/.config/autostart; unticking removes it.",
     "faq.src_title": "NVIDIA's official FAQ",
     "faq.src_based": "Based on revision {v} of the original ({date})",
-    "faq.src_note": "Condensed from the \"DGX Spark / GB10 FAQ\" that the NVIDIA team keeps pinned on the developer forum. The wording here is Spark Center's summary; the original is authoritative. It is written for the DGX Spark, so OEM machines (such as the ASUS Ascent GX10) may differ in case, buttons and lights. Boxes marked \"This machine\" are read live by Spark Center and are not part of NVIDIA's FAQ.",
+    "faq.src_note": "Condensed from the \"DGX Spark / GB10 FAQ\" that the NVIDIA team keeps pinned on the developer forum. The wording here is Spark Center's summary; the original is authoritative. It is written for the DGX Spark, so OEM machines (such as the ASUS Ascent GX10) may differ in case, buttons and lights. Boxes marked \"This machine\" are read live by Spark Center and are not part of NVIDIA's FAQ. The first section, \"Official replies on the NVIDIA forum\", is not part of the pinned FAQ: it collects replies by NVIDIA staff in individual threads, compiled on 2026-11-21 and not updated automatically; each entry links its source and date.",
     "faq.src_open": "Open the original",
     "faq.src_checking": "Checking whether the original has changed…",
     "faq.src_same": "The original is still at revision {v} (checked {time})",
