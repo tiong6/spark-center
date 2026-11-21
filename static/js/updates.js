@@ -82,7 +82,7 @@ function pollMeta() {
   const tick = async () => {
     const j = await api('/api/updates/meta');
     if (!j.ok) return;
-    state.meta = j.meta; state.metaPending = j.pending;
+    state.meta = j.meta; state.metaPending = j.pending; renderUrgent(j.urgent);
     renderList();
     if (j.pending.length && ++n < 20) state.metaTimer = setTimeout(tick, 3000);
   };
@@ -479,6 +479,7 @@ async function load() {
   renderDashCompare(j.dashboard);
   renderPhasedPolicy(j.phased_policy);
   renderReleasePrompt(j.release_prompt);
+  renderUrgent(j.urgent);
   renderReboot(j.reboot); renderList();
 }
 
@@ -557,6 +558,25 @@ async function setReleasePrompt(want, mode) {
   renderReleasePrompt(r.status || state.release);   // 以伺服器的狀態重畫；回應沒帶（連線失敗、403、非 JSON）先用上一次的讓按鈕恢復，再整頁重讀，不沿用本地的選擇
   if (!r.status) load();
 }
+/* 急迫更新的頂欄紅標：後端（server.py _urgent_watch、backend/urgent_updates.py）判讀 changelog 急迫度 high 以上的套件，
+   這裡只畫；新出現的也會發一次桌面通知。checked 為 null＝背景還沒跑完第一輪，不顯示也不說「沒有」。 */
+function renderUrgent(u) {
+  const b = $('#urgentBadge'); if (!b) return;
+  const list = u && u.items;
+  b.classList.toggle('hide', !list || !list.length);
+  if (!list || !list.length) return;
+  b.innerHTML = `<span class="long">${esc(t("urgent.badge", {n: list.length}))}</span><span class="short">${esc(t("urgent.badge_short", {n: list.length}))}</span>`;
+  b.title = t("urgent.badge_hint", {list: list.map(x => `${x.name} (${x.urgency})`).join(', ')});
+}
+async function recheckUrgent() {
+  let r;
+  try { r = await api('/api/updates/urgent'); } catch (e) { return; }
+  if (r && r.ok) renderUrgent(r);
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') recheckUrgent(); });
+setInterval(recheckUrgent, 5 * 60 * 1000);
+recheckUrgent();
+
 /* 紅標只在 load() 畫的話，Spark Center 開著時被「軟體與更新」改回去要等到重新整理才看得到：
    回到視窗（hidden→visible）與每 5 分鐘打輕量的 GET（只讀設定檔，不跑 apt）重畫這三處。切換中的不打；切換前發出的結果丟掉 */
 async function recheckReleasePrompt() {
@@ -679,6 +699,18 @@ async function pollJob() {
     const st = j.step ? ` · ${t("job.step_of", {i: j.step[0] + (j.phase === 'prepare' ? 1 : 0), n: j.step[1]})}` : '';
     const cur = j.phase === 'prepare' && j.details ? ` · ${t("job.now_item", {v: j.details})}` : j.phase === 'install' && j.details ? ` · ${j.details}` : j.phase === 'wait' ? ` · ${j.status_text || ''}` : '';
     $('#jobstatus').textContent = t("job.phase_" + j.phase) + st + cur + (j.phase === 'download' ? xferText : '') + elapsed;
+    if (j.kind === 'install') {   // 留舊版階段可以略過：Launchpad 慢的時候一個大檔會拖住整個更新
+      const want = j.phase === 'prepare' && !j.skip_rollback, has = !!$('#jobSkipRb');
+      if (want && !has) {
+        $('#jobactions').innerHTML = `<button id="jobSkipRb" title="${esc(t("job.skip_rollback_hint"))}">${t("job.skip_rollback")}</button>`;
+        $('#jobSkipRb').onclick = async () => {
+          if (!confirm(t("job.skip_rollback_confirm"))) return;
+          $('#jobSkipRb').disabled = true;
+          const r = await api('/api/job/skip-rollback', {});
+          if (!r.ok) { alert(r.error); $('#jobSkipRb').disabled = false; }
+        };
+      } else if (!want && has) $('#jobactions').innerHTML = '';
+    }
     if (j.kind === 'install' && (j.packages || []).length > 6 && !$('#jobpkgs').innerHTML) $('#jobpkgs').innerHTML = `<details><summary style="cursor:pointer">${t("job.package_list", {n: j.packages.length})}</summary><div style="margin-top:4px;line-height:1.7">${j.packages.map(esc).join(', ')}</div></details>`;
   } else {
     $('#jobphase').classList.add('hide');

@@ -42,6 +42,7 @@ from tools import model_capabilities
 from backend.messages import LANG_DEFAULT, MSG, msg
 from backend.system import HERE, READONLY, NO_SWEEP, _ENV_C, _run, _http_json, process_label
 from backend import auto_refresh
+from backend import urgent_updates
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("SPARK_UPDATER_PORT", "11001"))
@@ -545,10 +546,16 @@ def _fetch_file(url, dest, max_bytes, progress=lambda got, total: None):
     return True, None
 
 
-def rollback_prepare(names, log=lambda s: None, status=lambda s: None, step=lambda i, n, name: None, progress=lambda text: None):
+class RollbackSkipped(Exception):
+    """使用者在工作卡按了「略過保留舊版」：從下載進度回呼裡丟出來，中斷正在抓的檔案。"""
+
+
+def rollback_prepare(names, log=lambda s: None, status=lambda s: None, step=lambda i, n, name: None, progress=lambda text: None,
+                     skipped=lambda: False):
     """在升級前呼叫。回這次的紀錄（也已寫進 index）。任何一個套件失敗都不影響升級本身。
     step(i, n, name)：正在處理第 i 個（從 0 起）／共 n 個，給進度卡用；134 個套件逐一去 Launchpad 抓，沒步數會像當掉。
-    progress(text)：下載中的一行人話（「snapd · Launchpad 12.3 / 32.7 MB」），給工作卡的「目前」欄；每半秒最多一次。"""
+    progress(text)：下載中的一行人話（「snapd · Launchpad 12.3 / 32.7 MB」），給工作卡的「目前」欄；每半秒最多一次。
+    skipped()：回 True 就不再保留（Launchpad 慢到幾十 KB/s 時一個 45 MB 的檔會拖住整個更新）；剩下的套件記成「使用者略過」。"""
     cache = apt.Cache()
     job_id = datetime.now().strftime("%Y%m%dT%H%M%S")
     job_dir = os.path.join(ROLLBACK_DIR, job_id)
@@ -566,6 +573,8 @@ def rollback_prepare(names, log=lambda s: None, status=lambda s: None, step=lamb
         if pkg and getattr(pkg, "phasing_applied", False):
             entry["phased"] = (phased_info(pkg) or {}).get("percent")   # 當時 Ubuntu 的放量百分比；這台機器沒被納入卻裝了＝提前安裝
         rec["packages"].append(entry)
+        if skipped():
+            entry["reason"] = msg("rollback_skipped", LANG_DEFAULT); continue
         if not pkg or not pkg.installed:
             entry["reason"] = msg("rollback_not_installed", LANG_DEFAULT); continue
         inst = pkg.installed
@@ -604,6 +613,8 @@ def rollback_prepare(names, log=lambda s: None, status=lambda s: None, step=lamb
             log(msg("rollback_fetching", LANG_DEFAULT, name=name, old=inst.version, source=src_name, url=url))
             t0 = time.time(); last = [0.0]; got_total = [0, 0]
             def _prog(got, total, _src=src_name):
+                if skipped():
+                    raise RollbackSkipped()
                 got_total[0], got_total[1] = got, total
                 if time.time() - last[0] < 0.5 and got and got != total:
                     return
@@ -611,6 +622,8 @@ def rollback_prepare(names, log=lambda s: None, status=lambda s: None, step=lamb
                 progress(msg("rollback_progress", LANG_DEFAULT, name=name, source=_src, got=f"{got / 1e6:.1f}", total=f"{total / 1e6:.1f}" if total else "?"))
             try:
                 ok, why = _fetch_file(url, dest, max_bytes, _prog)
+            except RollbackSkipped:
+                reason = msg("rollback_skipped", LANG_DEFAULT); break
             except Exception as e:
                 reason = msg("rollback_fetch_failed", LANG_DEFAULT, err=str(e)[:80])
                 log(msg("rollback_fetch_failed_src", LANG_DEFAULT, source=src_name, err=str(e)[:80])); continue
@@ -1156,13 +1169,15 @@ def _unit_active(unit):
 
 
 def _notify(title, body):
-    """桌面通知：出事時使用者多半不在看這個視窗。沒有桌面就算了。"""
+    """桌面通知：出事時使用者多半不在看這個視窗。沒有桌面就算了。回 True＝有送出（呼叫端可據此決定要不要記成「已通知」）。"""
     try:
         env = _session_env()
         if env.get("DISPLAY") or env.get("WAYLAND_DISPLAY"):
             subprocess.Popen(["notify-send", "-a", "Spark Center", "-u", "critical", title, body], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
     except Exception:
         pass
+    return False
 
 
 def rollback_record_npm(names):
@@ -1406,6 +1421,56 @@ def _auto_refresh_watch():
         time.sleep(auto_refresh.TICK_SECONDS)
 
 
+# ---------- 急迫更新的主動提示（背景；判斷在 backend/urgent_updates.py）----------
+# 急迫度原本只在開更新分頁時才抓。這裡每 10 分鐘自己跑一次 list_updates＋updates_meta（缺的 changelog 照樣丟背景池抓），
+# 有還沒抓完的就 1 分鐘後再看；新出現的 high 以上「套件＋版本」發一次桌面通知。頂欄徽章讀 _URGENT（/api/updates 也會更新它）。
+URGENT_NOTIFIED_FILE = os.path.join(HERE, "data", "urgent-notified.json")
+_URGENT = {"lock": threading.Lock(), "items": None, "checked": None, "pending": 0}
+
+
+def _urgent_record(items, meta_result):
+    urgent = urgent_updates.collect(items, meta_result["meta"])
+    with _URGENT["lock"]:
+        _URGENT.update(items=urgent, checked=datetime.now().isoformat(timespec="seconds"), pending=len(meta_result["pending"]))
+    return urgent
+
+
+def urgent_status():
+    with _URGENT["lock"]:
+        return {k: v for k, v in _URGENT.items() if k != "lock"}
+
+
+def _urgent_tick():
+    """回下一輪要等幾秒。apt 工作進行中不開 apt.Cache（清單會是半套的）。"""
+    if JOB.snapshot()["status"] == "running":
+        return 120
+    items = list_updates()
+    res = updates_meta(items)
+    urgent = _urgent_record(items, res)
+    notified = urgent_updates.load(URGENT_NOTIFIED_FILE)
+    new = urgent_updates.unnotified(urgent, notified)
+    if new:
+        names, more = urgent_updates.names_text(new, sep=msg('urgent_sep', LANG_DEFAULT))
+        top = max((u["urgency"] for u in new), key=lambda u: URGENCY_RANK.get(u, -1))
+        if _notify(msg('urgent_title', LANG_DEFAULT, p0=len(new)),
+                   msg('urgent_body', LANG_DEFAULT, p0=names, p1=msg('urgent_more', LANG_DEFAULT) if more else "", p2=top, p3=PORT)):
+            notified |= {urgent_updates.key(u) for u in new}
+    current = {urgent_updates.key(u) for u in urgent}
+    urgent_updates.save(URGENT_NOTIFIED_FILE, notified & current)
+    return 60 if res["pending"] else 600
+
+
+def _urgent_watch():
+    time.sleep(120)   # 晚於自動重新整理的 90 秒，別和開機時的 apt 工作搶
+    while True:
+        try:
+            wait = _urgent_tick()
+        except Exception as e:
+            print("urgent updates tick failed:", e, flush=True)
+            wait = 600
+        time.sleep(wait)
+
+
 def apt_history(limit=8):
     """讀 apt 歷史最近幾筆，只回 Start-Date / Commandline / Upgrade 摘要。"""
     entries, cur = [], {}
@@ -1505,6 +1570,7 @@ class Job:
             "xfer": None,          # apt 下載明細：{"done","total","speed","eta","items","items_total"}，aptdaemon progress-details
             "phase": None,         # apt 更新的階段：prepare（留舊版）| wait（鎖、解相依）| download | install | finish；其他工作為 None
             "step": None,          # 目前階段的 [已完成, 總數]；拿不到就 None（前端顯示不定進度條，不假裝百分比）
+            "skip_rollback": False,   # 使用者在留舊版階段按了「略過保留舊版」
             "exit": None,
             "error": None,
             "warning": None,       # 完成但有部分沒做到（例：幾個來源抓不到、其他已更新）；前端畫黃卡、不自動收
@@ -1949,7 +2015,8 @@ class Job:
                 def _progress(text):
                     with self.lock:
                         self.state["details"] = text
-                rollback_prepare(packages, self._log, lambda txt: self.state.__setitem__("status_text", txt), _step, _progress)
+                rollback_prepare(packages, self._log, lambda txt: self.state.__setitem__("status_text", txt), _step, _progress,
+                                 lambda: self.state.get("skip_rollback"))
             except Exception as e:
                 self._log("rollback prepare failed: " + str(e))
             with self.lock:   # 留舊版結束；接下來的階段由 aptdaemon 的狀態決定，進度歸零不沿用
@@ -3947,16 +4014,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store"); self.end_headers(); self.wfile.write(body)
         elif path == "/api/updates/meta":
             try:
-                self._json({"ok": True, **updates_meta(list_updates())})
+                items = list_updates()
+                meta_res = updates_meta(items)
+                _urgent_record(items, meta_res)
+                self._json({"ok": True, **meta_res, "urgent": urgent_status()})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/updates":
             try:
                 items = list_updates()
+                meta_res = updates_meta(items)
+                _urgent_record(items, meta_res)   # 裝完更新後重載清單，頂欄徽章就跟著消，不必等背景那一輪
                 self._json({
                     "ok": True,
                     "items": items,
-                    **updates_meta(items),
+                    **meta_res,
+                    "urgent": urgent_status(),
                     "dashboard": dashboard_equivalent(),
                     "phased_policy": phased_policy_status(),
                     "release_prompt": release_prompt.status(),   # 開頁時的頂欄紅標從這裡畫；之後的重查走輕量的 /api/setup/release-prompt
@@ -3967,6 +4040,8 @@ class Handler(BaseHTTPRequestHandler):
                 })
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/updates/urgent":
+            self._json({"ok": True, **urgent_status()})   # 只讀記憶體，不碰 apt：頂欄徽章每 5 分鐘與回到視窗時重查
         elif path == "/api/setup/release-prompt":
             # 只讀設定檔與清單快取、不碰 apt：前端回到視窗時與每 5 分鐘重查，被「軟體與更新」改回去時紅標才亮得起來
             self._json({"ok": True, "status": release_prompt.status()})
@@ -4197,6 +4272,25 @@ class Handler(BaseHTTPRequestHandler):
             self.rfile.read(int(self.headers.get("Content-Length") or 0))
             return self._json({"ok": False, "error": msg("bad_origin", self.lang, why=why)}, 403)
         data = self._body()
+        if path == "/api/job/skip-rollback":
+            # 只在 apt 更新的留舊版階段有效；已經進到下載／安裝就沒東西可略過
+            with JOB.lock:
+                st = JOB.state
+                if st["status"] != "running" or st["kind"] != "install" or st.get("phase") != "prepare":
+                    return self._json({"ok": False, "error": msg("rollback_skip_too_late", self.lang)}, 409)
+                st["skip_rollback"] = True
+            JOB._log(msg("rollback_skip_requested", LANG_DEFAULT))
+            return self._json({"ok": True})
+        if path == "/api/quit":
+            # 「結束」：整個服務退出（背景通知也停），下次從 App 圖示開時啟動器會把服務叫起來。
+            # 用結束碼 0 退出：unit 是 Restart=on-failure，乾淨退出 systemd 不會重啟；手動跑的測試埠也一樣適用。
+            # 有工作在跑就拒絕：工作狀態只在記憶體，退出會讓 apt／npm 交易沒人收尾。
+            snap = JOB.snapshot()
+            if snap["status"] == "running":
+                return self._json({"ok": False, "error": msg("quit_job_running", self.lang, p0=snap.get("kind") or "?")}, 409)
+            print("quit requested from UI", flush=True)
+            threading.Timer(0.5, lambda: os._exit(0)).start()   # 先讓回應送出去
+            return self._json({"ok": True})
         if path == "/api/open":
             # 外部連結交給系統預設瀏覽器。PWA 視窗裡 target=_blank 會在 Spark Center 自己的 Chrome profile 開一個
             # 完整瀏覽器，久了它就長成第二個瀏覽器（2026-10-10 盤點：3,823 筆別站紀錄、同步進 17 個擴充功能）。
@@ -4540,6 +4634,7 @@ def main():
         print("snap attach skipped:", e, flush=True)
     threading.Thread(target=_disk_watch, daemon=True).start()
     threading.Thread(target=_auto_refresh_watch, daemon=True).start()
+    threading.Thread(target=_urgent_watch, daemon=True).start()
     threading.Thread(target=_gpu_watch, daemon=True).start()
     threading.Thread(target=_gpu_clock_reapply, daemon=True).start()
     threading.Thread(target=lambda: rollback_prune(ROLLBACK_MAX_AGE_DAYS), daemon=True).start()   # 過期的降回紀錄開機就清

@@ -17,4 +17,14 @@ api('/api/dashboard').then(r => { const a = $('#dashLink'); if (r.ok && r.instal
 })();
 // 手動改網址列的 #分頁 或 #faq/<id> 也要跟著走（showTab 用 replaceState，不會觸發這裡）
 $('#setupLink').onclick = e => { e.preventDefault(); showTab('setup'); };
+/* 結束：後端以結束碼 0 退出（Restart=on-failure 不會拉回來）；有工作在跑時後端拒絕並說明 */
+$('#quitLink').onclick = async e => {
+  e.preventDefault();
+  if (!confirm(t("quit.confirm"))) return;
+  let r;
+  try { r = await api('/api/quit', {}); } catch (err) { r = {ok: false, error: String((err && err.message) || err)}; }
+  if (!r.ok) { alert(r.error); return; }
+  document.body.innerHTML = `<div style="padding:48px 24px;font-size:15px">${esc(t("quit.done"))}</div>`;
+  window.close();   // App 視窗通常允許；不允許就留著上面那行字
+};
 window.addEventListener('hashchange', () => { const [t, sub] = location.hash.replace('#','').split('/'); if (t === 'faq' && sub) openFaq(decodeURIComponent(sub)); else if (TITLES[t]) showTab(t); });
