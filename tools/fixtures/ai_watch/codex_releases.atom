@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/" xml:lang="en-US">
+  <id>tag:github.com,2008:https://github.com/openai/codex/releases</id>
+  <link type="text/html" rel="alternate" href="https://github.com/openai/codex/releases"/>
+  <link type="application/atom+xml" rel="self" href="https://github.com/openai/codex/releases.atom"/>
+  <title>Release notes from codex</title>
+  <updated>2026-11-20T23:29:38Z</updated>
+  <entry>
+    <id>tag:github.com,2008:Repository/965415649/rust-v0.173.0-alpha.4</id>
+    <updated>2026-11-21T00:40:17Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/openai/codex/releases/tag/rust-v0.173.0-alpha.4"/>
+    <title>0.173.0-alpha.4</title>
+    <content type="html">&lt;p&gt;Release 0.173.0-alpha.4&lt;/p&gt;</content>
+    <author>
+      <name>github-actions[bot]</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/in/15368?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/965415649/rust-v0.173.0-alpha.3</id>
+    <updated>2026-11-20T22:28:53Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/openai/codex/releases/tag/rust-v0.173.0-alpha.3"/>
+    <title>0.173.0-alpha.3</title>
+    <content type="html">&lt;p&gt;Release 0.173.0-alpha.3&lt;/p&gt;</content>
+    <author>
+      <name>github-actions[bot]</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/in/15368?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/965415649/rust-v0.173.0-alpha.2</id>
+    <updated>2026-11-20T20:50:10Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/openai/codex/releases/tag/rust-v0.173.0-alpha.2"/>
+    <title>0.173.0-alpha.2</title>
+    <content type="html">&lt;p&gt;Release 0.173.0-alpha.2&lt;/p&gt;</content>
+    <author>
+      <name>github-actions[bot]</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/in/15368?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/965415649/rust-v0.173.0-alpha.1</id>
+    <updated>2026-11-20T02:54:54Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/openai/codex/releases/tag/rust-v0.173.0-alpha.1"/>
+    <title>0.173.0-alpha.1</title>
+    <content type="html">&lt;p&gt;Release 0.173.0-alpha.1&lt;/p&gt;</content>
+    <author>
+      <name>github-actions[bot]</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/in/15368?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/965415649/rust-v0.172.0-alpha.2</id>
+    <updated>2026-11-19T15:49:51Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/openai/codex/releases/tag/rust-v0.172.0-alpha.2"/>
+    <title>0.172.0-alpha.2</title>
+    <content type="html">&lt;p&gt;Release 0.172.0-alpha.2&lt;/p&gt;</content>
+    <author>
+      <name>github-actions[bot]</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/in/15368?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/965415649/rust-v0.171.0</id>
+    <updated>2026-11-20T00:47:14Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/openai/codex/releases/tag/rust-v0.171.0"/>
+    <title>0.171.0</title>
+    <content type="html">&lt;ul&gt;&lt;li&gt;Added GPT-6.2 Sol and Astra to model catalogs, with Sol as the default catalog selection. (&lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6453062015&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/62106&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/62106/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/62106&quot;&gt;#62106&lt;/a&gt;)&lt;/li&gt;&lt;li&gt;Enabled the TUI workspace by default, with searchable document previews, image previews, and subagent transcripts alongside the main conversation. (&lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6377870893&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/61352&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/61352/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/61352&quot;&gt;#61352&lt;/a&gt;, &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6431549440&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/61888&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/61888/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/61888&quot;&gt;#61888&lt;/a&gt;, &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6431558130&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/61889&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/61889/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/61889&quot;&gt;#61889&lt;/a&gt;, &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6433779014&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/61919&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/61919/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/61919&quot;&gt;#61919&lt;/a&gt;, &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6458287384&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/62157&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/62157/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/62157&quot;&gt;#62157&lt;/a&gt;)&lt;/li&gt;&lt;li&gt;Added configurable undo and redo shortcuts to the non-Vim prompt composer, including restoration of attachments and large pastes. (&lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6436316121&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/61954&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/61954/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/61954&quot;&gt;#61954&lt;/a&gt;)&lt;/li&gt;&lt;li&gt;Added &lt;code&gt;codex exec --remote &amp;lt;ADDR&amp;gt;&lt;/code&gt; to start or resume noninteractive sessions on an existing app server. (&lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6411299885&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/61707&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/61707/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/61707&quot;&gt;#61707&lt;/a&gt;)&lt;/li&gt;&lt;li&gt;Added &lt;code&gt;/rc&lt;/code&gt; and &lt;code&gt;/remote&lt;/code&gt; to manage local remote control and display device pairing codes from the TUI. (&lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6455711214&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/62121&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/62121/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/62121&quot;&gt;#62121&lt;/a&gt;)&lt;/li&gt;&lt;li&gt;Added custom MCP status line selection and authoring through &lt;code&gt;/statusline&lt;/code&gt; when &lt;code&gt;tui_extensions_statusline&lt;/code&gt; is enabled. (&lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6438925698&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/61979&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/61979/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/61979&quot;&gt;#61979&lt;/a&gt;, &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6440007841&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/61988&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/61988/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/61988&quot;&gt;#61988&lt;/a&gt;, &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6444458946&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/62037&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/62037/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/62037&quot;&gt;#62037&lt;/a&gt;)&lt;/li&gt;&lt;/ul&gt;</content>
+    <author>
+      <name>github-actions[bot]</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/in/15368?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/965415649/rust-v0.171.0-alpha.13.1</id>
+    <updated>2026-11-19T22:07:59Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/openai/codex/releases/tag/rust-v0.171.0-alpha.13.1"/>
+    <title>0.171.0-alpha.13.1</title>
+    <content type="html">&lt;p&gt;Release 0.171.0-alpha.13.1&lt;/p&gt;</content>
+    <author>
+      <name>github-actions[bot]</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/in/15368?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/965415649/rust-v0.172.0-alpha.1</id>
+    <updated>2026-11-18T18:01:02Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/openai/codex/releases/tag/rust-v0.172.0-alpha.1"/>
+    <title>0.172.0-alpha.1</title>
+    <content type="html">&lt;p&gt;Release 0.172.0-alpha.1&lt;/p&gt;</content>
+    <author>
+      <name>github-actions[bot]</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/in/15368?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/965415649/rust-v0.171.0-alpha.13</id>
+    <updated>2026-11-18T05:52:48Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/openai/codex/releases/tag/rust-v0.171.0-alpha.13"/>
+    <title>0.171.0-alpha.13</title>
+    <content type="html">&lt;p&gt;Release 0.171.0-alpha.13&lt;/p&gt;</content>
+    <author>
+      <name>github-actions[bot]</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/in/15368?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/965415649/rust-v0.170.0</id>
+    <updated>2026-11-18T03:45:39Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/openai/codex/releases/tag/rust-v0.170.0"/>
+    <title>0.170.0</title>
+    <content type="html">&lt;ul&gt;&lt;li&gt;Added WebRTC negotiation for realtime voice calls in the TUI. (&lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6357685721&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/61172&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/61172/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/61172&quot;&gt;#61172&lt;/a&gt;)&lt;/li&gt;&lt;li&gt;Added automatically refreshed authentication headers for OpenTelemetry HTTP exporters. (&lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6343445695&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/61028&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/61028/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/61028&quot;&gt;#61028&lt;/a&gt;)&lt;/li&gt;&lt;li&gt;Added experimental support for using identically named MCP servers across environments. (&lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6339210232&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/60905&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/60905/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/60905&quot;&gt;#60905&lt;/a&gt;)&lt;/li&gt;&lt;li&gt;Oversized WebSocket requests now fall back to HTTP without unnecessary retries. (&lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6335253805&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/60840&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/60840/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/60840&quot;&gt;#60840&lt;/a&gt;, &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6335263304&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/60841&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/60841/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/60841&quot;&gt;#60841&lt;/a&gt;)&lt;/li&gt;&lt;li&gt;Fixed MCP OAuth credential races during cancellation, login, and logout. (&lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6335577102&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/60849&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/60849/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/60849&quot;&gt;#60849&lt;/a&gt;, &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6341654512&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/60981&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/60981/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/60981&quot;&gt;#60981&lt;/a&gt;)&lt;/li&gt;&lt;li&gt;Improved automatic reconnection for Cloud conversations and preserved active recovery turns when clients reconnect. (&lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6340940153&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/60969&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/60969/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/60969&quot;&gt;#60969&lt;/a&gt;, &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6342706645&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/openai/codex/issues/61014&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/openai/codex/pull/61014/hovercard&quot; href=&quot;https://github.com/openai/codex/pull/61014&quot;&gt;#61014&lt;/a&gt;)&lt;/li&gt;&lt;/ul&gt;</content>
+    <author>
+      <name>github-actions[bot]</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/in/15368?s=60&amp;v=4"/>
+  </entry>
+</feed>

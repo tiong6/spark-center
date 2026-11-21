@@ -26,6 +26,7 @@
       <a data-tab="apps" data-i18n="tab.apps">應用程式<span id="dotApps" class="dot hide"></span></a>
       <a data-tab="disk" data-i18n="tab.disk">磁碟<span id="dotDisk" class="dot hide" style="background:var(--danger)"></span></a>
       <a data-tab="hardware" data-i18n="tab.hardware">硬體</a>
+      <a data-tab="ai" data-i18n="tab.ai">AI 布告欄<span id="dotAi" class="dot hide"></span></a>
       <a data-tab="history" data-i18n="tab.history">歷史</a>
       <a data-tab="faq" data-i18n="tab.faq">常見問題<span id="dotFaq" class="dot hide" style="background:var(--warn)"></span></a>
       <a data-tab="setup" data-i18n="tab.setup">設定<span id="dotSetup" class="dot hide" style="background:var(--warn)"></span></a>
@@ -88,6 +89,27 @@
       </div>
       <div id="appsNote" class="sub1" style="margin-top:8px"></div>
       <div id="apps"><div class="empty" data-i18n="apps.scanning_snap_and_flatpak_query_their">掃描中（snap 與 flatpak 要連商店查新版，第一次約需幾秒）…</div></div>
+    </div>
+  </section>
+
+  <section id="tab-ai" class="hide">
+    <div class="panel">
+      <div class="panel-h">
+        <h2 data-i18n="ai.models_title">新模型</h2>
+        <span id="aiModelsMeta" class="sub"></span>
+        <div class="actions"><label class="sub1" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="aiOpenOnly"><span data-i18n="ai.open_only">只看開放權重</span></label><button id="btnAiReload" class="small" data-i18n="ai.reload">重新抓取</button></div>
+      </div>
+      <div class="chips" id="aiProvChips" style="margin-top:10px"></div>
+      <div id="aiModels" style="margin-top:10px"><div class="empty" data-i18n="ai.loading">讀取中…</div></div>
+      <div id="aiModelsNote" class="sub1" style="margin-top:8px"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h2 data-i18n="ai.tools_title">這台機器上的 AI 工具</h2><span id="aiToolsMeta" class="sub"></span></div>
+      <div id="aiTools"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h2 data-i18n="ai.vscode_title">VS Code 擴充功能</h2><span id="aiVscodeMeta" class="sub"></span></div>
+      <div id="aiVscode"></div>
     </div>
   </section>
 
@@ -173,6 +195,7 @@
 <script src="/static/js/monitor.js"></script>
 <script src="/static/js/faq.js"></script>
 <script src="/static/js/setup.js"></script>
+<script src="/static/js/ai.js"></script>
 <script src="/static/js/main.js"></script>
 </body>
 </html>

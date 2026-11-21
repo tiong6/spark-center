@@ -44,6 +44,7 @@ from backend.system import HERE, READONLY, NO_SWEEP, _ENV_C, _run, _http_json, p
 from backend import auto_refresh
 from backend import urgent_updates
 from backend import peer
+from backend import ai_watch
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("SPARK_UPDATER_PORT", "11001"))
@@ -1472,6 +1473,122 @@ def _urgent_watch():
         time.sleep(wait)
 
 
+# ---------- AI 布告欄：新模型表＋這台機器上的 AI 工具落後幾版（解析在 backend/ai_watch.py）----------
+# 每個來源各自 try：一個掛掉只讓那一塊顯示「—」與原因。結果快取 6 小時（GitHub 未驗證每小時只給 60 次）。
+AI_BOARD_TTL = 6 * 3600
+VSCODE_EXT_DIR = os.path.expanduser("~/.vscode/extensions")
+_AIB = {"lock": threading.Lock(), "data": None, "ts": 0}
+
+
+def _http_get(url, body=None, headers=None, timeout=60):
+    h = {"User-Agent": "spark-center", **(headers or {})}
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode(); h["Content-Type"] = "application/json"
+    with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=h), timeout=timeout) as r:
+        return r.read()
+
+
+def _src(fn):
+    """跑一個來源：回 (結果, None) 或 (None, 錯誤字串)。"""
+    try:
+        return fn(), None
+    except Exception as e:
+        return None, f"{type(e).__name__}: {str(e)[:160]}"
+
+
+def _vscode_platform():
+    m = os.uname().machine
+    return "linux-arm64" if m in ("aarch64", "arm64") else "linux-x64" if m == "x86_64" else f"linux-{m}"
+
+
+def ai_board_status(force=False):
+    """不等網路：回目前快取（可能是 None）＋是否正在背景重抓；過期或 force 就起一條背景執行緒。前端看 refreshing 決定要不要再問。"""
+    with _AIB["lock"]:
+        stale = force or not _AIB["data"] or time.time() - _AIB["ts"] >= AI_BOARD_TTL
+        start = stale and not _AIB.get("refreshing")
+        if start:
+            _AIB["refreshing"] = True
+        data, refreshing = _AIB["data"], _AIB.get("refreshing", False)
+
+    def _bg():
+        try:
+            ai_board()
+        except Exception as e:
+            print("ai board refresh failed:", e, flush=True)
+        finally:
+            with _AIB["lock"]:
+                _AIB["refreshing"] = False
+    if start:
+        threading.Thread(target=_bg, daemon=True).start()
+    return {"ok": True, "refreshing": refreshing, "data": data}
+
+
+def ai_board():
+    now = time.time()
+    mk_hdr = {"Accept": "application/json;api-version=7.2-preview.1"}
+    installed = ai_watch.vscode_installed(os.path.join(VSCODE_EXT_DIR, "extensions.json"))
+
+    def _market():
+        plat = _vscode_platform()
+        ids = [e["id"] for e in installed or []]
+        latest, missing = ai_watch.marketplace_latest(json.loads(_http_get(ai_watch.MARKETPLACE_URL, ai_watch.marketplace_body(ids), mk_hdr)), installed, plat)
+        if missing:   # 最新一版只有預覽版：逐一問單一擴充端點（並行），找最新正式版
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+                for raw in ex.map(lambda i: _http_get(ai_watch.marketplace_latest_url(i), headers=mk_hdr, timeout=30), missing):
+                    more, _ = ai_watch.marketplace_latest(ai_watch.wrap_single(json.loads(raw)), installed, plat)
+                    latest.update(more)
+        return latest
+    # 四個來源並行：串起來要加總每一家的延遲；Claude 的 CHANGELOG.md 最大（約 10 秒）
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        f_models = ex.submit(_src, lambda: ai_watch.recent_models(json.loads(_http_get(ai_watch.OPENROUTER_URL)), now))
+        f_market = ex.submit(_src, _market) if installed else None
+        f_claude = ex.submit(_src, lambda: ai_watch.parse_claude_changelog(_http_get(ai_watch.CLAUDE_CHANGELOG_URL).decode("utf-8", "replace")))
+        f_codex = ex.submit(_src, lambda: ai_watch.parse_codex_atom(_http_get(ai_watch.CODEX_RELEASES_URL).decode("utf-8", "replace")))
+        models, models_err = f_models.result()
+        latest, market_err = f_market.result() if f_market else (None, None)
+        claude_cl, claude_err = f_claude.result()
+        codex_rel, codex_err = f_codex.result()
+
+    exts = []
+    for e in installed or []:
+        lt = (latest or {}).get(e["id"])
+        exts.append({**e, "latest": lt["version"] if lt else None, "latest_date": lt["date"] if lt else None,
+                     "name": lt["name"] if lt else e["id"], "update": bool(lt and ai_watch.newer(lt["version"], e["version"]))})
+    by_id = {e["id"]: e for e in exts}
+
+    tools = []
+    cv = by_id.get("anthropic.claude-code")
+    claude_top = claude_cl[0][0] if claude_cl else None
+    if cv:
+        tools.append({"key": "claude_vscode", "ext": cv["id"], "installed": cv["version"], "latest": cv["latest"],
+                      "update": cv["update"], "notes": ai_watch.notes_between(claude_cl or [], cv["version"], cv["latest"]),
+                      "notes_err": claude_err, "latest_err": market_err})
+    cli_path = shutil.which("claude") or os.path.expanduser("~/.npm-global/bin/claude")
+    if os.path.exists(cli_path):
+        cli_v = ai_watch.claude_cli_version(_run([cli_path, "--version"], timeout=20) or "")
+        tools.append({"key": "claude_cli", "installed": cli_v, "latest": claude_top, "update": ai_watch.newer(claude_top, cli_v),
+                      "notes": ai_watch.notes_between(claude_cl or [], cli_v, claude_top), "notes_err": claude_err, "latest_err": claude_err})
+    cx_bin = ai_watch.codex_bundled(VSCODE_EXT_DIR)
+    if cx_bin:
+        m = re.search(r"(\d+\.\d+\.\d+\S*)", _run([cx_bin, "--version"], timeout=20) or "")
+        cx_v = m.group(1) if m else None
+        cx_top = ai_watch.latest_stable(codex_rel or [])
+        chat = by_id.get("openai.chatgpt")
+        tools.append({"key": "codex", "installed": cx_v, "latest": cx_top, "update": ai_watch.newer(cx_top, cx_v),
+                      "notes": ai_watch.notes_between(codex_rel or [], cx_v, cx_top), "notes_err": codex_err, "latest_err": codex_err,
+                      "host_ext": chat["id"] if chat else None, "host_update": bool(chat and chat["update"])})
+    data = {"ok": True, "generated": datetime.now().isoformat(timespec="seconds"),
+            "models": {"ok": models is not None, "items": models or [], "error": models_err, "days": ai_watch.MODEL_DAYS,
+                       "source": ai_watch.OPENROUTER_URL},
+            "tools": tools,
+            "vscode": {"ok": installed is not None and market_err is None, "items": exts, "error": market_err,
+                       "readable": installed is not None}}
+    with _AIB["lock"]:
+        _AIB.update(data=data, ts=time.time())
+    return data
+
+
 def apt_history(limit=8):
     """讀 apt 歷史最近幾筆，只回 Start-Date / Commandline / Upgrade 摘要。"""
     entries, cur = [], {}
@@ -2005,6 +2122,12 @@ class Job:
             return self._run_subprocess(["flatpak", "update", "-y"] + packages, packages, tracker=flatpak_progress.Tracker())
         if kind == "snap":
             return self._run_snap(packages)
+        if kind == "vscode":
+            # code CLI 直接把擴充裝進 ~/.vscode/extensions；開著的 VS Code 要「重新載入視窗」才換新版
+            r = self._run_subprocess(["code", "--install-extension", packages[0], "--force"], packages)
+            with _AIB["lock"]:
+                _AIB["ts"] = 0   # 布告欄下次重讀
+            return r
         if kind == "install":   # 升級前先把舊版留下來；失敗不影響升級
             try:
                 with self.lock:
@@ -4220,6 +4343,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, **llm_stores()})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/ai-board":
+            try:
+                self._json(ai_board_status(force="force=1" in (self.path.split("?", 1) + [""])[1]))
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/api/apps":
             force = "force=1" in (self.path.split("?", 1) + [""])[1]
             try:
@@ -4283,6 +4411,16 @@ class Handler(BaseHTTPRequestHandler):
             self.rfile.read(int(self.headers.get("Content-Length") or 0))
             return self._json({"ok": False, "error": msg("bad_origin", self.lang, why=why)}, 403)
         data = self._body()
+        if path == "/api/vscode/update":
+            eid = str(data.get("id") or "").lower()
+            known = {e["id"] for e in ai_watch.vscode_installed(os.path.join(VSCODE_EXT_DIR, "extensions.json")) or []}
+            if eid not in known:   # 只更新已經裝著的擴充，不接受任意 id
+                return self._json({"ok": False, "error": msg("vscode_unknown_ext", self.lang, p0=eid or "—")}, 400)
+            if not shutil.which("code"):
+                return self._json({"ok": False, "error": msg("vscode_no_cli", self.lang)}, 503)
+            if not JOB.start("vscode", [eid]):
+                return self._json({"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 409)
+            return self._json({"ok": True})
         if path == "/api/job/skip-rollback":
             # 只在 apt 更新的留舊版階段有效；已經進到下載／安裝就沒東西可略過
             with JOB.lock:

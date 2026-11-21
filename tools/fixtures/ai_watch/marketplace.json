@@ -1,0 +1,217 @@
+{
+ "results": [
+  {
+   "extensions": [
+    {
+     "publisher": {
+      "publisherId": "89769da0-cc4b-40b0-8216-93ffb5a96b56",
+      "publisherName": "anthropic",
+      "displayName": "Anthropic",
+      "flags": "verified",
+      "domain": "https://anthropic.com",
+      "isDomainVerified": true
+     },
+     "extensionId": "3c13ae49-babe-45fe-8c48-5e45077a62bf",
+     "extensionName": "claude-code",
+     "displayName": "Claude Code for VS Code",
+     "flags": "validated, public",
+     "lastUpdated": "2026-11-20T22:51:02.12Z",
+     "publishedDate": "2025-06-18T16:32:16.06Z",
+     "releaseDate": "2025-06-18T16:32:16.06Z",
+     "shortDescription": "Claude Code for VS Code: Harness the power of Claude Code without leaving your IDE",
+     "versions": [
+      {
+       "version": "2.1.330",
+       "targetPlatform": "linux-x64",
+       "flags": "validated",
+       "lastUpdated": "2026-11-20T22:48:53.863Z",
+       "properties": [],
+       "assetUri": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.330/1795214071230",
+       "fallbackAssetUri": "https://anthropic.gallery.vsassets.io/_apis/public/gallery/publisher/anthropic/extension/claude-code/2.1.330/assetbyname"
+      },
+      {
+       "version": "2.1.330",
+       "targetPlatform": "linux-arm64",
+       "flags": "validated",
+       "lastUpdated": "2026-11-20T22:47:51.197Z",
+       "properties": [],
+       "assetUri": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.330/1795214040353",
+       "fallbackAssetUri": "https://anthropic.gallery.vsassets.io/_apis/public/gallery/publisher/anthropic/extension/claude-code/2.1.330/assetbyname"
+      }
+     ],
+     "versionsTruncated": false,
+     "categories": [
+      "AI",
+      "Chat"
+     ],
+     "tags": [
+      "agent",
+      "ai",
+      "claude",
+      "json",
+      "keybindings",
+      "mcp",
+      "sonnet"
+     ],
+     "statistics": [
+      {
+       "statisticName": "install",
+       "value": 30729558.0
+      },
+      {
+       "statisticName": "averagerating",
+       "value": 3.7049942016601562
+      },
+      {
+       "statisticName": "ratingcount",
+       "value": 861.0
+      },
+      {
+       "statisticName": "trendingdaily",
+       "value": 0.0034952301823865787
+      },
+      {
+       "statisticName": "trendingmonthly",
+       "value": 7.2905124046919765
+      },
+      {
+       "statisticName": "trendingweekly",
+       "value": 1.526734077686532
+      },
+      {
+       "statisticName": "updateCount",
+       "value": 741980013.0
+      },
+      {
+       "statisticName": "weightedRating",
+       "value": 3.711670976898485
+      },
+      {
+       "statisticName": "downloadCount",
+       "value": 340119.0
+      }
+     ],
+     "deploymentType": 0
+    },
+    {
+     "publisher": {
+      "publisherId": "c0a8460b-1d33-4e44-9cf5-9874a65dd334",
+      "publisherName": "openai",
+      "displayName": "OpenAI",
+      "flags": "verified",
+      "domain": "https://openai.com",
+      "isDomainVerified": true
+     },
+     "extensionId": "90b52117-6fd1-4f1c-9e14-256bd6e21d79",
+     "extensionName": "chatgpt",
+     "displayName": "Codex – OpenAI’s coding agent",
+     "flags": "validated, public",
+     "lastUpdated": "2026-11-20T23:51:27.17Z",
+     "publishedDate": "2025-03-06T04:32:12.137Z",
+     "releaseDate": "2025-03-06T04:32:12.137Z",
+     "shortDescription": "Codex is a coding agent that works with you everywhere you code — included in ChatGPT Plus, Pro, Business, Edu, and Enterprise plans.",
+     "versions": [
+      {
+       "version": "26.51117.41037",
+       "targetPlatform": "linux-arm64",
+       "flags": "validated",
+       "lastUpdated": "2026-11-20T23:40:17.017Z",
+       "properties": [
+        {
+         "key": "Microsoft.VisualStudio.Code.PreRelease",
+         "value": "true"
+        }
+       ],
+       "assetUri": "https://openai.gallerycdn.vsassets.io/extensions/openai/chatgpt/26.51117.41037/1795216034164",
+       "fallbackAssetUri": "https://openai.gallery.vsassets.io/_apis/public/gallery/publisher/openai/extension/chatgpt/26.51117.41037/assetbyname"
+      },
+      {
+       "version": "26.51117.41037",
+       "targetPlatform": "linux-x64",
+       "flags": "validated",
+       "lastUpdated": "2026-11-20T23:39:51.323Z",
+       "properties": [
+        {
+         "key": "Microsoft.VisualStudio.Code.PreRelease",
+         "value": "true"
+        }
+       ],
+       "assetUri": "https://openai.gallerycdn.vsassets.io/extensions/openai/chatgpt/26.51117.41037/1795215924968",
+       "fallbackAssetUri": "https://openai.gallery.vsassets.io/_apis/public/gallery/publisher/openai/extension/chatgpt/26.51117.41037/assetbyname"
+      }
+     ],
+     "versionsTruncated": false,
+     "categories": [
+      "AI",
+      "Chat"
+     ],
+     "tags": [
+      "__ext_rules",
+      "agent",
+      "ai",
+      "chat",
+      "chatgpt",
+      "code",
+      "codex",
+      "CodexRules",
+      "codex-rules",
+      "coding",
+      "keybindings",
+      "openai"
+     ],
+     "statistics": [
+      {
+       "statisticName": "install",
+       "value": 17003293.0
+      },
+      {
+       "statisticName": "averagerating",
+       "value": 2.6371307373046875
+      },
+      {
+       "statisticName": "ratingcount",
+       "value": 948.0
+      },
+      {
+       "statisticName": "trendingdaily",
+       "value": 0.003076047903064614
+      },
+      {
+       "statisticName": "trendingmonthly",
+       "value": 6.782716926240649
+      },
+      {
+       "statisticName": "trendingweekly",
+       "value": 1.3008437834089865
+      },
+      {
+       "statisticName": "updateCount",
+       "value": 278743897.0
+      },
+      {
+       "statisticName": "weightedRating",
+       "value": 2.662937220638037
+      },
+      {
+       "statisticName": "downloadCount",
+       "value": 319405.0
+      }
+     ],
+     "deploymentType": 0
+    }
+   ],
+   "pagingToken": null,
+   "resultMetadata": [
+    {
+     "metadataType": "ResultCount",
+     "metadataItems": [
+      {
+       "name": "TotalCount",
+       "count": 2
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

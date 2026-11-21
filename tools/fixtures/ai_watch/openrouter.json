@@ -1,0 +1,122 @@
+{
+ "data": [
+  {
+   "id": "radixark/daisyrose-27b",
+   "name": "RadixArk: DaisyRose 27B",
+   "created": 1795222188,
+   "context_length": 262144,
+   "pricing": {
+    "prompt": "0.00000015",
+    "completion": "0.000001875",
+    "input_cache_read": "0.0000000375"
+   },
+   "hugging_face_id": "RadixArk/DaisyRose-27B"
+  },
+  {
+   "id": "google/gemini-4-neon",
+   "name": "Google: Gemini 4 Neon",
+   "created": 1795006977,
+   "context_length": 1048576,
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "image": "0.000003",
+    "audio": "0.000003",
+    "input_audio_cache": "0.00000015",
+    "web_search": "0.014",
+    "internal_reasoning": "0.000015",
+    "input_cache_read": "0.00000015",
+    "input_cache_write": "0.0000000833333333333333"
+   },
+   "hugging_face_id": null
+  },
+  {
+   "id": "openai/gpt-6.2-astra",
+   "name": "OpenAI: GPT-6.2 Astra",
+   "created": 1794938423,
+   "context_length": 1050000,
+   "pricing": {
+    "prompt": "0.000008",
+    "completion": "0.00004",
+    "web_search": "0.01",
+    "input_cache_read": "0.0000004",
+    "input_cache_write": "0.00001",
+    "overrides": [
+     {
+      "min_prompt_tokens": 272000,
+      "prompt": "0.000016",
+      "completion": "0.00006",
+      "input_cache_read": "0.0000008",
+      "input_cache_write": "0.00002"
+     }
+    ]
+   },
+   "hugging_face_id": null
+  },
+  {
+   "id": "anthropic/claude-fable-5.2",
+   "name": "Anthropic: Claude Fable 5.2",
+   "created": 1794253781,
+   "context_length": 1000000,
+   "pricing": {
+    "prompt": "0.000008",
+    "completion": "0.00004",
+    "web_search": "0.01",
+    "input_cache_read": "0.0000002",
+    "input_cache_write": "0.00001",
+    "input_cache_write_1h": "0.000016"
+   },
+   "hugging_face_id": null
+  },
+  {
+   "id": "anthropic/claude-fable-5.2:batch",
+   "name": "Anthropic: Claude Fable 5.2 (batch)",
+   "created": 1794253781,
+   "context_length": 1000000,
+   "pricing": {
+    "prompt": "0.000004",
+    "completion": "0.00002",
+    "web_search": "0.01",
+    "input_cache_read": "0.0000001",
+    "input_cache_write": "0.000005",
+    "input_cache_write_1h": "0.000008"
+   },
+   "hugging_face_id": null
+  },
+  {
+   "id": "moonshotai/kimi-k3.1-pro",
+   "name": "MoonshotAI: Kimi K3.1 Pro",
+   "created": 1792778188,
+   "context_length": 1048576,
+   "pricing": {
+    "prompt": "0.000000253",
+    "completion": "0.0000088",
+    "input_cache_read": "0.00000018"
+   },
+   "hugging_face_id": "moonshotai/Kimi-K3.1-Pro"
+  },
+  {
+   "id": "deepseek/deepseek-v4.1-flash",
+   "name": "DeepSeek: DeepSeek V4.1 Flash",
+   "created": 1789021285,
+   "context_length": 1048576,
+   "pricing": {
+    "prompt": "0.0000000507",
+    "completion": "0.0000002028",
+    "input_cache_read": "0.000000001014"
+   },
+   "hugging_face_id": "deepseek-ai/DeepSeek-V4.1-Flash"
+  },
+  {
+   "id": "openrouter/auto",
+   "name": "Auto Router",
+   "created": 1793885889,
+   "context_length": 2000000,
+   "pricing": {
+    "prompt": "-1",
+    "completion": "-1"
+   },
+   "hugging_face_id": null
+  }
+ ]
+}

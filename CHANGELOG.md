@@ -4,6 +4,24 @@
 
 ---
 
+## 2026-11-21
+
+*A new AI Board tab lists recently released models from the major providers and shows how far the AI tools on this machine are behind, with the release-note lines that add models. Urgent updates now raise a desktop notification and a top-bar badge without opening the Updates tab. Keeping old versions for rollback can be skipped mid-update, Spark Center can be quit from the top bar, and every POST request now logs which local process sent it.*
+
+### 新增
+
+- 新分頁「AI 布告欄」（硬體與歷史之間）。三塊：
+  - 新模型：OpenRouter 公開模型清單（`/api/v1/models`，無需金鑰）近 90 天上架的模型，依供應商篩選（Anthropic、OpenAI、Google、DeepSeek、Qwen、Kimi、GLM、MiniMax、xAI、Meta、Mistral、NVIDIA、小米、騰訊、百度、其他），列 context、每百萬 token 價格、有 Hugging Face 權重的標「開放權重」；這個瀏覽器上次看過之後才上架的標「新」，分頁標籤亮點只算主要供應商。上架日是 OpenRouter 的上架日、不一定是官方發布日，頁面上寫明。
+  - 這台機器上的 AI 工具：Claude Code 的 VS Code 擴充與終端機 CLI（對照 anthropics/claude-code 的 CHANGELOG.md）、附在 ChatGPT 擴充裡的 Codex CLI（`~/.local/bin/codex` 是轉接腳本；對照 openai/codex 的 releases.atom 正式版）。從已安裝版到最新版之間的版本說明，只挑「新增或改預設模型」的條目（`is_model_news`：「修了在 Opus 4.6 上的 bug」這種順帶提到的不算，2.1.318→2.1.330 十版裡有十幾行）。為什麼：使用者問 VS Code 的選單為什麼沒有 Fable 5.2——答案是 VS Code 擴充 2.1.318、Fable 5.2 在 2.1.321 才加入，終端機的 2.1.326 已經有；Codex 同理（GPT-6.2 在 0.171.0，附的是 0.171.0-alpha.13）。
+  - VS Code 擴充：讀 `~/.vscode/extensions/extensions.json`，對照 Marketplace；本機裝正式版的不拿預覽版比（最新一版只有預覽版時，逐一問單一擴充的 latest 端點——全版本查詢一個擴充 8 MB、20 個要 30 秒）。「更新」走 `code --install-extension <id> --force` 的背景工作，只接受已安裝的 id。
+  - 四個來源並行、背景抓、快取 6 小時，任一來源失敗只讓那一塊顯示「—」與原因。Codex 用 Atom feed 而不用 REST API：REST 一次 4 MB（多是下載檔清單），真機曾 IncompleteRead。解析在 `backend/ai_watch.py`，`tools/test_ai_watch.py` 用從真實資料剪的 fixtures（`tools/fixtures/ai_watch/`）。
+- 急迫更新主動提示：背景每 10 分鐘跑一次清單與 changelog 急迫度，high 以上（與清單紅標同門檻）的新「套件＋版本」發一次桌面通知（`data/urgent-notified.json` 記已通知；沒桌面不記，下次補發），頂欄紅徽章顯示目前件數。原本急迫度只在打開更新分頁時才抓。
+- 工作卡在「保留舊版」階段多一顆「略過保留舊版」：正在下載的從進度回呼中斷、殘檔刪除，剩下的記成「使用者略過」；已保留的照樣能降回。起因：Launchpad 只有 26 KB/s，一個 45 MB 的 openjdk 舊版拖住整個更新二十分鐘且無法中止。
+- 頂欄 ⏻ 結束：確認後服務以結束碼 0 退出（`Restart=on-failure` 不會拉回），下次開 App 由啟動器再起；有工作在跑就拒絕。
+- 每筆 POST 在 journal 記下發出請求的本機程序與父程序鏈（`backend/peer.py`：來源埠 → `/proc/net/tcp` → socket inode → 持有程序），安裝工作另寫一行「請求來源」進工作卡記錄。起因：一批安裝在使用者表示沒按的情況下開始，原本的 log 不記成功的請求，查不出來源。
+
+---
+
 ## 2026-11-04
 
 *The Updates tab can now refresh the apt index in the background at an interval you choose (off, hourly, every 6 or 12 hours, daily; default 6 hours). It only updates the list: nothing is installed, no notification is shown. The timer follows apt's own update stamp, so a manual refresh or the system's daily run resets it.*
