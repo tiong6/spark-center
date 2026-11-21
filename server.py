@@ -1476,6 +1476,7 @@ def _urgent_watch():
 # ---------- AI 布告欄：新模型表＋這台機器上的 AI 工具落後幾版（解析在 backend/ai_watch.py）----------
 # 每個來源各自 try：一個掛掉只讓那一塊顯示「—」與原因。結果快取 6 小時（GitHub 未驗證每小時只給 60 次）。
 AI_BOARD_TTL = 6 * 3600
+AI_MODELS_TTL = 3600   # 模型清單一次不到 1 秒：每小時重抓，「今天有新模型」的亮點才不會晚到 6 小時；工具版本那幾個來源重，維持 6 小時
 VSCODE_EXT_DIR = os.path.expanduser("~/.vscode/extensions")
 _AIB = {"lock": threading.Lock(), "data": None, "ts": 0}
 
@@ -1505,15 +1506,17 @@ def _vscode_platform():
 def ai_board_status(force=False):
     """不等網路：回目前快取（可能是 None）＋是否正在背景重抓；過期或 force 就起一條背景執行緒。前端看 refreshing 決定要不要再問。"""
     with _AIB["lock"]:
-        stale = force or not _AIB["data"] or time.time() - _AIB["ts"] >= AI_BOARD_TTL
-        start = stale and not _AIB.get("refreshing")
+        now = time.time()
+        full = force or not _AIB["data"] or now - _AIB["ts"] >= AI_BOARD_TTL
+        models_only = not full and now - _AIB.get("models_ts", 0) >= AI_MODELS_TTL
+        start = (full or models_only) and not _AIB.get("refreshing")
         if start:
             _AIB["refreshing"] = True
         data, refreshing = _AIB["data"], _AIB.get("refreshing", False)
 
     def _bg():
         try:
-            ai_board()
+            ai_models_refresh() if models_only else ai_board()
         except Exception as e:
             print("ai board refresh failed:", e, flush=True)
         finally:
@@ -1522,6 +1525,21 @@ def ai_board_status(force=False):
     if start:
         threading.Thread(target=_bg, daemon=True).start()
     return {"ok": True, "refreshing": refreshing, "data": data}
+
+
+def _ai_models(now):
+    models, err = _src(lambda: ai_watch.recent_models(json.loads(_http_get(ai_watch.OPENROUTER_URL)), now))
+    return {"ok": models is not None, "items": models or [], "error": err, "days": ai_watch.MODEL_DAYS,
+            "source": ai_watch.OPENROUTER_URL, "fetched": datetime.now().isoformat(timespec="seconds")}
+
+
+def ai_models_refresh():
+    """只重抓模型清單，換掉快取裡的 models；抓失敗就保留上一份（不讓一次網路失誤把表清空）。"""
+    m = _ai_models(time.time())
+    with _AIB["lock"]:
+        if _AIB["data"] and (m["ok"] or not _AIB["data"]["models"]["ok"]):
+            _AIB["data"] = {**_AIB["data"], "models": m}
+        _AIB["models_ts"] = time.time()
 
 
 def ai_board():
@@ -1541,11 +1559,11 @@ def ai_board():
         return latest
     # 四個來源並行：串起來要加總每一家的延遲；Claude 的 CHANGELOG.md 最大（約 10 秒）
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-        f_models = ex.submit(_src, lambda: ai_watch.recent_models(json.loads(_http_get(ai_watch.OPENROUTER_URL)), now))
+        f_models = ex.submit(_ai_models, now)
         f_market = ex.submit(_src, _market) if installed else None
         f_claude = ex.submit(_src, lambda: ai_watch.parse_claude_changelog(_http_get(ai_watch.CLAUDE_CHANGELOG_URL).decode("utf-8", "replace")))
         f_codex = ex.submit(_src, lambda: ai_watch.parse_codex_atom(_http_get(ai_watch.CODEX_RELEASES_URL).decode("utf-8", "replace")))
-        models, models_err = f_models.result()
+        models = f_models.result()
         latest, market_err = f_market.result() if f_market else (None, None)
         claude_cl, claude_err = f_claude.result()
         codex_rel, codex_err = f_codex.result()
@@ -1579,13 +1597,12 @@ def ai_board():
                       "notes": ai_watch.notes_between(codex_rel or [], cx_v, cx_top), "notes_err": codex_err, "latest_err": codex_err,
                       "host_ext": chat["id"] if chat else None, "host_update": bool(chat and chat["update"])})
     data = {"ok": True, "generated": datetime.now().isoformat(timespec="seconds"),
-            "models": {"ok": models is not None, "items": models or [], "error": models_err, "days": ai_watch.MODEL_DAYS,
-                       "source": ai_watch.OPENROUTER_URL},
+            "models": models,
             "tools": tools,
             "vscode": {"ok": installed is not None and market_err is None, "items": exts, "error": market_err,
                        "readable": installed is not None}}
     with _AIB["lock"]:
-        _AIB.update(data=data, ts=time.time())
+        _AIB.update(data=data, ts=time.time(), models_ts=time.time())
     return data
 
 

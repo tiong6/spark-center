@@ -10,6 +10,7 @@ const aiSeenGet = () => { try { return Number(localStorage.getItem(AI_SEEN_KEY))
 const aiSeenSet = v => { try { localStorage.setItem(AI_SEEN_KEY, String(v)); } catch (e) {} };
 const aiDate = s => s ? new Date(s * 1000).toLocaleDateString(LANG === 'en' ? 'en-CA' : 'zh-TW', {month: '2-digit', day: '2-digit'}) : '—';
 const aiPrice = v => v == null ? '—' : v === 0 ? t('ai.free') : '$' + Number(v.toPrecision(3));   // 每百萬 token 美元
+const aiIsToday = s => s && new Date(s * 1000).toDateString() === new Date().toDateString();   // 這台電腦的本地日期
 const aiCtx = n => !n ? '—' : n >= 1e6 ? Math.round(n / 1e5) / 10 + 'M' : Math.round(n / 1000) + 'K';
 
 async function loadAi(force) {
@@ -25,7 +26,7 @@ async function loadAi(force) {
 function renderAi(d, refreshing) {
   const busy = refreshing ? ` · ${t('ai.refreshing')}` : '';
   if (!d) { $('#aiModels').innerHTML = `<div class="empty">${t('ai.first_fetch')}</div>`; $('#aiModelsMeta').textContent = ''; return; }
-  renderAiModels(d.models, busy, d.generated);
+  renderAiModels(d.models, busy, d.models.fetched || d.generated);
   renderAiTools(d.tools || [], d.generated, busy);
   renderAiVscode(d.vscode);
   const top = Math.max(0, ...(d.models.items || []).filter(m => m.major).map(m => m.created));
@@ -53,7 +54,7 @@ function renderAiModels(m, busy, generated) {
   $('#aiModels').innerHTML = !rows.length ? `<div class="empty">${t('ai.no_models')}</div>` :
     `<div style="overflow-x:auto"><table><thead><tr><th style="width:70px">${t('ai.col_date')}</th><th>${t('ai.col_model')}</th><th style="width:130px">${t('ai.col_provider')}</th><th style="width:70px">${t('ai.col_context')}</th><th style="width:120px" title="${esc(t('ai.price_hint'))}">${t('ai.col_price')}</th><th style="width:120px">${t('ai.col_open')}</th></tr></thead><tbody>` +
     rows.slice(0, aiState.all ? rows.length : AI_ROWS).map(x => `<tr><td class="mono sub1">${aiDate(x.created)}</td>
-      <td><b title="${esc(x.desc)}">${esc(x.name)}</b>${seen && x.created > seen ? ` <span class="tag new">${t('ai.new')}</span>` : ''}<div class="sub1 mono">${esc(x.id)}</div></td>
+      <td><b title="${esc(x.desc)}">${esc(x.name)}</b>${aiIsToday(x.created) ? ` <span class="tag new">${t('ai.today')}</span>` : seen && x.created > seen ? ` <span class="tag new">${t('ai.new')}</span>` : ''}<div class="sub1 mono">${esc(x.id)}</div></td>
       <td class="sub1">${esc(aiProvName(x.provider))}</td>
       <td class="mono sub1">${aiCtx(x.context)}</td>
       <td class="mono sub1">${aiPrice(x.price_in)} / ${aiPrice(x.price_out)}</td>
@@ -123,9 +124,13 @@ function aiBindUpdate(box) {
 async function aiDotCheck() {
   let r; try { r = await api('/api/ai-board'); } catch (e) { return; }
   if (!r.ok || !r.data || !r.data.models.ok) return;
+  if (!$('#tab-ai').classList.contains('hide')) return;   // 正在看布告欄就不亮
   const seen = aiSeenGet();
-  $('#dotAi').classList.toggle('hide', !seen || !r.data.models.items.some(m => m.major && m.created > seen));   // 第一次用（沒有紀錄）不亮：全部都算新沒意義
+  // 亮點：今天（本地日期）有主要供應商的模型上架，而且這個瀏覽器還沒在布告欄看過它；看過就熄，隔天有新的再亮
+  $('#dotAi').classList.toggle('hide', !r.data.models.items.some(m => m.major && aiIsToday(m.created) && m.created > seen));
 }
+setInterval(aiDotCheck, 30 * 60 * 1000);   // App 常整天開著：後端每小時重抓模型清單，這裡半小時看一次
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') aiDotCheck(); });
 
 $('#btnAiReload').onclick = () => loadAi(true);
 $('#aiOpenOnly').onchange = () => loadAi();

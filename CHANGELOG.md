@@ -11,7 +11,7 @@
 ### 新增
 
 - 新分頁「AI 布告欄」（硬體與歷史之間）。三塊：
-  - 新模型：OpenRouter 公開模型清單（`/api/v1/models`，無需金鑰）近 90 天上架的模型，依供應商篩選（Anthropic、OpenAI、Google、DeepSeek、Qwen、Kimi、GLM、MiniMax、xAI、Meta、Mistral、NVIDIA、小米、騰訊、百度、其他），列 context、每百萬 token 價格、有 Hugging Face 權重的標「開放權重」；這個瀏覽器上次看過之後才上架的標「新」，分頁標籤亮點只算主要供應商。上架日是 OpenRouter 的上架日、不一定是官方發布日，頁面上寫明。
+  - 新模型：OpenRouter 公開模型清單（`/api/v1/models`，無需金鑰）近 90 天上架的模型，依供應商篩選（Anthropic、OpenAI、Google、DeepSeek、Qwen、Kimi、GLM、MiniMax、xAI、Meta、Mistral、NVIDIA、小米、騰訊、百度、其他），列 context、每百萬 token 價格、有 Hugging Face 權重的標「開放權重」；今天上架的標「今天」，這個瀏覽器上次看過之後才上架的標「新」。分頁標籤在「今天有主要供應商的新模型、而且還沒在布告欄看過」時亮點，看過就熄；模型清單每小時重抓（其餘來源 6 小時），App 開著時每半小時與切回視窗時重看一次。上架日是 OpenRouter 的上架日、不一定是官方發布日，頁面上寫明。
   - 這台機器上的 AI 工具：Claude Code 的 VS Code 擴充與終端機 CLI（對照 anthropics/claude-code 的 CHANGELOG.md）、附在 ChatGPT 擴充裡的 Codex CLI（`~/.local/bin/codex` 是轉接腳本；對照 openai/codex 的 releases.atom 正式版）。從已安裝版到最新版之間的版本說明，只挑「新增或改預設模型」的條目（`is_model_news`：「修了在 Opus 4.6 上的 bug」這種順帶提到的不算，2.1.318→2.1.330 十版裡有十幾行）。為什麼：使用者問 VS Code 的選單為什麼沒有 Fable 5.2——答案是 VS Code 擴充 2.1.318、Fable 5.2 在 2.1.321 才加入，終端機的 2.1.326 已經有；Codex 同理（GPT-6.2 在 0.171.0，附的是 0.171.0-alpha.13）。
   - VS Code 擴充：讀 `~/.vscode/extensions/extensions.json`，對照 Marketplace；本機裝正式版的不拿預覽版比（最新一版只有預覽版時，逐一問單一擴充的 latest 端點——全版本查詢一個擴充 8 MB、20 個要 30 秒）。「更新」走 `code --install-extension <id> --force` 的背景工作，只接受已安裝的 id。
   - 四個來源並行、背景抓、快取 6 小時，任一來源失敗只讓那一塊顯示「—」與原因。Codex 用 Atom feed 而不用 REST API：REST 一次 4 MB（多是下載檔清單），真機曾 IncompleteRead。解析在 `backend/ai_watch.py`，`tools/test_ai_watch.py` 用從真實資料剪的 fixtures（`tools/fixtures/ai_watch/`）。
