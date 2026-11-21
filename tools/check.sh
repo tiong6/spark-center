@@ -16,6 +16,7 @@ _ro=$(mktemp); python3 tools/test_refresh_outcome.py > "$_ro" 2>&1 && echo "refr
 _fp=$(mktemp); python3 tools/test_flatpak_progress.py > "$_fp" 2>&1 && echo "flatpak progress tests OK" || { cat "$_fp"; exit 1; }; rm -f "$_fp"   # 真實 CLI 輸出當測資，不碰 flatpak
 _uu=$(mktemp); python3 tools/test_urgent_updates.py > "$_uu" 2>&1 && echo "urgent updates tests OK" || { cat "$_uu"; exit 1; }; rm -f "$_uu"   # 純判斷＋暫存檔，不碰 apt／notify-send
 _rs=$(mktemp); python3 tools/test_rollback_skip.py > "$_rs" 2>&1 && echo "rollback skip tests OK" || { cat "$_rs"; exit 1; }; rm -f "$_rs"   # 假 apt／假下載，暫存目錄
+_pe=$(mktemp); python3 tools/test_peer.py > "$_pe" 2>&1 && echo "peer lookup tests OK" || { cat "$_pe"; exit 1; }; rm -f "$_pe"   # 真的本機 socket，查自己
 _rp=$(mktemp); python3 tools/test_release_prompt.py > "$_rp" 2>&1 && echo "release prompt tests OK" || { cat "$_rp"; exit 1; }; rm -f "$_rp"   # 暫存檔＋假 pkexec，不碰 /etc；有 update-manager-core 就和 Ubuntu 的 MetaRelease 交叉比對
 
 python3 tools/test_backend_modules.py

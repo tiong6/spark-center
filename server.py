@@ -43,6 +43,7 @@ from backend.messages import LANG_DEFAULT, MSG, msg
 from backend.system import HERE, READONLY, NO_SWEEP, _ENV_C, _run, _http_json, process_label
 from backend import auto_refresh
 from backend import urgent_updates
+from backend import peer
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("SPARK_UPDATER_PORT", "11001"))
@@ -4261,9 +4262,19 @@ class Handler(BaseHTTPRequestHandler):
             return f"Content-Type={ctype or '(none)'}"
         return None
 
+    def _source(self):
+        """這個請求是哪個程序發的（backend/peer.py），加上 UA／Origin。POST 都會改東西，所以每一筆都記進 journal。"""
+        try:
+            who = peer.describe(peer.chain(self.client_address[1], PORT)) or "?（查不到持有連線的程序）"
+        except Exception as e:
+            who = f"?（{e}）"
+        return f"{who} · UA={(self.headers.get('User-Agent') or '-')[:80]} · Origin={self.headers.get('Origin') or '-'}"
+
     def do_POST(self):
         self.lang = self._request_lang()
         path = self.path.split("?", 1)[0]
+        self.source = self._source()
+        print(f"POST {path} from {self.source}", flush=True)
         if READONLY:
             self.rfile.read(int(self.headers.get("Content-Length") or 0))
             return self._json({"ok": False, "error": msg("readonly_mode", self.lang)}, 403)
@@ -4326,6 +4337,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error": msg('phased_confirm_required', LANG_DEFAULT, names=", ".join(x["name"] for x in sim["phased"]))}, 409)
             if not JOB.start("install", names):
                 return self._json({"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 409)
+            JOB._log(msg("job_requested_by", LANG_DEFAULT, src=self.source))
             return self._json({"ok": True})
         if path in ('/api/node/preview', '/api/node/action'):
             try:
