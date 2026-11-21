@@ -22,7 +22,7 @@ CLAUDE_CHANGELOG_URL = "https://raw.githubusercontent.com/anthropics/claude-code
 CODEX_RELEASES_URL = "https://github.com/openai/codex/releases.atom"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/models"
 MODEL_DAYS = 90
-# 布告欄上有自己篩選鈕的供應商（OpenRouter id 前綴）；其餘歸「其他」。「~openai」這種是 OpenRouter 的別名路由、openrouter 是它自己的，都不算模型發布
+# AI 動態上有自己篩選鈕的供應商（OpenRouter id 前綴）；其餘歸「其他」。「~openai」這種是 OpenRouter 的別名路由、openrouter 是它自己的，都不算模型發布
 MAJOR_PROVIDERS = ("anthropic", "openai", "google", "deepseek", "qwen", "moonshotai", "z-ai", "minimax", "x-ai",
                    "meta", "meta-llama", "mistralai", "nvidia", "xiaomi", "tencent", "baidu")
 

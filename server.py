@@ -1473,7 +1473,7 @@ def _urgent_watch():
         time.sleep(wait)
 
 
-# ---------- AI 布告欄：新模型表＋這台機器上的 AI 工具落後幾版（解析在 backend/ai_watch.py）----------
+# ---------- AI 動態：新模型表＋這台機器上的 AI 工具落後幾版（解析在 backend/ai_watch.py）----------
 # 每個來源各自 try：一個掛掉只讓那一塊顯示「—」與原因。結果快取 6 小時（GitHub 未驗證每小時只給 60 次）。
 AI_BOARD_TTL = 6 * 3600
 AI_MODELS_TTL = 3600   # 模型清單一次不到 1 秒：每小時重抓，「今天有新模型」的亮點才不會晚到 6 小時；工具版本那幾個來源重，維持 6 小時
@@ -2144,7 +2144,7 @@ class Job:
             # code 一次可接多個 --install-extension（「全部更新」走這條，一個工作、一次 CLI 啟動）
             r = self._run_subprocess(["code", *[a for eid in packages for a in ("--install-extension", eid)], "--force"], packages)
             with _AIB["lock"]:
-                _AIB["ts"] = 0   # 布告欄下次重讀
+                _AIB["ts"] = 0   # AI 動態下次重讀
             return r
         if kind == "install":   # 升級前先把舊版留下來；失敗不影響升級
             try:

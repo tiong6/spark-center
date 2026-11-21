@@ -1,6 +1,6 @@
-/* AI 布告欄：新模型表（OpenRouter 公開清單）＋這台機器上的 AI 工具落後幾版、新版加了哪些模型＋VS Code 擴充新版。
+/* AI 動態：新模型表（OpenRouter 公開清單）＋這台機器上的 AI 工具落後幾版、新版加了哪些模型＋VS Code 擴充新版。
    後端 /api/ai-board 不等網路：先回快取，過期就背景重抓（約 20 秒），refreshing 為真時這裡每 3 秒再問。
-   「新」：比這個瀏覽器上次看布告欄時最新的那個模型還新（localStorage，只是看過沒看過的方便標記）。 */
+   「新」：比這個瀏覽器上次看 AI 動態時最新的那個模型還新（localStorage，只是看過沒看過的方便標記）。 */
 const AI_PROVIDERS = ['anthropic', 'openai', 'google', 'deepseek', 'qwen', 'moonshotai', 'z-ai', 'minimax', 'x-ai', 'meta', 'mistralai', 'nvidia', 'xiaomi', 'tencent', 'baidu'];
 const aiProvName = p => { p = p === 'meta-llama' ? 'meta' : p; return AI_PROVIDERS.includes(p) ? t('ai.prov_' + p.replace(/-/g, '_')) : p; };
 const aiState = {prov: 'major', timer: null, seenPrev: null, all: false};
@@ -114,7 +114,7 @@ function aiBindUpdate(box) {
     if (!r.ok) { alert(t('updates.could_not_start_with_value', {value: r.error})); box.querySelectorAll('button[data-ext], button[data-exts]').forEach(x => x.disabled = false); return; }
     startPolling(t('ai.updating_ext', {id: ids.length > 1 ? t('ai.n_exts', {n: ids.length}) : ids[0]}));
     window.scrollTo({top: 0, behavior: 'smooth'});
-    const w = setInterval(async () => {   // 工作結束後重抓布告欄（後端在工作結束時把快取作廢）
+    const w = setInterval(async () => {   // 工作結束後重抓 AI 動態（後端在工作結束時把快取作廢）
       const j = await api('/api/job');
       if (j.status !== 'running') { clearInterval(w); if (!$('#tab-ai').classList.contains('hide')) loadAi(); }
     }, 3000);
@@ -124,9 +124,9 @@ function aiBindUpdate(box) {
 async function aiDotCheck() {
   let r; try { r = await api('/api/ai-board'); } catch (e) { return; }
   if (!r.ok || !r.data || !r.data.models.ok) return;
-  if (!$('#tab-ai').classList.contains('hide')) return;   // 正在看布告欄就不亮
+  if (!$('#tab-ai').classList.contains('hide')) return;   // 正在看 AI 動態就不亮
   const seen = aiSeenGet();
-  // 亮點：今天（本地日期）有主要供應商的模型上架，而且這個瀏覽器還沒在布告欄看過它；看過就熄，隔天有新的再亮
+  // 亮點：今天（本地日期）有主要供應商的模型上架，而且這個瀏覽器還沒在 AI 動態看過它；看過就熄，隔天有新的再亮
   $('#dotAi').classList.toggle('hide', !r.data.models.items.some(m => m.major && aiIsToday(m.created) && m.created > seen));
 }
 setInterval(aiDotCheck, 30 * 60 * 1000);   // App 常整天開著：後端每小時重抓模型清單，這裡半小時看一次
