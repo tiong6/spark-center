@@ -3,9 +3,47 @@
    指令與連結跟語言無關，放在這裡。「本機」框是 /api/faq 即時讀的，和 NVIDIA 的說法分開畫；
    原文是抄進來的快照，有沒有改版由 /api/faq/source 查，查不到就講查不到。 */
 const FAQ_SOURCE = { url: 'https://forums.developer.nvidia.com/t/dgx-spark-gb10-faq/347344', version: 12, updated: '2026-09-29' };
-const FAQ_CATS = ['setup', 'network', 'memory', 'display', 'software', 'cluster', 'security'];
+const FAQ_CATS = ['staff', 'setup', 'network', 'memory', 'display', 'software', 'cluster', 'security'];
 const FAQ_APPLE_LAN = ['faq.link.apple_lan', 'https://support.apple.com/guide/mac-help/control-access-to-your-local-network-on-mac-mchla4f49138/mac'];
+/* staff：不在置頂 FAQ 裡、是 NVIDIA 人員在各討論串的回覆（2026-11-21 讀過的）。每題附出處 [串標題, 網址, 誰, 日期]，
+   內容寫的是回覆當天的狀態；「調查中」就寫調查中，不替 NVIDIA 下結論。 */
+const FAQ_FIELDIAG = ['faq.link.fieldiag', 'https://docs.nvidia.com/pdf/userguide-dgx-spark-fieldiag.pdf'];
 const FAQ = [
+  { id: 'reboot_1024', cat: 'staff', local: 'reboot_fix', staff: [
+    ['DGX Spark repeatedly rebooting after most recent update', 'https://forums.developer.nvidia.com/t/387397/40', 'zneill (NVIDIA)', '2026-11-03'],
+    ['DGX Spark repeatedly rebooting after most recent update', 'https://forums.developer.nvidia.com/t/387397/52', 'zneill (NVIDIA)', '2026-11-04']], cmds: [
+    ['faq.cmd.dist_upgrade', 'sudo apt update\nsudo apt dist-upgrade\nsudo reboot'],
+    ['faq.cmd.initcall_check', 'dpkg -l nvidia-spark-initcall-bl'],
+    ['faq.cmd.unhold', 'sudo apt-mark showhold\nsudo apt-mark unhold <packages listed by the previous command>\nsudo rm /etc/default/grub.d/zz-timeout.cfg\nsudo update-grub\nsudo reboot']] },
+  { id: 'asus_ec', cat: 'staff', local: 'vendor', staff: [
+    ['ASUS GX10 – capsule firmware update (EC 0x02000007 + SoC 0x03000008) stuck on ASUS logo progress bar for 6+ hours', 'https://forums.developer.nvidia.com/t/386166/3', 'aniculescu (NVIDIA)', '2026-10-27']] },
+  { id: 'pd_firmware', cat: 'staff', fe: true, local: 'vendor', staff: [
+    ['DGX Spark USB-C PD Firmware Stuck at 0x00000001 in ESRT', 'https://forums.developer.nvidia.com/t/387898/2', 'aniculescu (NVIDIA)', '2026-11-05'],
+    ['DGX Spark USB-C PD firmware inventory mismatch after Dashboard update', 'https://forums.developer.nvidia.com/t/389146/2', 'aniculescu (NVIDIA)', '2026-11-17'],
+    ['DGX Spark USB-C PD Firmware Stuck at 0x00000001 in ESRT', 'https://forums.developer.nvidia.com/t/387898/4', 'aniculescu (NVIDIA)', '2026-11-20']], cmds: [
+    ['faq.cmd.pd_installed', 'sudo nvidia-spark-ota-check installed-versions'],
+    ['faq.cmd.pd_smbios', 'sudo dmidecode -t 45'],
+    ['faq.cmd.pd_update', 'sudo fwupdmgr update'],
+    ['faq.cmd.pd_force', 'sudo fwupdmgr refresh --force\n# DGX Spark SoC firmware — 0x02009e0f\nsudo fwupdmgr reinstall 0681fd3882fb4fdca996e412ec249365f6e85838\n# DGX Spark USB-C Power Delivery Controller firmware — 0x00000519\nsudo fwupdmgr reinstall a6c6b7f79c96a1cc84d9612d804675e0c3d879c4\n# DGX Spark Embedded firmware — 0x03000d07\nsudo fwupdmgr reinstall 5ba76097236b8d0b0e58332b5e22215cdad361c3']] },
+  { id: 'fans_temps', cat: 'staff', local: 'sensors', staff: [
+    ['New DGX Spark: fans barely speed up at high temps and can\'t be adjusted', 'https://forums.developer.nvidia.com/t/386805/25', 'aniculescu (NVIDIA)', '2026-10-28'],
+    ['DGX Spark: Boot To Idle then doing nothing & idle, the unit is unusually warm', 'https://forums.developer.nvidia.com/t/367449/14', 'aniculescu (NVIDIA)', '2026-10-27'],
+    ['DGX Spark. low fan speed, high temps, device very hot', 'https://forums.developer.nvidia.com/t/348760/68', 'aniculescu (NVIDIA)', '2026-10-27'],
+    ['DGX Spark: log-less hard power-off + implausible ACPI thermal sensor spikes', 'https://forums.developer.nvidia.com/t/386556/7', 'aniculescu (NVIDIA)', '2026-11-05']], cmds: [
+    ['faq.cmd.lm_sensors', 'sudo apt install lm-sensors\nsensors'],
+    ['faq.cmd.temp_conf', 'chip "acpitz-acpi-*"\n    label temp1 "SoC"\n    label temp2 "CPU 0-4"\n    label temp3 "CPU 5-9"\n    label temp4 "CPU 10-14"\n    label temp5 "CPU 15-19"\n    label temp6 "GPU"\n    label temp7 "Uncore"'],
+    ['faq.cmd.temp_conf_run', 'sensors -c temp.conf']], links: [FAQ_FIELDIAG] },
+  { id: 'usb_plug', cat: 'staff', staff: [
+    ['Possible USB issue (latest system updates vs. KVM issue)', 'https://forums.developer.nvidia.com/t/354607/10', 'aniculescu (NVIDIA)', '2026-10-27']] },
+  { id: 'power_240', cat: 'staff', local: 'power', staff: [
+    ['DGX Spark Power Clarification', 'https://forums.developer.nvidia.com/t/349668', 'MackenzieNVIDIA', '2025-10-31']] },
+  { id: 'unsupported', cat: 'staff', staff: [
+    ['RTL8127 stuck at 100 Mbps / flapping on r8127', 'https://forums.developer.nvidia.com/t/385261/5', 'aniculescu (NVIDIA)', '2026-10-27'],
+    ['Request: Jetson-style owner keys or a developer mode for DGX Spark firmware', 'https://forums.developer.nvidia.com/t/385314/2', 'aniculescu (NVIDIA)', '2026-10-27'],
+    ['Feature request: UEFI option for LPDDR5X data rate on DGX Spark', 'https://forums.developer.nvidia.com/t/386823/6', 'aniculescu (NVIDIA)', '2026-10-26']] },
+  { id: 'report_bug', cat: 'staff', staff: [
+    ['*** If you have a problem PLEASE read this first ***', 'https://forums.developer.nvidia.com/t/347792', 'MackenzieNVIDIA', '2025-10-15']], cmds: [
+    ['faq.cmd.bug_report', 'sudo nvidia-bug-report.sh']], links: [FAQ_FIELDIAG] },
   { id: 'appliance', cat: 'setup', links: [
     ['faq.link.ms_network', 'https://support.microsoft.com/en-us/windows/essential-network-settings-and-tasks-in-windows-f21a9bbc-c582-55cd-35e0-73431160a1b9'],
     ['faq.link.ms_sharing', 'https://support.microsoft.com/en-us/windows/file-sharing-over-a-network-in-windows-b58704b2-f53a-4b82-7bc1-80f9994725bf'],
@@ -93,16 +131,19 @@ function faqItem(it) {
   const tags = (isNew ? `<span class="tag new" title="${esc(t('faq.tag_new_hint', {v: FAQ_SOURCE.version, d: FAQ_SOURCE.updated}))}">${t('faq.tag_new')}</span>` : '')
     + (it.local ? `<span class="tag ok">${t('faq.tag_local')}</span>` : '')
     + (it.own ? `<span class="tag" title="${esc(t('faq.tag_own_hint'))}">${t('faq.tag_own')}</span>` : '')   // 自己整理的題，和 NVIDIA 原文分開標
-    + (it.fe ? `<span class="tag" title="${esc(t('faq.tag_fe_hint'))}">${t('faq.tag_fe')}</span>` : '');
+    + (it.fe ? `<span class="tag" title="${esc(t('faq.tag_fe_hint'))}">${t('faq.tag_fe')}</span>` : '')
+    + (it.staff ? `<span class="tag sec" title="${esc(t('faq.tag_staff_hint'))}">${t('faq.tag_staff')}</span>` : '');
   const cmds = (it.cmds || []).map(([l, cmd]) =>
     `<div class="fcmd"><div class="sub1">${esc(label(l))}</div><div class="fbox"><pre>${esc(cmd)}</pre><button class="small" data-copy>${t('faq.copy')}</button></div></div>`).join('');
   const links = it.links ? `<div class="flinks"><span class="sub1">${t('faq.links')}</span>`
     + it.links.map(([k, href]) => `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(t(k))} ↗</a>`).join('') + `</div>` : '';
+  const staff = it.staff ? `<div class="flinks"><span class="sub1">${t('faq.staff_src')}</span>`
+    + it.staff.map(([title, href, who, date]) => `<a href="${esc(href)}" target="_blank" rel="noopener" title="${esc(title)}">${esc(who)} · ${esc(date)} ↗</a>`).join('') + `</div>` : '';
   const local = it.local ? `<div class="floc"><div class="sub1"><b>${t('faq.local_title')}</b> · ${t('faq.local_hint')}</div>`
     + `<dl class="kv" id="faqLoc-${it.id}"><dt>…</dt><dd class="muted">${t('faq.loading')}</dd></dl></div>` : '';
   const search = [q, a, ...(it.cmds || []).map(c => c[1])].join('\n').toLowerCase();
   return `<details class="faq${isNew ? ' new' : ''}" data-id="${it.id}" data-search="${esc(search)}"><summary><span class="fq">${esc(q)}</span>${tags}</summary>`
-    + `<div class="fa">${faqRich(a)}${cmds}${links}${local}</div></details>`;
+    + `<div class="fa">${faqRich(a)}${cmds}${staff}${links}${local}</div></details>`;
 }
 
 /* 本機框：每個值都來自 /api/faq、/api/machine、/api/dashboard；讀不到就寫讀不到 */
@@ -149,6 +190,33 @@ function faqLocalRows(kind) {
     const polText = mode == null ? t('faq.l.unreadable') : t('updates.phased_policy_' + mode) + (pol.other && pol.other.length ? ` · ${t('updates.phased_policy_other', {files: pol.other.join(', ')})}` : pol.ours ? ` · ${t('updates.phased_policy_ours', {file: pol.file})}` : '');
     const heldText = p.held == null ? t('faq.l.unreadable') : p.held.length ? p.held.map(h => `${h.name} ${h.candidate || ''}${LANG === 'zh-TW' ? '（' : ' ('}${t('updates.phased_tag', {p: h.percent == null ? '—' : h.percent})}${LANG === 'zh-TW' ? '）' : ')'}`).join(LANG === 'zh-TW' ? '、' : ', ') : t('faq.l.phased_none');
     return row(t('faq.l.phased_policy'), esc(polText) + ` · <a href="#updates" data-goto="updates">${t('faq.goto_updates')}</a>`) + row(t('faq.l.phased_held'), esc(heldText));
+  }
+  if (kind === 'reboot_fix') {
+    const r = L.reboot_fix;
+    if (!r) return na('faq.l.initcall');
+    const pkg = r.package == null ? t('faq.l.unreadable') : r.package ? r.package : t('faq.l.not_installed');
+    const ok = !!r.fixed;   // 後端用 apt_pkg.version_compare 算「≥ 1.0-2」，不在前端比字串
+    const holds = r.holds == null ? t('faq.l.unreadable') : r.holds.length ? r.holds.join(', ') : t('faq.l.none');
+    return row(t('faq.l.initcall'), `<span class="fv ${ok ? 'ok' : 'warn'}">${esc(pkg)}</span>`)
+      + row(t('faq.l.cmdline'), r.cmdline == null ? esc(t('faq.l.unreadable')) : `<span class="fv ${r.cmdline ? 'ok' : 'warn'}">${esc(t(r.cmdline ? 'faq.l.cmdline_yes' : 'faq.l.cmdline_no'))}</span>`)
+      + row(t('faq.l.kernel'), esc(r.kernel || '—'))
+      + row(t('faq.l.holds'), `<span class="fv ${r.holds && r.holds.length ? 'warn' : 'ok'}">${esc(holds)}</span>`)
+      + row(t('faq.l.zz_timeout'), `<span class="fv ${r.zz_timeout ? 'warn' : 'ok'}">${esc(t(r.zz_timeout ? 'faq.l.exists' : 'faq.l.absent'))}</span>`);
+  }
+  if (kind === 'sensors') {
+    const s = L.sensors;
+    if (!s) return na('faq.l.acpi');
+    const split = s.acpitz_chips > 1 && s.temps_per_chip.length === 1 && s.temps_per_chip[0] === 1;
+    return row(t('faq.l.lm_sensors'), esc(t(s.lm_sensors ? 'faq.l.installed' : 'faq.l.not_installed')))
+      + row(t('faq.l.acpi'), esc(t('faq.l.acpi_layout', {n: s.acpitz_chips, per: s.temps_per_chip.join('/') || '—'})))
+      + row(t('faq.l.verdict'), `<span class="fv ${split ? 'warn' : 'ok'}">${esc(t(split ? 'faq.l.temp_conf_split' : 'faq.l.temp_conf_ok'))}</span>`)
+      + row('', `<a href="#monitor" data-goto="monitor">${t('faq.goto_monitor')}</a>`);
+  }
+  if (kind === 'power') {
+    const p = L.power;
+    if (!p) return na('faq.l.gpu_power');
+    return row(t('faq.l.gpu_power'), esc(p.gpu_w == null ? t('faq.l.unreadable') : `${p.gpu_w.toFixed(1)} W`) + ` · <a href="#monitor" data-goto="monitor">${t('faq.goto_monitor')}</a>`)
+      + row(t('faq.l.sys_power'), esc(t(p.system_power_sensor ? 'faq.l.sys_power_yes' : 'faq.l.sys_power_no')));
   }
   if (kind === 'wifi') {
     const w = L.wifi;

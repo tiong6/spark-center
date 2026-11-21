@@ -4329,7 +4329,35 @@ def faq_local():
         phased["held"] = apt_upgradable_held()
     except Exception:
         pass
-    return {"ok": True, "cx7": hardware.cx7_state(), "mem": mem, "wifi": wifi, "release": release, "phased": phased}
+    # 核心 7.0.0-1024 重開機迴圈的修正（NVIDIA 2026-11-03：nvidia-spark-initcall-bl 1.0-2，加開機參數 initcall_blacklist=power_wrap_init）
+    reboot_fix = {"package": None, "cmdline": None, "kernel": os.uname().release, "holds": None,
+                  "zz_timeout": os.path.exists("/etc/default/grub.d/zz-timeout.cfg")}   # 為了避開 1024 鎖 1019 的兩種做法；裝完修正要解除
+    held = _run(["apt-mark", "showhold"], timeout=10)
+    if held is not None:
+        reboot_fix["holds"] = [l for l in held.split() if l.startswith(("linux-", "nvidia-"))]
+    try:
+        with apt_read() as cache:
+            pk = cache["nvidia-spark-initcall-bl"] if "nvidia-spark-initcall-bl" in cache else None
+            reboot_fix["package"] = pk.installed.version if pk and pk.installed else ""
+            reboot_fix["fixed"] = bool(reboot_fix["package"]) and apt_pkg.version_compare(reboot_fix["package"], "1.0-2") >= 0
+    except Exception:
+        pass
+    try:
+        with open("/proc/cmdline") as f:
+            reboot_fix["cmdline"] = "power_wrap_init" in f.read()
+    except OSError:
+        pass
+    # 溫度感測器的排列：NVIDIA 的 temp.conf 假設「一個 acpitz 晶片、temp1～temp7」；這台實測是七個晶片各一個 temp1，對應檔套不上
+    acpi = []
+    for h in sorted(glob.glob("/sys/class/hwmon/hwmon*")):
+        if hardware.read_text_file(os.path.join(h, "name"), "").startswith("acpitz"):
+            acpi.append(len(glob.glob(os.path.join(h, "temp*_input"))))
+    sensors = {"acpitz_chips": len(acpi), "temps_per_chip": sorted(set(acpi)), "lm_sensors": bool(shutil.which("sensors")),
+               "system_power_sensor": bool(glob.glob("/sys/class/hwmon/hwmon*/power*_input"))}
+    gpu = hardware.gpu_live() or {}
+    power = {"gpu_w": gpu.get("power_w"), "system_power_sensor": sensors["system_power_sensor"]}
+    return {"ok": True, "cx7": hardware.cx7_state(), "mem": mem, "wifi": wifi, "release": release, "phased": phased,
+            "reboot_fix": reboot_fix, "sensors": sensors, "power": power}
 
 
 FAQ_ARCHIVE_DIR = os.path.join(HERE, "data", "faq")
