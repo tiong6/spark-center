@@ -2124,7 +2124,8 @@ class Job:
             return self._run_snap(packages)
         if kind == "vscode":
             # code CLI 直接把擴充裝進 ~/.vscode/extensions；開著的 VS Code 要「重新載入視窗」才換新版
-            r = self._run_subprocess(["code", "--install-extension", packages[0], "--force"], packages)
+            # code 一次可接多個 --install-extension（「全部更新」走這條，一個工作、一次 CLI 啟動）
+            r = self._run_subprocess(["code", *[a for eid in packages for a in ("--install-extension", eid)], "--force"], packages)
             with _AIB["lock"]:
                 _AIB["ts"] = 0   # 布告欄下次重讀
             return r
@@ -4412,13 +4413,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": False, "error": msg("bad_origin", self.lang, why=why)}, 403)
         data = self._body()
         if path == "/api/vscode/update":
-            eid = str(data.get("id") or "").lower()
+            raw = data.get("ids") if isinstance(data.get("ids"), list) else [data.get("id")]
+            ids = list(dict.fromkeys(str(i or "").lower() for i in raw))
             known = {e["id"] for e in ai_watch.vscode_installed(os.path.join(VSCODE_EXT_DIR, "extensions.json")) or []}
-            if eid not in known:   # 只更新已經裝著的擴充，不接受任意 id
-                return self._json({"ok": False, "error": msg("vscode_unknown_ext", self.lang, p0=eid or "—")}, 400)
+            bad = [i for i in ids if i not in known]
+            if not ids or bad:   # 只更新已經裝著的擴充，不接受任意 id
+                return self._json({"ok": False, "error": msg("vscode_unknown_ext", self.lang, p0=", ".join(bad) or "—")}, 400)
             if not shutil.which("code"):
                 return self._json({"ok": False, "error": msg("vscode_no_cli", self.lang)}, 503)
-            if not JOB.start("vscode", [eid]):
+            if not JOB.start("vscode", ids):
                 return self._json({"ok": False, "error": msg('job_running', LANG_DEFAULT)}, 409)
             return self._json({"ok": True})
         if path == "/api/job/skip-rollback":

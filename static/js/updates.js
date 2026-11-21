@@ -665,7 +665,7 @@ function jobTitle(j) {   // 重新整理頁面或服務重啟後接回工作時�
   const many = (j.packages || []).length > 6;   // 134 個名字塞標題會變一面牆；名單放卡片裡的折疊區
   return ({ node_source: t('node.title'), refresh: t("job.refresh_apt_sources"), install: many ? t("updates.updating_n", {n: j.packages.length}) : t("job.apt_install_with_value", {value: pk}), remove: t("job.apt_remove_with_value", {value: pk}),
             aptclean: t("job.clear_apt_cache"), snap: t("job.snap_update_with_value", {value: pk}), flatpak: t("job.flatpak_update_with_value", {value: pk}),
-            ollama_pull: 'ollama pull ' + pk, vscode: t("ai.updating_ext", {id: pk}), shell: t("job.system_action_with_value", {value: pk}),
+            ollama_pull: 'ollama pull ' + pk, vscode: t("ai.updating_ext", {id: (j.packages || []).length > 1 ? t("ai.n_exts", {n: j.packages.length}) : pk}), shell: t("job.system_action_with_value", {value: pk}),
             npm: t("job.npm_update_with_value", {value: pk}), npm_repair: t("job.npm_repair_with_value", {value: pk}), npm_forward: t("job.npm_forward_with_value", {value: (j.packages || [])[0] || pk}),
             rollback: t("job.rollback_with_value", {value: (j.packages || [])[1] || (j.packages || [])[0] || pk}),
             rollback_npm: t("job.rollback_with_value", {value: (j.packages || [])[1] || (j.packages || [])[0] || pk}) })[j.kind] || (t("job.job_with_value", {value: pk}));

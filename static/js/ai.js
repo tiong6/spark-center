@@ -93,22 +93,25 @@ function renderAiVscode(v) {
   const items = v.items, upd = items.filter(e => e.update);
   $('#aiVscodeMeta').textContent = v.ok ? t('ai.vscode_meta', {n: items.length, u: upd.length}) : t('ai.vscode_meta_err', {n: items.length, error: v.error || '—'});
   const ro = document.body.classList.contains('ro');
+  const allBtn = upd.length > 1 ? `<button class="small primary" id="aiUpdAll" data-exts="${esc(upd.map(e => e.id).join(' '))}"${ro ? ' disabled' : ''}>${t('ai.update_all', {n: upd.length})}</button>` : '';
   const tr = e => `<tr><td><b>${esc(e.name)}</b><div class="sub1 mono">${esc(e.id)}${e.pre ? ` <span class="tag">${t('ai.pre')}</span>` : ''}</div></td><td class="mono">${esc(e.version)}</td>
     <td>${e.update ? `<span class="to mono">→ ${esc(e.latest)}</span>` : e.latest ? `<span class="tag ok">${t('updates.up_to_date')}</span>` : '<span class="sub1">—</span>'}</td>
     <td>${e.update ? `<button class="small primary" data-ext="${esc(e.id)}"${ro ? ' disabled' : ''}>${t('common.update')}</button>` : ''}</td></tr>`;
   const head = `<thead><tr><th>${t('ai.col_ext')}</th><th style="width:18%">${t('ai.col_installed')}</th><th style="width:18%">${t('ai.col_latest')}</th><th style="width:100px"></th></tr></thead>`;
   const rest = items.filter(e => !e.update);
-  $('#aiVscode').innerHTML = (upd.length ? `<div style="overflow-x:auto"><table>${head}<tbody>${upd.map(tr).join('')}</tbody></table></div><div class="sub1" style="margin-top:6px">${t('ai.reload_vscode')}</div>` : `<div class="sub1">${t('ai.vscode_all_current')}</div>`)
+  $('#aiVscode').innerHTML = (allBtn ? `<div style="margin-bottom:8px">${allBtn}</div>` : '') + (upd.length ? `<div style="overflow-x:auto"><table>${head}<tbody>${upd.map(tr).join('')}</tbody></table></div><div class="sub1" style="margin-top:6px">${t('ai.reload_vscode')}</div>` : `<div class="sub1">${t('ai.vscode_all_current')}</div>`)
     + (rest.length ? `<details style="margin-top:8px"><summary class="sub1" style="cursor:pointer">${t('ai.vscode_rest', {n: rest.length})}</summary><div style="overflow-x:auto"><table>${head}<tbody>${rest.map(tr).join('')}</tbody></table></div></details>` : '');
   aiBindUpdate($('#aiVscode'));
 }
 
 function aiBindUpdate(box) {
-  box.querySelectorAll('button[data-ext]').forEach(b => b.onclick = async () => {
-    b.disabled = true;
-    const r = await api('/api/vscode/update', {id: b.dataset.ext});
-    if (!r.ok) { alert(t('updates.could_not_start_with_value', {value: r.error})); b.disabled = false; return; }
-    startPolling(t('ai.updating_ext', {id: b.dataset.ext}));
+  box.querySelectorAll('button[data-ext], button[data-exts]').forEach(b => b.onclick = async () => {
+    const ids = b.dataset.exts ? b.dataset.exts.split(' ') : [b.dataset.ext];
+    if (ids.length > 1 && !confirm(t('ai.update_all_confirm', {n: ids.length, list: ids.join('\n')}))) return;
+    box.querySelectorAll('button[data-ext], button[data-exts]').forEach(x => x.disabled = true);
+    const r = await api('/api/vscode/update', {ids});
+    if (!r.ok) { alert(t('updates.could_not_start_with_value', {value: r.error})); box.querySelectorAll('button[data-ext], button[data-exts]').forEach(x => x.disabled = false); return; }
+    startPolling(t('ai.updating_ext', {id: ids.length > 1 ? t('ai.n_exts', {n: ids.length}) : ids[0]}));
     window.scrollTo({top: 0, behavior: 'smooth'});
     const w = setInterval(async () => {   // 工作結束後重抓布告欄（後端在工作結束時把快取作廢）
       const j = await api('/api/job');
