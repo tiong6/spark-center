@@ -13,6 +13,7 @@ _cl=$(mktemp); python3 tools/test_changelog_meta.py > "$_cl" 2>&1 && echo "chang
 _ur=$(mktemp); python3 tools/test_update_risk.py > "$_ur" 2>&1 && echo "update risk tests OK" || { cat "$_ur"; exit 1; }; rm -f "$_ur"   # 假抓取器，不碰網路
 _ar=$(mktemp); python3 tools/test_auto_refresh.py > "$_ar" 2>&1 && echo "auto refresh tests OK" || { cat "$_ar"; exit 1; }; rm -f "$_ar"   # 純判斷＋暫存設定檔，不碰 apt／loginctl
 _ro=$(mktemp); python3 tools/test_refresh_outcome.py > "$_ro" 2>&1 && echo "refresh outcome tests OK" || { cat "$_ro"; exit 1; }; rm -f "$_ro"   # 純判斷，不碰 apt／journal
+_so=$(mktemp); python3 tools/test_snap_outcome.py > "$_so" 2>&1 && echo "snap outcome tests OK" || { cat "$_so"; exit 1; }; rm -f "$_so"   # 真實變更 271 的任務表當測資，不碰 snapd／pkexec
 _fp=$(mktemp); python3 tools/test_flatpak_progress.py > "$_fp" 2>&1 && echo "flatpak progress tests OK" || { cat "$_fp"; exit 1; }; rm -f "$_fp"   # 真實 CLI 輸出當測資，不碰 flatpak
 _uu=$(mktemp); python3 tools/test_urgent_updates.py > "$_uu" 2>&1 && echo "urgent updates tests OK" || { cat "$_uu"; exit 1; }; rm -f "$_uu"   # 純判斷＋暫存檔，不碰 apt／notify-send
 _rs=$(mktemp); python3 tools/test_rollback_skip.py > "$_rs" 2>&1 && echo "rollback skip tests OK" || { cat "$_rs"; exit 1; }; rm -f "$_rs"   # 假 apt／假下載，暫存目錄

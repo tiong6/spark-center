@@ -1,0 +1,169 @@
+{
+ "id": "271",
+ "kind": "refresh-snap",
+ "summary": "Refresh \"firefox\" snap",
+ "status": "Error",
+ "tasks": [
+  {
+   "kind": "prerequisites",
+   "status": "Done",
+   "summary": "Ensure prerequisites for \"firefox\" are available",
+   "log": null
+  },
+  {
+   "kind": "download-snap",
+   "status": "Done",
+   "summary": "下載 snap \"firefox\" (9262)（從頻道 \"latest/stable\"）",
+   "log": null
+  },
+  {
+   "kind": "validate-snap",
+   "status": "Done",
+   "summary": "Fetch and check assertions for snap \"firefox\" (9262)",
+   "log": null
+  },
+  {
+   "kind": "prerequisites",
+   "status": "Done",
+   "summary": "Wait until prerequisites for \"firefox\" are available",
+   "log": null
+  },
+  {
+   "kind": "mount-snap",
+   "status": "Done",
+   "summary": "Mount snap \"firefox\" (9262)",
+   "log": null
+  },
+  {
+   "kind": "run-hook",
+   "status": "Done",
+   "summary": "Run pre-refresh hook of \"firefox\" snap if present",
+   "log": null
+  },
+  {
+   "kind": "stop-snap-services",
+   "status": "Done",
+   "summary": "Stop snap \"firefox\" services",
+   "log": null
+  },
+  {
+   "kind": "remove-aliases",
+   "status": "Done",
+   "summary": "Remove aliases for snap \"firefox\"",
+   "log": null
+  },
+  {
+   "kind": "unlink-current-snap",
+   "status": "Done",
+   "summary": "Make current revision for snap \"firefox\" unavailable",
+   "log": null
+  },
+  {
+   "kind": "copy-snap-data",
+   "status": "Done",
+   "summary": "複製 snap \"firefox\" 資料",
+   "log": null
+  },
+  {
+   "kind": "setup-profiles",
+   "status": "Done",
+   "summary": "Prepare snap \"firefox\" (9262) for security profile setup",
+   "log": null
+  },
+  {
+   "kind": "link-snap",
+   "status": "Done",
+   "summary": "Make snap \"firefox\" (9262) available to the system",
+   "log": null
+  },
+  {
+   "kind": "auto-connect",
+   "status": "Done",
+   "summary": "Automatically connect eligible plugs and slots of snap \"firefox\"",
+   "log": null
+  },
+  {
+   "kind": "set-auto-aliases",
+   "status": "Done",
+   "summary": "Set automatic aliases for snap \"firefox\"",
+   "log": null
+  },
+  {
+   "kind": "setup-aliases",
+   "status": "Done",
+   "summary": "Setup snap \"firefox\" aliases",
+   "log": null
+  },
+  {
+   "kind": "run-hook",
+   "status": "Done",
+   "summary": "Run post-refresh hook of \"firefox\" snap if present",
+   "log": null
+  },
+  {
+   "kind": "start-snap-services",
+   "status": "Done",
+   "summary": "Start snap \"firefox\" (9262) services",
+   "log": null
+  },
+  {
+   "kind": "clear-snap",
+   "status": "Done",
+   "summary": "Remove data for snap \"firefox\" (9180)",
+   "log": null
+  },
+  {
+   "kind": "discard-snap",
+   "status": "Done",
+   "summary": "Remove snap \"firefox\" (9180) from the system",
+   "log": null
+  },
+  {
+   "kind": "cleanup",
+   "status": "Done",
+   "summary": "Clean up \"firefox\" (9262) install",
+   "log": null
+  },
+  {
+   "kind": "run-hook",
+   "status": "Done",
+   "summary": "Run configure hook of \"firefox\" snap if present",
+   "log": null
+  },
+  {
+   "kind": "run-hook",
+   "status": "Done",
+   "summary": "Run health check of \"firefox\" snap",
+   "log": null
+  },
+  {
+   "kind": "check-rerefresh",
+   "status": "Error",
+   "summary": "Monitoring snap \"firefox\" to determine whether extra refresh steps are required",
+   "log": [
+    "2026-11-28T06:28:02+08:00 ERROR cannot query the store for updates: got unexpected HTTP status code 408 via POST to \"https://api.snapcraft.io/v2/snaps/refresh\""
+   ]
+  },
+  {
+   "kind": "process-delayed-security-backend-effects",
+   "status": "Done",
+   "summary": "Process delayed security backend side effects for affected snaps",
+   "log": null
+  },
+  {
+   "kind": "setup-profiles",
+   "status": "Done",
+   "summary": "Setup snap \"firefox\" (9262) security profiles",
+   "log": null
+  }
+ ],
+ "ready": true,
+ "err": "cannot perform the following tasks:\n- Monitoring snap \"firefox\" to determine whether extra refresh steps are required (cannot query the store for updates: got unexpected HTTP status code 408 via POST to \"https://api.snapcraft.io/v2/snaps/refresh\")",
+ "spawn-time": "2026-11-28T06:27:40.932107298+08:00",
+ "ready-time": "2026-11-28T06:28:02.568020706+08:00",
+ "data": {
+  "snap-names": [
+   "firefox"
+  ]
+ }
+}

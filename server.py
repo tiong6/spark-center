@@ -2329,6 +2329,13 @@ class Job:
                     if pr["status"] in ("Done", "Error", "Undone", "Hold"):
                         ok = pr["status"] == "Done"
                         reason = (pr.get("err") or "").strip()
+                        warning = None
+                        if pr["status"] == "Error" and pr.get("post_check_only"):
+                            # 版本已換好，只有收尾的商店查詢沒問成：算完成，但把沒做到的那一步講出來
+                            for l in pr.get("fail_log") or []:
+                                self._log(l[:300])
+                            why = re.sub(r"^\S+\s+ERROR\s+", "", (pr.get("fail_log") or [""])[-1]).strip()
+                            ok, warning = True, msg('snap_post_check_failed', LANG_DEFAULT, p0=", ".join(names), p1=why or "—")
                         if not ok:
                             for l in pr.get("fail_log") or []:
                                 self._log(l[:300])
@@ -2336,7 +2343,7 @@ class Job:
                             if any(k in blob for k in ("unexpected eof", "connection", "timeout", "temporary failure", "i/o timeout")):
                                 reason = (reason or msg('download_interrupted', LANG_DEFAULT)) + msg('network_retry', LANG_DEFAULT)
                         with self.lock:
-                            self.state.update(status="done" if ok else "error", exit=pr["status"],
+                            self.state.update(status="done" if ok else "error", exit=pr["status"], warning=warning,
                                               error=None if ok else (reason or msg('snap_ended', LANG_DEFAULT, p0=cid, p1=pr['status'])),
                                               status_text=msg('done', LANG_DEFAULT) if ok else msg('failed', LANG_DEFAULT),
                                               finished=datetime.now().isoformat(timespec="seconds"))
@@ -4241,6 +4248,17 @@ def snap_change_for(names):
     return None
 
 
+def snap_post_check_only(tasks):
+    """變更是 Error，但 snap 其實已經換好了嗎？
+    snapd 換完版本後最後一步 check-rerefresh 會再問一次商店「需不需要接著再更新」；商店逾時（HTTP 408）時
+    這一步記成 Error、整個變更跟著是 Error，但前面的任務全部 Done、沒有任何一步被還原，新版已經在用
+    （2026-11-28 firefox 9180→9262 的變更 271）。只有「出錯的全是 check-rerefresh、其餘全 Done、而且真的有 link-snap」才算。"""
+    bad = [t for t in tasks if t.get("status") != "Done"]
+    return (bool(bad)
+            and all(t.get("kind") == "check-rerefresh" and t.get("status") == "Error" for t in bad)
+            and any(t.get("kind") == "link-snap" for t in tasks))
+
+
 def snap_change_progress(cid):
     """讀真進度。優先用 snapd API：下載任務的 progress 是精確的位元組數，能顯示 MB。
     API 不可用時退回解析 snap tasks 的文字（只拿得到百分比）。"""
@@ -4264,6 +4282,7 @@ def snap_change_progress(cid):
         return {"status": r.get("status", "Doing"), "done": done, "total": total, "doing": doing,
                 "task_percent": round(pct) if pct is not None else None, "task_ratio": overall,
                 "bytes_done": bytes_done, "bytes_total": bytes_total, "err": r.get("err"), "fail_log": fail_log,
+                "post_check_only": snap_post_check_only(tasks),
                 "percent": round(pct) if pct is not None else overall}
     out = _run(["snap", "tasks", cid], timeout=20) or ""
     total = done = 0
