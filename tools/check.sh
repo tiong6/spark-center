@@ -24,6 +24,7 @@ _pc=$(mktemp); timeout 120 python3 tools/test_perf_caches.py > "$_pc" 2>&1 && ec
 _rp=$(mktemp); python3 tools/test_release_prompt.py > "$_rp" 2>&1 && echo "release prompt tests OK" || { cat "$_rp"; exit 1; }; rm -f "$_rp"   # 暫存檔＋假 pkexec，不碰 /etc；有 update-manager-core 就和 Ubuntu 的 MetaRelease 交叉比對
 
 python3 tools/test_backend_modules.py
+_th=$(mktemp); python3 tools/test_thermal.py > "$_th" 2>&1 && echo "thermal zone tests OK" || { cat "$_th"; exit 1; }; rm -f "$_th"   # 純函式：溫度區名字 ↔ 核心段
 _dc=$(mktemp); python3 tools/test_disk_check.py > "$_dc" 2>&1 && echo "disk check tests OK" || { cat "$_dc"; exit 1; }; rm -f "$_dc"   # 隔離：mock sudo／tune2fs。看結束碼不看最後一行：ResourceWarning 在 GC 時才印、會隨機排在 OK 之後
 python3 tools/test_stability.py
 python3 tools/test_model_compat.py

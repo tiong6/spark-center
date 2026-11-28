@@ -327,6 +327,77 @@ def _sensors_read():
     return res
 
 
+# ---------- 具名溫度區（ACPI 韌體給每個 thermal zone 的名字）----------
+# hwmon 那邊七個 acpitz 晶片都叫 temp1、分不出誰是誰；/sys/class/thermal/thermal_zone*/device/path 才有韌體的名字
+# （GX10：\_TZ_.TSOC／TS0E／TS0P／TS1E／TS1P／TGPU／TUNC）。名字的意義除了下面實測過的，一律當推測。
+CPU_PARTS = {"0xd85": "Cortex-X925", "0xd87": "Cortex-A725"}   # MIDR part → 名稱（本機 lscpu 對得上）
+# 「TS<n><E|P> ＝ 第 n 段 E／P 核」實測過的機型。量法：對每段核心各加壓 8 秒，看哪一區升最多（2026-11-28，GX10：
+# cpu0-4→TS0E +7.3、cpu5-9→TS0P +23.9、cpu10-14→TS1E +7.7、cpu15-19→TS1P +29.2 °C）。別的機型只有名字可推，前端標「推測」。
+ZONE_CORES_MEASURED = {"GX10"}
+THERMAL_CHASSIS = {"GX10"}   # 前端有機身示意圖的機型；別家 GB10 機殼內部配置不同，不套用
+_ZONE_CORE_RE = re.compile(r"TS(\d)([EP])")
+_THERMAL_STATIC = None
+
+
+def core_runs(max_mhz, parts):
+    """把核心依序切成「同一種核」的連續段。max_mhz／parts 是每核的最高時脈與 MIDR part（拿不到給 None）。
+    最高時脈最高的那種是 P，其餘 E；只有一種時脈或有核心讀不到時脈就不分 E／P（kind=None），溫度區也就不對應核心。"""
+    known = set(max_mhz)
+    split = None not in known and len(known) > 1
+    top = max(known) if split else None
+    runs = []
+    for i, mhz in enumerate(max_mhz):
+        kind = ("P" if mhz == top else "E") if split else None
+        part = CPU_PARTS.get(parts[i]) if i < len(parts) else None
+        if runs and runs[-1]["kind"] == kind and runs[-1]["part"] == part and runs[-1]["max_mhz"] == mhz:
+            runs[-1]["last"] = i
+        else:
+            runs.append({"first": i, "last": i, "kind": kind, "part": part, "max_mhz": mhz})
+    return runs
+
+
+def zone_cores(name, runs):
+    """溫度區名字 → 它對應的那段核心；名字不是 TS<n><E|P>、或沒有那一段，回 None。"""
+    m = _ZONE_CORE_RE.fullmatch(name or "")
+    if not m:
+        return None
+    same_kind = [r for r in runs if r["kind"] == m.group(2)]
+    n = int(m.group(1))
+    return same_kind[n] if n < len(same_kind) else None
+
+
+def _milli_c(text):
+    return int(text) / 1000 if text and text.lstrip("-").isdigit() else None
+
+
+def _thermal_static():
+    """開機後不會變的部分：每區的名字、critical 門檻、對應核心。"""
+    global _THERMAL_STATIC
+    if _THERMAL_STATIC is None:
+        parts = re.findall(r"^CPU part\s*:\s*(\S+)", read_text_file("/proc/cpuinfo", ""), re.M)
+        runs = core_runs([c["max_mhz"] for c in _cpu_topology()], parts)
+        product = read_text_file("/sys/class/dmi/id/product_name", "")
+        zones = []
+        for z in sorted(glob.glob("/sys/class/thermal/thermal_zone[0-9]*"), key=lambda p: int(p.rsplit("zone", 1)[1])):
+            name = (read_text_file(os.path.join(z, "device/path")) or "").rsplit(".", 1)[-1] or None
+            crit = None
+            for t in glob.glob(os.path.join(z, "trip_point_*_type")):
+                if read_text_file(t) == "critical":
+                    crit = _milli_c(read_text_file(t.replace("_type", "_temp")))
+            zones.append({"dir": z, "name": name, "type": read_text_file(os.path.join(z, "type")), "crit_c": crit, "cores": zone_cores(name, runs)})
+        _THERMAL_STATIC = {"zones": zones, "cores_measured": product in ZONE_CORES_MEASURED,
+                           "chassis": product if product in THERMAL_CHASSIS else None, "product": product or None}
+    return _THERMAL_STATIC
+
+
+def thermal_live():
+    """每區目前溫度（讀失敗 temp_c=None，那一區照樣列出，前端顯示「—」）。ACPI 溫度一區 0.1 ms，不用快取。"""
+    st = _thermal_static()
+    zones = [{"name": z["name"], "type": z["type"], "crit_c": z["crit_c"], "cores": z["cores"],
+              "temp_c": _milli_c(read_text_file(os.path.join(z["dir"], "temp")))} for z in st["zones"]]
+    return {"zones": zones, "cores_measured": st["cores_measured"], "chassis": st["chassis"], "product": st["product"]}
+
+
 # ---------- USB 樹（/sys/bus/usb/devices，免 root；名稱缺的用 usb.ids 補）----------
 
 USB_IDS = "/usr/share/misc/usb.ids"
@@ -1443,6 +1514,7 @@ def hardware_live():
         "uptime_s": float(up.split()[0]) if up else None,
         "gpu": gpu_live(),
         "sensors": _sensors(),
+        "thermal": thermal_live(),
         "cpu": _cpu_jiffies(),
         "cpu_freq": _cpu_freqs(),
         "wifi": wifi_live(),

@@ -153,7 +153,7 @@ function renderMon(j, rerender) {
     // 門檻來源與通知規則收進標題旁 ⓘ（刻度上的 86／90 標記本來就在儀表上）；正在警報中才在標題旁標紅（B 類結論，不藏）
     const tsrc = S.gpu.throttle_source === 'NVML slowdown threshold' ? ["mon.slowdown_threshold_c_actual_nvml_driver", {v0: S.gpu.throttle_temp_c, v1: S.gpu.shutdown_temp_c ? t("mon.shutdown_c", {v0: S.gpu.shutdown_temp_c}) : ''}] : S.gpu.throttle_temp_c ? ["mon.slowdown_threshold_about_c_estimated_from", {v0: S.gpu.throttle_temp_c}] : ["mon.gauge_maximum_100_c_slowdown_threshold", null];
     const hotNow = S.gpu.throttle_temp_c && j.gpu_hot ? `<span class="sub1" style="color:var(--danger);margin-left:8px">${t("mon.hot_now", {v0: esc((j.gpu_hot.since || '').replace('T', ' ')), v1: j.gpu_hot.peak})}</span>` : '';
-    const tempInfo = infoBtn(tsrc[0], tsrc[1], S.gpu.throttle_temp_c ? t("mon.hot_hint", {v0: S.gpu.throttle_temp_c}) : '') + hotNow;
+    const tempInfo = infoBtn(tsrc[0], tsrc[1], S.gpu.throttle_temp_c ? t("mon.hot_hint", {v0: S.gpu.throttle_temp_c}) : '') + (j.thermal ? `<button class="small" data-thermo-jump="1" style="margin-left:8px">${t("thermo.jump")}</button>` : '') + hotNow;
     cards.push(monCard('temp', t("mon.gpu_temperature"), '', gaugeLeft(g.temp_c == null ? null : g.temp_c / tmax * 100, g.temp_c == null ? '—' : g.temp_c + ' °C', S.gpu.throttle_temp_c ? t("mon.c_below_slowdown_threshold", {v0: (S.gpu.throttle_temp_c - g.temp_c).toFixed(0)}) : ''), [{color: C_LINE, data: hw.hist.temp || []}], tmax, v => Math.round(v) + ' °C', '', tempInfo));
     hovers.push(['temp', [{color: C_LINE, data: hw.hist.temp || []}], v => v.toFixed(0) + ' °C']);
     if (g.power_w != null) pushHist('power', sampleTime, g.power_w);
@@ -254,6 +254,7 @@ function renderMon(j, rerender) {
   document.querySelectorAll('.warnbtn[data-warn]').forEach(b => b.onclick = () => { const k = b.dataset.warn; hw.warnOpen[k] = !hw.warnOpen[k]; const box = document.querySelector(`.warnbox[data-warnbox="${k}"]`); if (box) box.classList.toggle('open', hw.warnOpen[k]); });
   document.querySelectorAll('button[data-chan]').forEach(b => b.onclick = () => { hw.chanOpen = !hw.chanOpen; const box = $('#chanbox'); if (box) box.classList.toggle('open', hw.chanOpen); if (hw.chanOpen && !hw.chanData) loadChannels(false); });
   bindChannelBtns();
+  document.querySelectorAll('[data-thermo-jump]').forEach(b => b.onclick = () => $('#thermoPanel').scrollIntoView({behavior: 'smooth', block: 'start'}));
   const cpuH3 = document.querySelector('#mon-cpu h3'); if (cpuH3 && !cpuH3.querySelector('.switch')) cpuH3.insertAdjacentHTML('beforeend', sw);
   document.querySelectorAll('[data-cpuview]').forEach(el => el.onclick = () => { hw.cpuView = el.dataset.cpuview; if (hw.prev) renderMon(hw.prev, true); });
   for (const [k, ser, fmt] of hovers) { const el = document.querySelector(`.spark[data-k="${k}"]`); if (el) bindHover(el, ser, fmt); }
@@ -340,7 +341,7 @@ async function pollHw(staticOnly) {
     renderMonitorFreshness();
     renderGpuAlert(j.gpu_alert);
     renderClockPanel(j.clock_cap, j.gpu, hw.static && hw.static.gpu);
-    if (!staticOnly) { try { renderMon(j); } catch (e) { console.error(e); } }
+    if (!staticOnly) { try { renderMon(j); } catch (e) { console.error(e); } try { renderThermal(j, hw.static.gpu); } catch (e) { console.error(e); } }
     const m = j.memory, used = m.total - m.available, pct = Math.round(used / m.total * 100);
     setTxt('#hwMemUsed', GB(used) + ` (${pct}%)`);
     setTxt('#hwSwap', GB(m.swap_total - m.swap_free));

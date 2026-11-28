@@ -20,7 +20,7 @@ const ctx = vm.createContext({$:node, console, Date:Clock, window:{},
   setInterval:fn=>{timers.set(++timerId,fn);return timerId;}, clearInterval:id=>timers.delete(id),
   api:path=>new Promise((resolve,reject)=>pending.push({path,resolve,reject}))});
 for (const file of ['hw-common.js','monitor.js','hardware.js']) vm.runInContext(fs.readFileSync('static/js/'+file,'utf8'),ctx);
-vm.runInContext('hw.static = {}; renderMon = () => {}; renderClockPanel = () => {}; renderGpuAlert = () => {}; meter = () => "";',ctx);
+vm.runInContext('hw.static = {}; renderMon = () => {}; renderThermal = () => {}; renderClockPanel = () => {}; renderGpuAlert = () => {}; meter = () => "";',ctx);
 const run = code => vm.runInContext(code,ctx);
 const flush = () => new Promise(setImmediate);
 const good = {ok:true,memory:{total:1000,available:500,swap_total:0,swap_free:0},sensors:[]};
