@@ -280,6 +280,11 @@
   .spark .ymax { position: absolute; left: 0; top: -2px; font-size: 11px; color: var(--muted); }
   .spark .tip { position: absolute; top: 0; transform: translateX(-50%); background: rgba(0,0,0,.85); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 12px; white-space: nowrap; pointer-events: none; display: none; }
   .cores { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px 10px; align-self: start; }
+  /* 每核格線固定 5 欄（一列剛好一組叢集），每欄內容最窄約 51px、頻率＋核心型號不換行要 75px。
+     卡片窄到放不下「200px 儀表＋5 欄」時，1fr 欄不會縮到內容最小寬度以下，格線就整塊推出卡片（兩欄並排、卡片 <551px 時）。
+     所以看卡片自己的寬度：不夠就讓儀表與格線各佔一整列。 */
+  #mon-cpu { container: moncpu / inline-size; }
+  @container moncpu (max-width: 640px) { #mon-cpu .cores { grid-column: 1 / -1; } #mon-cpu .cores ~ .legend { grid-column: 1 / -1; } #mon-cpu .gauge:has(~ .cores) { grid-column: 1 / -1; justify-self: center; } }
   .core { font-size: 11px; color: var(--muted); }
   .core .cn { display: flex; justify-content: space-between; font-family: ui-monospace, Menlo, monospace; color: var(--text); font-size: 12px; }
   .core .cf { display: flex; justify-content: space-between; } .core .cf .cl { color: #7a8a5a; }
