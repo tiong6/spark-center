@@ -4,7 +4,7 @@
    面板在卡片格外面：卡片格每次輪詢整組重畫，canvas 放進去拖到一半會被換掉。 */
 const THERMO_KEY = 'spark-center.thermo';
 const THERMO_VIEW = {yaw: -0.62, elev: 0.6, explode: 0};
-const thermo = Object.assign({data: null, bound: false, drag: null}, THERMO_VIEW);
+const thermo = Object.assign({data: null, bound: false, drag: null, spin: 0, seen: false, raf: 0, last: 0}, THERMO_VIEW);
 try { Object.assign(thermo, JSON.parse(localStorage.getItem(THERMO_KEY) || '{}')); } catch (_) {}
 
 const THERMO_STOPS = [[35, [59, 130, 196]], [55, [63, 179, 127]], [70, [245, 197, 66]], [85, [240, 138, 60]], [100, [229, 72, 77]]];
@@ -31,7 +31,7 @@ const THERMO_PARTS = [
   {id: 'pipe1', box: [58, 87, 15.5, 5, 36, 3], layer: 3, rgb: [184, 115, 51]},
   {id: 'pipe2', box: [72.5, 87, 15.5, 5, 36, 3], layer: 3, rgb: [184, 115, 51]},
   {id: 'pipe3', box: [87, 87, 15.5, 5, 36, 3], layer: 3, rgb: [184, 115, 51]},
-  {id: 'fins', box: [12, 122, 14, 126, 22, 24], layer: 3, rgb: [141, 148, 145]},
+  {id: 'fins', box: [12, 122, 14, 126, 22, 24], layer: 3, rgb: [141, 148, 145], slats: 30},
   {id: 'fan1', cyl: [40, 70, 22, 26, 12], layer: 4, rgb: [52, 57, 55]},
   {id: 'fan2', cyl: [110, 70, 22, 26, 12], layer: 4, rgb: [52, 57, 55]},
   {id: 'top', box: [0, 0, 49, 150, 150, 2], layer: 5, rgb: [154, 161, 154], alpha: 0.14},
@@ -53,7 +53,7 @@ function thermoFaces(part, P) {
   if (part.box) {
     const [x, y, z, w, d, h] = part.box;
     const v = [[x, y, z], [x + w, y, z], [x + w, y + d, z], [x, y + d, z], [x, y, z + h], [x + w, y, z + h], [x + w, y + d, z + h], [x, y + d, z + h]].map(p => P(p[0], p[1], p[2], L));
-    for (const f of BOX_FACES) faces.push({pts: f.slice(0, 4).map(i => v[i]), shade: f[4]});
+    BOX_FACES.forEach((f, k) => faces.push({pts: f.slice(0, 4).map(i => v[i]), shade: f[4], k}));
     return {faces};
   }
   const [cx, cyl, z, r, h] = part.cyl, N = 30, bot = [], top = [];
@@ -105,9 +105,15 @@ function thermoDraw() {
       g.beginPath(); f.pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath();
       g.fillStyle = rgbCss(rgb.map(v => Math.round(v * f.shade)), alpha); g.fill();
       g.strokeStyle = `rgba(0,0,0,${alpha < 1 ? 0.25 : 0.35})`; g.lineWidth = 0.6; g.stroke();
-      if (f.cap && part.cyl) {   // 風扇葉片：靜止的示意線條。沒有轉速讀值，不做轉動動畫
+      if (part.slats && f.k < 4) {   // 鰭片：一片片順著排氣方向（前後向）立著，沿左右排開；左右兩個端面是整片的，不畫線
+        const q = f.pts, [a0, a1, b0, b1] = f.k === 1 ? [q[0], q[3], q[1], q[2]] : [q[0], q[1], q[3], q[2]];
+        g.strokeStyle = 'rgba(0,0,0,0.42)'; g.lineWidth = 0.7; g.beginPath();
+        for (let i = 1; i < part.slats; i++) { const u = i / part.slats; g.moveTo(a0[0] + (a1[0] - a0[0]) * u, a0[1] + (a1[1] - a0[1]) * u); g.lineTo(b0[0] + (b1[0] - b0[0]) * u, b0[1] + (b1[1] - b0[1]) * u); }
+        g.stroke();
+      }
+      if (f.cap && part.cyl) {   // 風扇葉片。轉動是固定速度的示意動畫：沒有轉速讀值，快慢不代表任何量測，也不跟溫度連動
         const [cx, cyl, z, r, h] = part.cyl; g.strokeStyle = 'rgba(255,255,255,0.28)'; g.lineWidth = 1;
-        for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2, p0 = P(cx + 6 * Math.cos(a), cyl + 6 * Math.sin(a), z + h, part.layer), p1 = P(cx + (r - 3) * Math.cos(a + 0.55), cyl + (r - 3) * Math.sin(a + 0.55), z + h, part.layer); g.beginPath(); g.moveTo(p0[0], p0[1]); g.lineTo(p1[0], p1[1]); g.stroke(); }
+        for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2 + thermo.spin, p0 = P(cx + 6 * Math.cos(a), cyl + 6 * Math.sin(a), z + h, part.layer), p1 = P(cx + (r - 3) * Math.cos(a + 0.55), cyl + (r - 3) * Math.sin(a + 0.55), z + h, part.layer); g.beginPath(); g.moveTo(p0[0], p0[1]); g.lineTo(p1[0], p1[1]); g.stroke(); }
       }
     }
   }
@@ -131,7 +137,7 @@ function thermoDraw() {
   const notes = [
     {at: P(75, 60, 14, 2), l1: t('thermo.l_soc'), l2: 'TSOC ' + fmtC(D.soc), rgb: heatRgb(D.soc)},
     {at: P(33, 73, 6, 1), l1: t('thermo.l_ssd'), l2: fmtC(D.nvme), rgb: heatRgb(D.nvme)},
-    {at: P(110, 70, 34, 4), l1: t('thermo.l_fans'), l2: t('thermo.fan_rpm')},
+    {at: P(110, 70, 34, 4), l1: t('thermo.l_fans'), l2: t('thermo.fan_rpm'), l3: thermoStill() ? '' : t('thermo.fan_anim')},
     {at: P(75, 133, 38, 3), l1: t('thermo.l_fins'), l2: t('thermo.l_exhaust')},
     {at: P(75, 75, -30, 0), l1: t('thermo.l_intake'), l2: t('thermo.design_flow')},
     {at: P(75, 0, 30, 0), l1: t('thermo.l_front'), l2: t('thermo.surface')},
@@ -140,14 +146,15 @@ function thermoDraw() {
   for (const side of ['left', 'right']) {
     const list = sides[side].sort((a, b) => a.at[1] - b.at[1]), gap = 40;
     let y = 22;
-    for (const n of list) { n.y = Math.max(y, Math.min(n.at[1], H - 20 - gap * (list.length - 1 - list.indexOf(n)))); y = n.y + gap; }
+    for (const n of list) { n.y = Math.max(y, Math.min(n.at[1], H - 20 - gap * (list.length - 1 - list.indexOf(n)))); y = n.y + gap + (n.l3 ? 15 : 0); }
     for (const n of list) {
-      g.font = font(12); const w = Math.max(g.measureText(n.l1).width, g.measureText(n.l2).width), tx = side === 'left' ? 10 : W - 10, ex2 = side === 'left' ? tx + w + 8 : tx - w - 8;
+      g.font = font(12); const w = Math.max(g.measureText(n.l1).width, g.measureText(n.l2).width, n.l3 ? g.measureText(n.l3).width : 0), tx = side === 'left' ? 10 : W - 10, ex2 = side === 'left' ? tx + w + 8 : tx - w - 8;
       g.strokeStyle = cMuted; g.lineWidth = 0.8; g.beginPath(); g.moveTo(ex2, n.y); g.lineTo(ex2 + (side === 'left' ? 14 : -14), n.y); g.lineTo(n.at[0], n.at[1]); g.stroke();
       g.fillStyle = n.rgb ? rgbCss(n.rgb) : cMuted; g.beginPath(); g.arc(n.at[0], n.at[1], 3, 0, Math.PI * 2); g.fill();
-      taken.push([side === 'left' ? tx : tx - w, n.y - 16, w, 32]);
+      taken.push([side === 'left' ? tx : tx - w, n.y - 16, w, n.l3 ? 47 : 32]);
       g.textAlign = side; g.textBaseline = 'alphabetic'; g.fillStyle = cText; g.fillText(n.l1, tx, n.y - 3);
       g.fillStyle = n.rgb ? rgbCss(n.rgb) : cMuted; g.fillText(n.l2, tx, n.y + 12);
+      if (n.l3) g.fillText(n.l3, tx, n.y + 27);
     }
   }
   // 方位字最後畫，撞到引線標註的字就往下讓。「後」跟著排氣箭頭走：放在地面會被鰭片擋住
@@ -192,6 +199,17 @@ function thermoChipHtml(D) {
   return out.join('');
 }
 
+/* 風扇動畫：面板在畫面上才跑，每秒約 30 格；系統設定「減少動態效果」時不轉。 */
+const THERMO_SPIN = 2.2, THERMO_FRAME = 33;   // 弧度／秒、毫秒
+const thermoStill = () => !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+function thermoTick(ts) {
+  thermo.raf = 0;
+  if (!thermo.seen || thermoStill()) return;
+  if (ts - thermo.last >= THERMO_FRAME) { thermo.spin = ts / 1000 * THERMO_SPIN % (Math.PI * 2); thermo.last = ts; thermoDraw(); }
+  thermo.raf = requestAnimationFrame(thermoTick);
+}
+function thermoSpinSync() { if (thermo.seen && !thermo.raf && !thermoStill()) thermo.raf = requestAnimationFrame(thermoTick); }
+
 function thermoBind() {
   if (thermo.bound) return;
   thermo.bound = true;
@@ -210,6 +228,8 @@ function thermoBind() {
   const end = () => { if (thermo.drag) { thermo.drag = null; cv.classList.remove('grabbing'); save(); } };
   cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
   window.addEventListener('resize', thermoDraw);
+  if (window.IntersectionObserver) new IntersectionObserver(es => { thermo.seen = es[es.length - 1].isIntersecting; thermoSpinSync(); }).observe(cv);
+  if (window.matchMedia) matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', thermoSpinSync);
   $('#thermoLegend').innerHTML = `<span class="sub1">${t('thermo.scale')}</span><span class="grad" style="background:linear-gradient(90deg,${THERMO_STOPS.map(s => `${rgbCss(s[1])} ${((s[0] - 35) / 65 * 100).toFixed(0)}%`).join(',')})">${THERMO_STOPS.map(s => `<u style="left:${((s[0] - 35) / 65 * 100).toFixed(0)}%">${s[0]}</u>`).join('')}</span><span class="sub1">°C</span><span class="nd"><i style="background:${rgbCss(THERMO_NODATA)}"></i>${t('thermo.no_reading')}</span>`;
 }
 
