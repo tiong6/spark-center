@@ -59,7 +59,7 @@ function thermoFaces(part, P) {
   const [cx, cyl, z, r, h] = part.cyl, N = 30, bot = [], top = [];
   for (let i = 0; i < N; i++) { const a = i / N * Math.PI * 2; bot.push(P(cx + r * Math.cos(a), cyl + r * Math.sin(a), z, L)); top.push(P(cx + r * Math.cos(a), cyl + r * Math.sin(a), z + h, L)); }
   for (let i = 0; i < N; i++) { const k = (i + 1) % N; faces.push({pts: [bot[i], bot[k], top[k], top[i]], shade: 0.55 + 0.3 * Math.abs(Math.cos(i / N * Math.PI * 2 + thermo.yaw + 0.8))}); }
-  faces.push({pts: top, shade: 1, cap: true}, {pts: bot.slice().reverse(), shade: 0.5});
+  faces.push({pts: top, shade: 1, cap: true, zc: z + h}, {pts: bot.slice().reverse(), shade: 0.5, cap: true, zc: z});
   return {faces};
 }
 /* 畫的先後。零件都是互不相交的軸向盒，任兩個一定在某一軸上分得開：鏡頭在那一軸的哪一側，另一側的就該先畫。
@@ -111,9 +111,24 @@ function thermoDraw() {
         for (let i = 1; i < part.slats; i++) { const u = i / part.slats; g.moveTo(a0[0] + (a1[0] - a0[0]) * u, a0[1] + (a1[1] - a0[1]) * u); g.lineTo(b0[0] + (b1[0] - b0[0]) * u, b0[1] + (b1[1] - b0[1]) * u); }
         g.stroke();
       }
-      if (f.cap && part.cyl) {   // 風扇葉片。轉動是固定速度的示意動畫：沒有轉速讀值，快慢不代表任何量測，也不跟溫度連動
-        const [cx, cyl, z, r, h] = part.cyl; g.strokeStyle = 'rgba(255,255,255,0.28)'; g.lineWidth = 1;
-        for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2 + thermo.spin, p0 = P(cx + 6 * Math.cos(a), cyl + 6 * Math.sin(a), z + h, part.layer), p1 = P(cx + (r - 3) * Math.cos(a + 0.55), cyl + (r - 3) * Math.sin(a + 0.55), z + h, part.layer); g.beginPath(); g.moveTo(p0[0], p0[1]); g.lineTo(p1[0], p1[1]); g.stroke(); }
+      if (f.cap && part.cyl) {
+        /* 風扇：框內挖空，裡面是輪轂＋後掠葉片，上下兩面都畫。葉片數與形狀是示意，不是照實物量的。
+           轉動是固定速度的示意動畫：沒有轉速讀值，快慢不代表任何量測，也不跟溫度連動 */
+        const [cx, cyl, , r] = part.cyl, TAU = Math.PI * 2, R0 = 7, R1 = r - 3.5, NB = 9, K = 6, lit = f.shade;
+        const at = (rad, a) => P(cx + rad * Math.cos(a), cyl + rad * Math.sin(a), f.zc, part.layer);
+        const path = pts => { g.beginPath(); pts.forEach((p, n) => n ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); };
+        const disc = (rad, n) => Array.from({length: n}, (_, n2) => at(rad, n2 / n * TAU));
+        const grey = v => `rgb(${Math.round(v * lit)},${Math.round((v + 6) * lit)},${Math.round((v + 3) * lit)})`;
+        path(disc(r - 2.5, 36)); g.fillStyle = 'rgb(13,15,14)'; g.fill();
+        for (let b = 0; b < NB; b++) {
+          const a = b / NB * TAU + thermo.spin, lead = [], trail = [];
+          for (let k = 0; k <= K; k++) { const u = k / K, rad = R0 + (R1 - R0) * u, sweep = 0.85 * Math.pow(u, 1.3); lead.push(at(rad, a + sweep)); trail.push(at(rad, a + sweep + 0.3 + 0.2 * u)); }
+          path(lead.concat(trail.reverse())); g.fillStyle = grey(132); g.fill();
+          g.strokeStyle = 'rgba(0,0,0,0.5)'; g.lineWidth = 0.6; g.stroke();
+          g.strokeStyle = `rgba(255,255,255,${0.45 * lit})`; g.lineWidth = 1; g.beginPath(); lead.forEach((q, n) => n ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1])); g.stroke();   // 前緣受光
+        }
+        path(disc(R0 + 1, 24)); g.fillStyle = grey(74); g.fill(); g.strokeStyle = 'rgba(0,0,0,0.55)'; g.lineWidth = 0.6; g.stroke();
+        path(disc(2.6, 14)); g.fillStyle = grey(112); g.fill();
       }
     }
   }
